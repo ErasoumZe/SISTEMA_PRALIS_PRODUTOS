@@ -6,7 +6,13 @@ const route = useRoute();
 const { mdAndUp } = useDisplay();
 
 const isAdmin = computed(() => user.value?.role === 'admin');
-const drawer = ref(true);
+const drawer = ref(true); // abre/fecha no mobile
+const rail = ref(false); // colapsado (só ícones) no desktop
+
+function toggleNav() {
+  if (mdAndUp.value) rail.value = !rail.value;
+  else drawer.value = !drawer.value;
+}
 
 interface NavItem { title: string; icon: string; to: string; section: string }
 const nav = computed<NavItem[]>(() => {
@@ -46,26 +52,32 @@ const iniciais = computed(() =>
       v-model="drawer"
       :permanent="mdAndUp"
       :temporary="!mdAndUp"
+      :rail="mdAndUp && rail"
+      rail-width="76"
       width="264"
       color="#0f172a"
       theme="dark"
     >
-      <!-- marca -->
-      <div class="d-flex align-center ga-3 px-5 py-5">
+      <!-- marca + botão de recolher -->
+      <div class="d-flex align-center px-4 py-4" :class="rail ? 'justify-center' : 'ga-3'">
         <v-avatar color="primary" size="38" rounded="lg">
           <v-icon color="white">mdi-package-variant-closed</v-icon>
         </v-avatar>
-        <div style="line-height: 1.1">
+        <div v-if="!rail" style="line-height: 1.1; min-width: 0">
           <div class="text-subtitle-1 font-weight-bold">Pralis</div>
-          <div class="text-caption text-medium-emphasis" style="letter-spacing: 1px">CADASTRO DE PRODUTOS</div>
+          <div class="text-caption text-medium-emphasis text-truncate" style="letter-spacing: 1px">CADASTRO DE PRODUTOS</div>
         </div>
+        <template v-if="!rail">
+          <v-spacer />
+          <v-btn v-if="mdAndUp" icon="mdi-chevron-left" variant="text" size="small" title="Recolher" @click="toggleNav" />
+        </template>
       </div>
 
       <v-divider class="border-opacity-25" />
 
-      <!-- navegação por seção -->
+      <!-- navegação -->
       <div v-for="sec in sections" :key="sec" class="mt-2">
-        <div class="text-caption text-medium-emphasis px-5 py-1" style="letter-spacing: 1px">{{ sec.toUpperCase() }}</div>
+        <div v-if="!rail" class="text-caption text-medium-emphasis px-5 py-1" style="letter-spacing: 1px">{{ sec.toUpperCase() }}</div>
         <v-list density="comfortable" nav class="px-2">
           <v-list-item
             v-for="item in nav.filter((n) => n.section === sec)"
@@ -76,15 +88,14 @@ const iniciais = computed(() =>
             :title="item.title"
             rounded="lg"
             color="primary"
-            active-color="primary"
           />
         </v-list>
       </div>
 
-      <!-- perfil + sair (rodapé) -->
+      <!-- rodapé: perfil + sair (ou expandir, quando recolhido) -->
       <template #append>
         <v-divider class="border-opacity-25" />
-        <div class="d-flex align-center ga-3 px-4 py-3">
+        <div v-if="!rail" class="d-flex align-center ga-3 px-4 py-3">
           <v-avatar color="primary" size="38">{{ iniciais }}</v-avatar>
           <div style="min-width: 0; line-height: 1.15">
             <div class="text-body-2 font-weight-medium text-truncate">{{ user?.name }}</div>
@@ -93,12 +104,17 @@ const iniciais = computed(() =>
           <v-spacer />
           <v-btn icon="mdi-logout" variant="text" size="small" title="Sair" @click="logout" />
         </div>
+        <div v-else class="d-flex flex-column align-center ga-1 py-3">
+          <v-btn v-if="mdAndUp" icon="mdi-menu" variant="text" size="small" title="Expandir" @click="toggleNav" />
+          <v-avatar color="primary" size="34">{{ iniciais }}</v-avatar>
+          <v-btn icon="mdi-logout" variant="text" size="small" title="Sair" @click="logout" />
+        </div>
       </template>
     </v-navigation-drawer>
 
     <v-app-bar flat color="white" border height="68">
-      <v-app-bar-nav-icon v-if="!mdAndUp" @click="drawer = !drawer" />
-      <div class="px-4">
+      <v-app-bar-nav-icon :icon="mdAndUp ? 'mdi-menu' : 'mdi-menu'" @click="toggleNav" />
+      <div class="px-2">
         <div class="text-h6 font-weight-bold" style="line-height: 1.1">{{ titulo }}</div>
         <div v-if="subtitulo" class="text-caption text-medium-emphasis">{{ subtitulo }}</div>
       </div>
