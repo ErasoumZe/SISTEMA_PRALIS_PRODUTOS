@@ -1,0 +1,56 @@
+name: pralis
+
+# Orquestra Postgres + API + PWA. Usado no Coolify (ou localmente para simular produção).
+# As variáveis vêm do painel do Coolify (ou de um .env ao lado deste arquivo).
+
+services:
+  postgres:
+    image: postgres:18.1-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - pralis_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_NAME}']
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: stack/api/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3344
+      DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      CORS_ORIGIN: ${APP_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      COOKIE_SECRET: ${COOKIE_SECRET}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '3344:3344'
+    restart: unless-stopped
+
+  pwa:
+    build:
+      context: .
+      dockerfile: stack/pwa/Dockerfile
+    environment:
+      NUXT_PUBLIC_API_BASE: ${API_URL}
+    depends_on:
+      - api
+    ports:
+      - '3000:3000'
+    restart: unless-stopped
+
+volumes:
+  pralis_pg:

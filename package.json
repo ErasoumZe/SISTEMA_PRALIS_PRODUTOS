@@ -1,0 +1,12 @@
+{
+  "name": "pralis",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sistema de cadastro de produtos — Padaria Pralis (mesmo stack seguro da Cicluz)",
+  "workspaces": [
+    "stack/shared",
+    "stack/api",
+    "stack/pwa"
+  ]
+}

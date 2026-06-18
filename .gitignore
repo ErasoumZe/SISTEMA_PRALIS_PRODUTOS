@@ -1,0 +1,21 @@
+# dependências
+node_modules/
+**/node_modules/
+
+# build / cache
+.nuxt/
+.output/
+dist/
+**/.vite/
+**/.cache/
+
+# ambiente (segredos) — mantém só o .env.example
+.env
+.env.*
+!.env.example
+
+# diversos
+*.log
+.DS_Store
+_t.png
+.cj

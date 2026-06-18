@@ -1,0 +1,11 @@
+**/node_modules
+**/.nuxt
+**/.output
+**/dist
+**/.git
+**/.env
+**/.env.*
+!**/.env.example
+**/.cj
+**/_t.png
+tabela
