@@ -10,8 +10,10 @@ Os artefatos já estão prontos:
 
 ## Passos no Coolify
 
-1. **Suba o código pra um repositório Git** (GitHub) que o Coolify acesse.
-2. No Coolify: **New Resource → Docker Compose**, apontando para `pralis/docker-compose.coolify.yaml`.
+1. **Código no GitHub:** já está em https://github.com/ErasoumZe/SISTEMA_PRALIS (branch `main`).
+   A raiz do repositório é o monorepo (o `docker-compose.coolify.yaml` está na raiz).
+2. No Coolify: **New Resource → Docker Compose**, repositório `SISTEMA_PRALIS`, branch `main`,
+   arquivo compose = `docker-compose.coolify.yaml` (na raiz).
 3. Configure as **variáveis de ambiente** (painel do Coolify):
 
    | Variável | Exemplo / observação |
