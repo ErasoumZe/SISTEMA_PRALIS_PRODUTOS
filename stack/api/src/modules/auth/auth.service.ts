@@ -1,25 +1,69 @@
 import { inject, injectable } from 'tsyringe';
 import argon2 from 'argon2';
 import { AuthRepository } from './auth.repository';
+import { EmailService } from '@/modules/email/email.service';
 import { AppError } from '@/config/api.replies';
+import { env } from '@/config/env';
+
+const genCode = () => String(Math.floor(100000 + Math.random() * 900000)); // 6 dígitos
+const CODE_TTL_MIN = 15;
 
 export interface PublicUser {
   id: string;
   name: string;
   email: string;
+  loja: 'TNP' | 'LI' | 'HORA';
+  role: 'admin' | 'user';
   isActive: boolean;
 }
 
 @injectable()
 export class AuthService {
-  constructor(@inject(AuthRepository) private repo: AuthRepository) {}
+  constructor(
+    @inject(AuthRepository) private repo: AuthRepository,
+    @inject(EmailService) private email: EmailService,
+  ) {}
 
-  async register(data: { name: string; email: string; password: string }): Promise<PublicUser> {
+  /** Cria a conta como NÃO verificada e envia o código por e-mail. Não loga ainda. */
+  async register(data: { name: string; email: string; password: string; loja: 'TNP' | 'LI' | 'HORA' }): Promise<{ email: string }> {
     const exists = await this.repo.findByEmail(data.email);
     if (exists) throw new AppError('E-mail já cadastrado', 409, 'EMAIL_IN_USE');
+
     const passwordHash = await argon2.hash(data.password);
-    const user = await this.repo.createUser({ name: data.name, email: data.email, passwordHash });
-    return this.publicUser(user);
+    const role = data.email.trim().toLowerCase() === env.ADMIN_EMAIL ? 'admin' : 'user';
+    const code = genCode();
+    const expires = new Date(Date.now() + CODE_TTL_MIN * 60_000);
+
+    const user = await this.repo.createUser({
+      name: data.name, email: data.email, passwordHash, loja: data.loja, role,
+      verificationCode: code, verificationExpiresAt: expires,
+    });
+    await this.email.sendVerificationCode(user.email, user.name, code);
+    return { email: user.email };
+  }
+
+  /** Confirma o código → ativa a conta e já cria a sessão (login). */
+  async verifyEmail(email: string, code: string): Promise<{ user: PublicUser; sessionId: string }> {
+    const user = await this.repo.findByEmail(email);
+    if (!user) throw new AppError('Conta não encontrada', 404, 'USER_NOT_FOUND');
+    if (user.emailVerified) throw new AppError('E-mail já confirmado. Faça login.', 400, 'ALREADY_VERIFIED');
+    if (!user.verificationCode || user.verificationCode !== code) throw new AppError('Código inválido.', 400, 'INVALID_CODE');
+    if (!user.verificationExpiresAt || user.verificationExpiresAt.getTime() < Date.now()) {
+      throw new AppError('Código expirado. Reenvie um novo.', 400, 'CODE_EXPIRED');
+    }
+    await this.repo.setVerified(user.id);
+    const session = await this.repo.createSession(user.id);
+    return { user: this.publicUser(user), sessionId: session.id };
+  }
+
+  /** Reenvia um novo código (não revela se a conta existe). */
+  async resendCode(email: string): Promise<void> {
+    const user = await this.repo.findByEmail(email);
+    if (!user || user.emailVerified) return;
+    const code = genCode();
+    const expires = new Date(Date.now() + CODE_TTL_MIN * 60_000);
+    await this.repo.updateVerificationCode(user.id, code, expires);
+    await this.email.sendVerificationCode(user.email, user.name, code);
   }
 
   async login(email: string, password: string): Promise<{ user: PublicUser; sessionId: string }> {
@@ -27,6 +71,7 @@ export class AuthService {
     if (!user || !user.isActive) throw new AppError('Credenciais inválidas', 401, 'INVALID_CREDENTIALS');
     const ok = await argon2.verify(user.passwordHash, password);
     if (!ok) throw new AppError('Credenciais inválidas', 401, 'INVALID_CREDENTIALS');
+    if (!user.emailVerified) throw new AppError('Confirme seu e-mail para entrar.', 403, 'EMAIL_NOT_VERIFIED');
     const session = await this.repo.createSession(user.id);
     return { user: this.publicUser(user), sessionId: session.id };
   }
@@ -41,7 +86,14 @@ export class AuthService {
     return this.publicUser(user);
   }
 
-  private publicUser(u: { id: string; name: string; email: string; isActive: boolean }): PublicUser {
-    return { id: u.id, name: u.name, email: u.email, isActive: u.isActive };
+  private publicUser(u: { id: string; name: string; email: string; loja: string; role: string; isActive: boolean }): PublicUser {
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      loja: u.loja as PublicUser['loja'],
+      role: u.role as PublicUser['role'],
+      isActive: u.isActive,
+    };
   }
 }

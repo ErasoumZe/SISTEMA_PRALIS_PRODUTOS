@@ -14,6 +14,12 @@ export function useApi() {
     listProducts: (q?: string) =>
       unwrap($fetch<{ data: Product[] }>('/products', { ...base, query: q ? { q } : undefined })),
 
+    listBase: (q?: string) =>
+      unwrap($fetch<{ data: Product[] }>('/products/base', { ...base, query: q ? { q } : undefined })),
+
+    importBase: (baseIds: string[]) =>
+      unwrap($fetch<{ data: { imported: number; skipped: number } }>('/products/import', { ...base, method: 'POST', body: { baseIds } })),
+
     getProduct: (id: string) =>
       unwrap($fetch<{ data: Product }>(`/products/${id}`, { ...base })),
 

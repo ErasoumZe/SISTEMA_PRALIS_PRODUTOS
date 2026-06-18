@@ -24,9 +24,19 @@ export function useAuth() {
     return r.data;
   }
 
-  async function register(name: string, email: string, password: string) {
-    await $fetch('/auth/register', { ...base, method: 'POST', body: { name, email, password } });
-    return login(email, password);
+  async function register(name: string, email: string, password: string, loja: 'TNP' | 'LI' | 'HORA') {
+    // não loga: a conta só ativa após confirmar o código enviado por e-mail
+    await $fetch('/auth/register', { ...base, method: 'POST', body: { name, email, password, loja } });
+  }
+
+  async function verify(email: string, code: string) {
+    const r = await $fetch<{ data: User }>('/auth/verify', { ...base, method: 'POST', body: { email, code } });
+    user.value = r.data;
+    return r.data;
+  }
+
+  async function resend(email: string) {
+    await $fetch('/auth/resend', { ...base, method: 'POST', body: { email } });
   }
 
   async function logout() {
@@ -39,5 +49,5 @@ export function useAuth() {
     await navigateTo('/login');
   }
 
-  return { user, fetchMe, login, register, logout };
+  return { user, fetchMe, login, register, verify, resend, logout };
 }

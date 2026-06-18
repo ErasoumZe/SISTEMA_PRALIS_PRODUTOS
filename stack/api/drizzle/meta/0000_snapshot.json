@@ -1,5 +1,5 @@
 {
-  "id": "8278e04e-96cb-4918-92fc-d92249c4e606",
+  "id": "c7753a09-a7b2-400d-ab80-f3d857a300dc",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -243,115 +243,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.product_lojas": {
-      "name": "product_lojas",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "product_id": {
-          "name": "product_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "loja": {
-          "name": "loja",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "estoque_min": {
-          "name": "estoque_min",
-          "type": "numeric(12, 3)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "estoque_max": {
-          "name": "estoque_max",
-          "type": "numeric(12, 3)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "setor_estoque": {
-          "name": "setor_estoque",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "custo": {
-          "name": "custo",
-          "type": "numeric(12, 2)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "margem_pontual": {
-          "name": "margem_pontual",
-          "type": "numeric(6, 4)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "v_venda_pontual": {
-          "name": "v_venda_pontual",
-          "type": "numeric(12, 2)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "auto": {
-          "name": "auto",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "local_venda_1": {
-          "name": "local_venda_1",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "local_venda_2": {
-          "name": "local_venda_2",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "product_lojas_product_id_products_id_fk": {
-          "name": "product_lojas_product_id_products_id_fk",
-          "tableFrom": "product_lojas",
-          "tableTo": "products",
-          "columnsFrom": [
-            "product_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "uniq_produto_loja": {
-          "name": "uniq_produto_loja",
-          "nullsNotDistinct": false,
-          "columns": [
-            "product_id",
-            "loja"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.product_transformacao": {
       "name": "product_transformacao",
       "schema": "",
@@ -425,11 +316,35 @@
           "primaryKey": true,
           "notNull": true
         },
+        "loja": {
+          "name": "loja",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "codigo": {
           "name": "codigo",
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "base_product_id": {
+          "name": "base_product_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_name": {
+          "name": "created_by_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "nome": {
           "name": "nome",
@@ -525,6 +440,61 @@
           "notNull": true,
           "default": false
         },
+        "estoque_min": {
+          "name": "estoque_min",
+          "type": "numeric(12, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estoque_max": {
+          "name": "estoque_max",
+          "type": "numeric(12, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "setor_estoque": {
+          "name": "setor_estoque",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "custo": {
+          "name": "custo",
+          "type": "numeric(12, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "margem_pontual": {
+          "name": "margem_pontual",
+          "type": "numeric(6, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "v_venda_pontual": {
+          "name": "v_venda_pontual",
+          "type": "numeric(12, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "auto": {
+          "name": "auto",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "local_venda_1": {
+          "name": "local_venda_1",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "local_venda_2": {
+          "name": "local_venda_2",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -533,18 +503,40 @@
           "default": "now()"
         }
       },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "products_codigo_unique": {
-          "name": "products_codigo_unique",
-          "nullsNotDistinct": false,
+      "indexes": {
+        "idx_products_loja": {
+          "name": "idx_products_loja",
           "columns": [
-            "codigo"
-          ]
+            {
+              "expression": "loja",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
+      "foreignKeys": {
+        "products_created_by_user_id_users_id_fk": {
+          "name": "products_created_by_user_id_users_id_fk",
+          "tableFrom": "products",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -559,8 +551,8 @@
           "primaryKey": true,
           "notNull": true
         },
-        "product_loja_id": {
-          "name": "product_loja_id",
+        "product_id": {
+          "name": "product_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -653,12 +645,12 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "promocoes_product_loja_id_product_lojas_id_fk": {
-          "name": "promocoes_product_loja_id_product_lojas_id_fk",
+        "promocoes_product_id_products_id_fk": {
+          "name": "promocoes_product_id_products_id_fk",
           "tableFrom": "promocoes",
-          "tableTo": "product_lojas",
+          "tableTo": "products",
           "columnsFrom": [
-            "product_loja_id"
+            "product_id"
           ],
           "columnsTo": [
             "id"
@@ -700,6 +692,38 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "loja": {
+          "name": "loja",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'user'"
+        },
+        "email_verified": {
+          "name": "email_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "verification_code": {
+          "name": "verification_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verification_expires_at": {
+          "name": "verification_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "is_active": {
           "name": "is_active",

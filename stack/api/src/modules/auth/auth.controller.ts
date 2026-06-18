@@ -13,7 +13,7 @@ function cookieOptions() {
     sameSite: 'lax' as const,
     secure: env.NODE_ENV !== 'dev',
     path: '/',
-    maxAge: 60 * 60 * 24 * 7, // 7 dias
+    maxAge: 60 * 60 * 24 * 7,
   };
 }
 
@@ -22,8 +22,20 @@ export class AuthController {
   constructor(@inject(AuthService) private service: AuthService) {}
 
   async register(request: FastifyRequest<{ Body: AuthRequests.RegisterRequest }>, reply: FastifyReply) {
-    const user = await this.service.register(request.body);
-    return reply.status(201).send(buildResponse(user, 'Conta criada com sucesso'));
+    const result = await this.service.register(request.body);
+    return reply.status(201).send(buildResponse(result, 'Enviamos um código para o seu e-mail. Confirme para ativar a conta.'));
+  }
+
+  async verify(request: FastifyRequest<{ Body: AuthRequests.VerifyEmailRequest }>, reply: FastifyReply) {
+    const { user, sessionId } = await this.service.verifyEmail(request.body.email, request.body.code);
+    const token = await reply.jwtSign({ sub: user.id, sessionId });
+    reply.setCookie(COOKIE, token, cookieOptions());
+    return reply.status(200).send(buildResponse(user, 'E-mail confirmado! Bem-vindo(a).'));
+  }
+
+  async resend(request: FastifyRequest<{ Body: AuthRequests.ResendCodeRequest }>, reply: FastifyReply) {
+    await this.service.resendCode(request.body.email);
+    return reply.status(200).send(buildResponse(null, 'Se a conta existir, um novo código foi enviado.'));
   }
 
   async login(request: FastifyRequest<{ Body: AuthRequests.LoginRequest }>, reply: FastifyReply) {

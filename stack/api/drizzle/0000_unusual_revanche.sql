@@ -37,22 +37,6 @@ CREATE TABLE "product_fiscal" (
 	"icms" numeric(6, 4)
 );
 --> statement-breakpoint
-CREATE TABLE "product_lojas" (
-	"id" text PRIMARY KEY NOT NULL,
-	"product_id" text NOT NULL,
-	"loja" text NOT NULL,
-	"estoque_min" numeric(12, 3),
-	"estoque_max" numeric(12, 3),
-	"setor_estoque" text,
-	"custo" numeric(12, 2),
-	"margem_pontual" numeric(6, 4),
-	"v_venda_pontual" numeric(12, 2),
-	"auto" boolean DEFAULT false NOT NULL,
-	"local_venda_1" text,
-	"local_venda_2" text,
-	CONSTRAINT "uniq_produto_loja" UNIQUE("product_id","loja")
-);
---> statement-breakpoint
 CREATE TABLE "product_transformacao" (
 	"product_id" text PRIMARY KEY NOT NULL,
 	"precisao" text,
@@ -64,7 +48,11 @@ CREATE TABLE "product_transformacao" (
 --> statement-breakpoint
 CREATE TABLE "products" (
 	"id" text PRIMARY KEY NOT NULL,
+	"loja" text NOT NULL,
 	"codigo" text NOT NULL,
+	"base_product_id" text,
+	"created_by_user_id" text,
+	"created_by_name" text,
 	"nome" text NOT NULL,
 	"quantidade" numeric(12, 3) DEFAULT '0' NOT NULL,
 	"medida_base" text NOT NULL,
@@ -80,13 +68,21 @@ CREATE TABLE "products" (
 	"tipo" text NOT NULL,
 	"status" text DEFAULT 'ativo' NOT NULL,
 	"habilitar_ajuda" boolean DEFAULT false NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "products_codigo_unique" UNIQUE("codigo")
+	"estoque_min" numeric(12, 3),
+	"estoque_max" numeric(12, 3),
+	"setor_estoque" text,
+	"custo" numeric(12, 2),
+	"margem_pontual" numeric(6, 4),
+	"v_venda_pontual" numeric(12, 2),
+	"auto" boolean DEFAULT false NOT NULL,
+	"local_venda_1" text,
+	"local_venda_2" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "promocoes" (
 	"id" text PRIMARY KEY NOT NULL,
-	"product_loja_id" text NOT NULL,
+	"product_id" text NOT NULL,
 	"tipo" text NOT NULL,
 	"valor" numeric(12, 2),
 	"desconto_pct" numeric(6, 4),
@@ -107,6 +103,11 @@ CREATE TABLE "users" (
 	"name" text NOT NULL,
 	"email" text NOT NULL,
 	"password_hash" text NOT NULL,
+	"loja" text NOT NULL,
+	"role" text DEFAULT 'user' NOT NULL,
+	"email_verified" boolean DEFAULT false NOT NULL,
+	"verification_code" text,
+	"verification_expires_at" timestamp with time zone,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "users_email_unique" UNIQUE("email")
@@ -114,6 +115,7 @@ CREATE TABLE "users" (
 --> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "product_fiscal" ADD CONSTRAINT "product_fiscal_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "product_lojas" ADD CONSTRAINT "product_lojas_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "product_transformacao" ADD CONSTRAINT "product_transformacao_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "promocoes" ADD CONSTRAINT "promocoes_product_loja_id_product_lojas_id_fk" FOREIGN KEY ("product_loja_id") REFERENCES "public"."product_lojas"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "products" ADD CONSTRAINT "products_created_by_user_id_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "promocoes" ADD CONSTRAINT "promocoes_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "idx_products_loja" ON "products" USING btree ("loja");

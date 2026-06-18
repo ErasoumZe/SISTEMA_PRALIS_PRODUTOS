@@ -104,7 +104,7 @@ export function calcularVVendaFinal(input: CalcVVendaFinalInput): number {
   const toMin = (hhmm?: string | null): number | null => {
     if (!hhmm) return null;
     const [h, m] = String(hhmm).split(':');
-    return (parseInt(h, 10) || 0) * 60 + (parseInt(m, 10) || 0);
+    return (parseInt(h ?? '0', 10) || 0) * 60 + (parseInt(m ?? '0', 10) || 0);
   };
 
   for (const p of promos) {

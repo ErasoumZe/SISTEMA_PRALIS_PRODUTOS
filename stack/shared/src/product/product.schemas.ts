@@ -1,43 +1,28 @@
 import { z } from 'zod/v4';
 import {
-  statusProduto, tipoProduto, loja, medidaBase, medidaCompra,
+  statusProduto, tipoProduto, catalogo, medidaBase, medidaCompra,
   embalagem, unidadeTransformacao, precisao, cDe, tipoPromocao,
 } from './product.enums';
 
 /**
- * Schemas de entidade (o "shape" do produto).
- * Modelo confirmado: revenda/transformação EXCLUSIVOS; dados comerciais POR LOJA.
- * Valores monetários e margens em número (margem em FRAÇÃO: 0,30 = 30%).
+ * Modelo MULTI-LOJA: cada produto pertence a UM catálogo (BASE/TNP/LI/HORA).
+ * Os dados comerciais ficam direto na linha do produto (cada loja tem o seu).
+ * Margens em FRAÇÃO (0,30 = 30%).
  */
 
-// ---- Promoção (0..N por produto-loja) ----
+// ---- Promoção (0..N por produto) ----
 export const promocaoSchema = z.object({
-  id: z.uuidv7().optional(), // opcional na criação; presente na leitura
+  id: z.uuidv7().optional(),
   tipo: tipoPromocao,
-  valor: z.number().nullable(),         // R$, quando tipo = 'valor'
-  descontoPct: z.number().nullable(),    // fração 0..1, quando tipo = 'desconto'
-  horaInicio: z.string().nullable(),     // 'HH:MM'
-  horaFim: z.string().nullable(),        // 'HH:MM'
-  dias: z.array(z.boolean()).length(7),  // [SEG, TER, QUA, QUI, SEX, SAB, DOM]
-  descontoAte: z.string().nullable(),    // ISO date
+  valor: z.number().nullable(),
+  descontoPct: z.number().nullable(),
+  horaInicio: z.string().nullable(),
+  horaFim: z.string().nullable(),
+  dias: z.array(z.boolean()).length(7), // [SEG..DOM]
+  descontoAte: z.string().nullable(),
 });
 
-// ---- Dados comerciais por loja ----
-export const lojaComercialSchema = z.object({
-  loja,
-  estoqueMin: z.number().nonnegative().nullable(),
-  estoqueMax: z.number().nonnegative().nullable(),
-  setorEstoque: z.string().nullable(),
-  custo: z.number().nonnegative().nullable(),
-  margemPontual: z.number().nullable(),  // fração
-  vVendaPontual: z.number().nullable(),
-  auto: z.boolean().default(false),
-  localVenda1: z.string().nullable(),
-  localVenda2: z.string().nullable(),
-  promocoes: z.array(promocaoSchema).default([]),
-});
-
-// ---- Bloco transformação (1:1, quando tipo = 'transformacao') ----
+// ---- Transformação (1:1, quando tipo = 'transformacao') ----
 export const transformacaoSchema = z.object({
   precisao,
   qtd: z.number().nonnegative(),
@@ -46,7 +31,7 @@ export const transformacaoSchema = z.object({
   refReceituario: z.string().nullable(),
 });
 
-// ---- Bloco fiscal (1:1) ----
+// ---- Fiscal (1:1) ----
 export const fiscalSchema = z.object({
   ncm: z.string().nullable(),
   cest: z.string().nullable(),
@@ -60,7 +45,7 @@ export const fiscalSchema = z.object({
   icms: z.number().nullable(),
 });
 
-// ---- Produto (identidade compartilhada entre lojas) ----
+// ---- Campos editáveis do produto (identidade + comercial) ----
 export const baseProductSchema = z.object({
   nome: z.string().min(1),
   quantidade: z.number().nonnegative().default(0),
@@ -73,24 +58,36 @@ export const baseProductSchema = z.object({
   medidaCompra: medidaCompra.nullable(),
   codigoInterno: z.string().nullable(),
   fotoUrl: z.string().nullable(),
-  grupo: z.string().nullable(),           // nome do grupo de mercadoria
+  grupo: z.string().nullable(),
   tipo: tipoProduto,
   status: statusProduto.default('ativo'),
   habilitarAjuda: z.boolean().default(false),
+  // comercial (cada loja tem o seu)
+  estoqueMin: z.number().nonnegative().nullable(),
+  estoqueMax: z.number().nonnegative().nullable(),
+  setorEstoque: z.string().nullable(),
+  custo: z.number().nonnegative().nullable(),
+  margemPontual: z.number().nullable(),
+  vVendaPontual: z.number().nullable(),
+  auto: z.boolean().default(false),
+  localVenda1: z.string().nullable(),
+  localVenda2: z.string().nullable(),
 });
 
 // ---- Produto completo (como devolvido pela API) ----
 export const selectProductSchema = baseProductSchema.extend({
   id: z.uuidv7(),
   codigo: z.string(),
+  loja: catalogo, // a qual catálogo este produto pertence
+  baseProductId: z.uuidv7().nullable(), // origem, se importado da BASE
+  createdByName: z.string().nullable(), // quem cadastrou (para o aviso de duplicado)
   createdAt: z.string(),
-  lojas: z.array(lojaComercialSchema).default([]),
+  promocoes: z.array(promocaoSchema).default([]),
   transformacao: transformacaoSchema.nullable(),
   fiscal: fiscalSchema.nullable(),
 });
 
 export type Promocao = z.infer<typeof promocaoSchema>;
-export type LojaComercial = z.infer<typeof lojaComercialSchema>;
 export type Transformacao = z.infer<typeof transformacaoSchema>;
 export type Fiscal = z.infer<typeof fiscalSchema>;
 export type ProductEntity = z.infer<typeof selectProductSchema>;

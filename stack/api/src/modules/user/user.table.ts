@@ -6,6 +6,11 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
+  loja: text('loja').notNull(), // 'TNP' | 'LI' | 'HORA'
+  role: text('role').notNull().default('user'), // 'admin' | 'user'
+  emailVerified: boolean('email_verified').notNull().default(false),
+  verificationCode: text('verification_code'),
+  verificationExpiresAt: timestamp('verification_expires_at', { withTimezone: true }),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

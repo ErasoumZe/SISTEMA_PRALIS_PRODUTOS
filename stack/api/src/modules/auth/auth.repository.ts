@@ -6,10 +6,30 @@ import { sessions } from '@/modules/auth/auth.table';
 
 @injectable()
 export class AuthRepository {
-  async createUser(data: { name: string; email: string; passwordHash: string }, tx: Tx = db) {
-    const [created] = await tx.insert(users).values(data).returning();
+  async createUser(
+    data: {
+      name: string; email: string; passwordHash: string; loja: string; role: string;
+      verificationCode: string; verificationExpiresAt: Date;
+    },
+    tx: Tx = db,
+  ) {
+    const [created] = await tx.insert(users).values({ ...data, emailVerified: false }).returning();
     if (!created) throw new Error('Falha ao criar usuário');
     return created;
+  }
+
+  async setVerified(userId: string, tx: Tx = db) {
+    await tx
+      .update(users)
+      .set({ emailVerified: true, verificationCode: null, verificationExpiresAt: null })
+      .where(eq(users.id, userId));
+  }
+
+  async updateVerificationCode(userId: string, code: string, expiresAt: Date, tx: Tx = db) {
+    await tx
+      .update(users)
+      .set({ verificationCode: code, verificationExpiresAt: expiresAt })
+      .where(eq(users.id, userId));
   }
 
   async findByEmail(email: string, tx: Tx = db) {

@@ -12,14 +12,30 @@ export async function authRoutes(app: FastifyInstance) {
   const a = app.withTypeProvider<ZodTypeProvider>();
 
   const userReply = apiResponseSchema(
-    z.object({ id: z.string(), name: z.string(), email: z.string(), isActive: z.boolean() }),
+    z.object({
+      id: z.string(), name: z.string(), email: z.string(),
+      loja: z.string(), role: z.string(), isActive: z.boolean(),
+    }),
   );
+  const emailReply = apiResponseSchema(z.object({ email: z.string() }));
   const okReply = apiResponseSchema(z.any());
 
   a.post<{ Body: AuthRequests.RegisterRequest }>(
     '/auth/register',
-    { schema: { body: AuthRequests.registerSchema, response: { 201: userReply }, summary: 'Criar conta', tags: ['AUTH'] } },
+    { schema: { body: AuthRequests.registerSchema, response: { 201: emailReply }, summary: 'Criar conta (envia código por e-mail)', tags: ['AUTH'] } },
     controller.register.bind(controller),
+  );
+
+  a.post<{ Body: AuthRequests.VerifyEmailRequest }>(
+    '/auth/verify',
+    { schema: { body: AuthRequests.verifyEmailSchema, response: { 200: userReply }, summary: 'Confirmar e-mail (código) e entrar', tags: ['AUTH'] } },
+    controller.verify.bind(controller),
+  );
+
+  a.post<{ Body: AuthRequests.ResendCodeRequest }>(
+    '/auth/resend',
+    { schema: { body: AuthRequests.resendCodeSchema, response: { 200: okReply }, summary: 'Reenviar código', tags: ['AUTH'] } },
+    controller.resend.bind(controller),
   );
 
   a.post<{ Body: AuthRequests.LoginRequest }>(

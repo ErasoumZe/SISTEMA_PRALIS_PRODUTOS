@@ -2,22 +2,44 @@ import { injectable } from 'tsyringe';
 import { and, eq, ilike, inArray, or, desc } from 'drizzle-orm';
 import { db, Tx } from '@/db/databases';
 import { ProductSchemas, ProductRequests } from '@pralis/shared';
-import {
-  products, productLojas, productTransformacao, productFiscal, promocoes,
-} from './product.table';
+import { products, productTransformacao, productFiscal, promocoes } from './product.table';
 
 type ProductEntity = ProductSchemas.ProductEntity;
-type LojaComercial = ProductSchemas.LojaComercial;
 type Promocao = ProductSchemas.Promocao;
+type Catalogo = 'BASE' | 'TNP' | 'LI' | 'HORA';
 
-// ---- helpers de conversão (Drizzle numeric vem como string) ----
+export interface CreateContext {
+  loja: Catalogo;
+  codigo: string;
+  createdByUserId: string | null;
+  createdByName: string | null;
+  baseProductId?: string | null;
+}
+
+// ---- helpers de conversão ----
 const num = (v: string | null): number | null => (v == null ? null : Number(v));
 const toDb = (n: number | null | undefined): string | null => (n == null ? null : String(n));
 
-function mapProduct(row: typeof products.$inferSelect): Omit<ProductEntity, 'lojas' | 'transformacao' | 'fiscal'> {
+function mapPromocao(r: typeof promocoes.$inferSelect): Promocao {
+  return {
+    id: r.id,
+    tipo: r.tipo as Promocao['tipo'],
+    valor: num(r.valor),
+    descontoPct: num(r.descontoPct),
+    horaInicio: r.horaInicio,
+    horaFim: r.horaFim,
+    dias: [r.seg, r.ter, r.qua, r.qui, r.sex, r.sab, r.dom],
+    descontoAte: r.descontoAte,
+  };
+}
+
+function mapProduct(row: typeof products.$inferSelect): Omit<ProductEntity, 'promocoes' | 'transformacao' | 'fiscal'> {
   return {
     id: row.id,
     codigo: row.codigo,
+    loja: row.loja as ProductEntity['loja'],
+    baseProductId: row.baseProductId,
+    createdByName: row.createdByName,
     createdAt: row.createdAt.toISOString(),
     nome: row.nome,
     quantidade: Number(row.quantidade),
@@ -34,25 +56,6 @@ function mapProduct(row: typeof products.$inferSelect): Omit<ProductEntity, 'loj
     tipo: row.tipo as ProductEntity['tipo'],
     status: row.status as ProductEntity['status'],
     habilitarAjuda: row.habilitarAjuda,
-  };
-}
-
-function mapPromocao(row: typeof promocoes.$inferSelect): Promocao {
-  return {
-    id: row.id,
-    tipo: row.tipo as Promocao['tipo'],
-    valor: num(row.valor),
-    descontoPct: num(row.descontoPct),
-    horaInicio: row.horaInicio,
-    horaFim: row.horaFim,
-    dias: [row.seg, row.ter, row.qua, row.qui, row.sex, row.sab, row.dom],
-    descontoAte: row.descontoAte,
-  };
-}
-
-function mapLoja(row: typeof productLojas.$inferSelect, promos: Promocao[] = []): LojaComercial {
-  return {
-    loja: row.loja as LojaComercial['loja'],
     estoqueMin: num(row.estoqueMin),
     estoqueMax: num(row.estoqueMax),
     setorEstoque: row.setorEstoque,
@@ -62,66 +65,46 @@ function mapLoja(row: typeof productLojas.$inferSelect, promos: Promocao[] = [])
     auto: row.auto,
     localVenda1: row.localVenda1,
     localVenda2: row.localVenda2,
-    promocoes: promos,
   };
 }
 
-function mapTransformacao(row: typeof productTransformacao.$inferSelect): ProductEntity['transformacao'] {
+function mapTransformacao(r: typeof productTransformacao.$inferSelect): ProductEntity['transformacao'] {
   return {
-    precisao: row.precisao as NonNullable<ProductEntity['transformacao']>['precisao'],
-    qtd: Number(row.qtd),
-    unidade: row.unidade as NonNullable<ProductEntity['transformacao']>['unidade'],
-    produtoReceituario: row.produtoReceituario,
-    refReceituario: row.refReceituario,
+    precisao: r.precisao as NonNullable<ProductEntity['transformacao']>['precisao'],
+    qtd: Number(r.qtd),
+    unidade: r.unidade as NonNullable<ProductEntity['transformacao']>['unidade'],
+    produtoReceituario: r.produtoReceituario,
+    refReceituario: r.refReceituario,
   };
 }
 
-function mapFiscal(row: typeof productFiscal.$inferSelect): ProductEntity['fiscal'] {
+function mapFiscal(r: typeof productFiscal.$inferSelect): ProductEntity['fiscal'] {
   return {
-    ncm: row.ncm,
-    cest: row.cest,
-    categoria: row.categoria,
-    cstPisCofins: row.cstPisCofins,
-    aliquotaCheia: num(row.aliquotaCheia),
-    aliquotaFcp: num(row.aliquotaFcp),
-    aliquotaPis: num(row.aliquotaPis),
-    aliquotaCofins: num(row.aliquotaCofins),
-    reducaoIcms: num(row.reducaoIcms),
-    icms: num(row.icms),
+    ncm: r.ncm, cest: r.cest, categoria: r.categoria, cstPisCofins: r.cstPisCofins,
+    aliquotaCheia: num(r.aliquotaCheia), aliquotaFcp: num(r.aliquotaFcp),
+    aliquotaPis: num(r.aliquotaPis), aliquotaCofins: num(r.aliquotaCofins),
+    reducaoIcms: num(r.reducaoIcms), icms: num(r.icms),
   };
 }
+
+type ProductInput = ProductRequests.CreateProductRequest | ProductRequests.UpdateProductRequest;
 
 @injectable()
 export class ProductRepository {
-  /** Cria produto + relações em uma transação. `codigo` é gerado no service. */
-  async create(
-    payload: ProductRequests.CreateProductRequest,
-    codigo: string,
-  ): Promise<ProductEntity> {
+  async create(payload: ProductRequests.CreateProductRequest, ctx: CreateContext): Promise<ProductEntity> {
     return db.transaction(async (tx) => {
       const [created] = await tx
         .insert(products)
         .values({
-          codigo,
-          nome: payload.nome,
-          quantidade: toDb(payload.quantidade) ?? '0',
-          medidaBase: payload.medidaBase,
-          codigoBarras: payload.codigoBarras,
-          marca: payload.marca,
-          embalagem: payload.embalagem,
-          cDe: payload.cDe,
-          qtCad: payload.qtCad,
-          medidaCompra: payload.medidaCompra,
-          codigoInterno: payload.codigoInterno,
-          fotoUrl: payload.fotoUrl,
-          grupo: payload.grupo,
-          tipo: payload.tipo,
-          status: payload.status,
-          habilitarAjuda: payload.habilitarAjuda,
-        })
+          loja: ctx.loja,
+          codigo: ctx.codigo,
+          baseProductId: ctx.baseProductId ?? null,
+          createdByUserId: ctx.createdByUserId,
+          createdByName: ctx.createdByName,
+          ...this.productColumns(payload),
+        } as typeof products.$inferInsert)
         .returning();
       if (!created) throw new Error('Falha ao criar produto');
-
       await this.replaceRelations(created.id, payload, tx);
       const full = await this.findById(created.id, tx);
       if (!full) throw new Error('Falha ao montar produto criado');
@@ -129,36 +112,11 @@ export class ProductRepository {
     });
   }
 
-  /** Atualiza por substituição (campos + relações), em transação. */
-  async update(
-    id: string,
-    payload: ProductRequests.UpdateProductRequest,
-  ): Promise<ProductEntity | null> {
+  async update(id: string, payload: ProductRequests.UpdateProductRequest): Promise<ProductEntity | null> {
     return db.transaction(async (tx) => {
       const exists = await tx.select({ id: products.id }).from(products).where(eq(products.id, id)).limit(1);
       if (exists.length === 0) return null;
-
-      await tx
-        .update(products)
-        .set({
-          ...(payload.nome !== undefined && { nome: payload.nome }),
-          ...(payload.quantidade !== undefined && { quantidade: toDb(payload.quantidade) ?? '0' }),
-          ...(payload.medidaBase !== undefined && { medidaBase: payload.medidaBase }),
-          ...(payload.codigoBarras !== undefined && { codigoBarras: payload.codigoBarras }),
-          ...(payload.marca !== undefined && { marca: payload.marca }),
-          ...(payload.embalagem !== undefined && { embalagem: payload.embalagem }),
-          ...(payload.cDe !== undefined && { cDe: payload.cDe }),
-          ...(payload.qtCad !== undefined && { qtCad: payload.qtCad }),
-          ...(payload.medidaCompra !== undefined && { medidaCompra: payload.medidaCompra }),
-          ...(payload.codigoInterno !== undefined && { codigoInterno: payload.codigoInterno }),
-          ...(payload.fotoUrl !== undefined && { fotoUrl: payload.fotoUrl }),
-          ...(payload.grupo !== undefined && { grupo: payload.grupo }),
-          ...(payload.tipo !== undefined && { tipo: payload.tipo }),
-          ...(payload.status !== undefined && { status: payload.status }),
-          ...(payload.habilitarAjuda !== undefined && { habilitarAjuda: payload.habilitarAjuda }),
-        })
-        .where(eq(products.id, id));
-
+      await tx.update(products).set(this.productColumns(payload) as Partial<typeof products.$inferInsert>).where(eq(products.id, id));
       await this.replaceRelations(id, payload, tx);
       return this.findById(id, tx);
     });
@@ -172,27 +130,14 @@ export class ProductRepository {
   async findById(id: string, tx: Tx = db): Promise<ProductEntity | null> {
     const [prod] = await tx.select().from(products).where(eq(products.id, id)).limit(1);
     if (!prod) return null;
-
-    const [lojas, [transf], [fisc]] = await Promise.all([
-      tx.select().from(productLojas).where(eq(productLojas.productId, id)),
+    const [promos, [transf], [fisc]] = await Promise.all([
+      tx.select().from(promocoes).where(eq(promocoes.productId, id)),
       tx.select().from(productTransformacao).where(eq(productTransformacao.productId, id)).limit(1),
       tx.select().from(productFiscal).where(eq(productFiscal.productId, id)).limit(1),
     ]);
-
-    const lojaIds = lojas.map((l) => l.id);
-    const promos = lojaIds.length
-      ? await tx.select().from(promocoes).where(inArray(promocoes.productLojaId, lojaIds))
-      : [];
-    const promosByLoja = new Map<string, Promocao[]>();
-    for (const pr of promos) {
-      const arr = promosByLoja.get(pr.productLojaId) ?? [];
-      arr.push(mapPromocao(pr));
-      promosByLoja.set(pr.productLojaId, arr);
-    }
-
     return {
       ...mapProduct(prod),
-      lojas: lojas.map((l) => mapLoja(l, promosByLoja.get(l.id) ?? [])),
+      promocoes: promos.map(mapPromocao),
       transformacao: transf ? mapTransformacao(transf) : null,
       fiscal: fisc ? mapFiscal(fisc) : null,
     };
@@ -203,144 +148,134 @@ export class ProductRepository {
     return row ?? null;
   }
 
-  async list(filter: ProductRequests.ListProductQuery): Promise<ProductEntity[]> {
-    const conditions = [];
+  /** Produto duplicado dentro da loja: mesmo nome (case-insensitive) OU mesmo código de barras. */
+  async findDuplicate(
+    loja: Catalogo,
+    nome: string,
+    codigoBarras: string | null,
+    ignoreId?: string,
+  ): Promise<{ id: string; nome: string; createdByName: string | null } | null> {
+    const orParts = [ilike(products.nome, nome)];
+    if (codigoBarras) orParts.push(eq(products.codigoBarras, codigoBarras));
+    const rows = await db
+      .select({ id: products.id, nome: products.nome, createdByName: products.createdByName })
+      .from(products)
+      .where(and(eq(products.loja, loja), or(...orParts)));
+    const found = rows.find((r) => r.id !== ignoreId);
+    return found ?? null;
+  }
+
+  async existsByBase(loja: Catalogo, baseProductId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ id: products.id })
+      .from(products)
+      .where(and(eq(products.loja, loja), eq(products.baseProductId, baseProductId)))
+      .limit(1);
+    return !!row;
+  }
+
+  async list(loja: Catalogo, filter: ProductRequests.ListProductQuery): Promise<ProductEntity[]> {
+    const conditions = [eq(products.loja, loja)];
     if (filter.tipo) conditions.push(eq(products.tipo, filter.tipo));
     if (filter.status) conditions.push(eq(products.status, filter.status));
     if (filter.q) {
       const term = `%${filter.q}%`;
-      conditions.push(or(ilike(products.nome, term), ilike(products.marca, term), ilike(products.codigo, term)));
+      conditions.push(or(ilike(products.nome, term), ilike(products.marca, term), ilike(products.codigo, term))!);
     }
 
-    const rows = await db
-      .select()
-      .from(products)
-      .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(products.createdAt));
-
+    const rows = await db.select().from(products).where(and(...conditions)).orderBy(desc(products.createdAt));
     if (rows.length === 0) return [];
     const ids = rows.map((r) => r.id);
 
-    // carrega relações em lote (evita N+1)
-    const [lojas, transfs, fiscais] = await Promise.all([
-      db.select().from(productLojas).where(inArray(productLojas.productId, ids)),
+    const [promos, transfs, fiscais] = await Promise.all([
+      db.select().from(promocoes).where(inArray(promocoes.productId, ids)),
       db.select().from(productTransformacao).where(inArray(productTransformacao.productId, ids)),
       db.select().from(productFiscal).where(inArray(productFiscal.productId, ids)),
     ]);
 
-    const lojaIds = lojas.map((l) => l.id);
-    const promos = lojaIds.length
-      ? await db.select().from(promocoes).where(inArray(promocoes.productLojaId, lojaIds))
-      : [];
-    const promosByLoja = new Map<string, Promocao[]>();
+    const promosByProduct = new Map<string, Promocao[]>();
     for (const pr of promos) {
-      const arr = promosByLoja.get(pr.productLojaId) ?? [];
+      const arr = promosByProduct.get(pr.productId) ?? [];
       arr.push(mapPromocao(pr));
-      promosByLoja.set(pr.productLojaId, arr);
-    }
-
-    const lojasByProduct = new Map<string, LojaComercial[]>();
-    for (const l of lojas) {
-      const arr = lojasByProduct.get(l.productId) ?? [];
-      arr.push(mapLoja(l, promosByLoja.get(l.id) ?? []));
-      lojasByProduct.set(l.productId, arr);
+      promosByProduct.set(pr.productId, arr);
     }
     const transfByProduct = new Map(transfs.map((t) => [t.productId, mapTransformacao(t)]));
     const fiscalByProduct = new Map(fiscais.map((f) => [f.productId, mapFiscal(f)]));
 
-    let result: ProductEntity[] = rows.map((r) => ({
+    return rows.map((r) => ({
       ...mapProduct(r),
-      lojas: lojasByProduct.get(r.id) ?? [],
+      promocoes: promosByProduct.get(r.id) ?? [],
       transformacao: transfByProduct.get(r.id) ?? null,
       fiscal: fiscalByProduct.get(r.id) ?? null,
     }));
-
-    if (filter.loja) result = result.filter((p) => p.lojas.some((l) => l.loja === filter.loja));
-    return result;
   }
 
-  // ---- relações (substituição completa) ----
-  private async replaceRelations(
-    productId: string,
-    payload: ProductRequests.CreateProductRequest | ProductRequests.UpdateProductRequest,
-    tx: Tx,
-  ): Promise<void> {
-    if (payload.lojas !== undefined) {
-      // remove lojas (cascade apaga as promoções via FK)
-      await tx.delete(productLojas).where(eq(productLojas.productId, productId));
-      for (const l of payload.lojas) {
-        const [lojaRow] = await tx
-          .insert(productLojas)
-          .values({
-            productId,
-            loja: l.loja,
-            estoqueMin: toDb(l.estoqueMin),
-            estoqueMax: toDb(l.estoqueMax),
-            setorEstoque: l.setorEstoque,
-            custo: toDb(l.custo),
-            margemPontual: toDb(l.margemPontual),
-            vVendaPontual: toDb(l.vVendaPontual),
-            auto: l.auto,
-            localVenda1: l.localVenda1,
-            localVenda2: l.localVenda2,
-          })
-          .returning({ id: productLojas.id });
+  // ---- internos ----
+  private productColumns(p: ProductInput) {
+    const set: Record<string, unknown> = {};
+    const assign = (k: string, v: unknown) => { if (v !== undefined) set[k] = v; };
+    assign('nome', p.nome);
+    assign('quantidade', p.quantidade !== undefined ? toDb(p.quantidade) ?? '0' : undefined);
+    assign('medidaBase', p.medidaBase);
+    assign('codigoBarras', p.codigoBarras);
+    assign('marca', p.marca);
+    assign('embalagem', p.embalagem);
+    assign('cDe', p.cDe);
+    assign('qtCad', p.qtCad);
+    assign('medidaCompra', p.medidaCompra);
+    assign('codigoInterno', p.codigoInterno);
+    assign('fotoUrl', p.fotoUrl);
+    assign('grupo', p.grupo);
+    assign('tipo', p.tipo);
+    assign('status', p.status);
+    assign('habilitarAjuda', p.habilitarAjuda);
+    assign('estoqueMin', p.estoqueMin !== undefined ? toDb(p.estoqueMin) : undefined);
+    assign('estoqueMax', p.estoqueMax !== undefined ? toDb(p.estoqueMax) : undefined);
+    assign('setorEstoque', p.setorEstoque);
+    assign('custo', p.custo !== undefined ? toDb(p.custo) : undefined);
+    assign('margemPontual', p.margemPontual !== undefined ? toDb(p.margemPontual) : undefined);
+    assign('vVendaPontual', p.vVendaPontual !== undefined ? toDb(p.vVendaPontual) : undefined);
+    assign('auto', p.auto);
+    assign('localVenda1', p.localVenda1);
+    assign('localVenda2', p.localVenda2);
+    return set;
+  }
 
-        if (lojaRow && l.promocoes?.length) {
-          await tx.insert(promocoes).values(
-            l.promocoes.map((p) => ({
-              productLojaId: lojaRow.id,
-              tipo: p.tipo,
-              valor: toDb(p.valor ?? null),
-              descontoPct: toDb(p.descontoPct ?? null),
-              horaInicio: p.horaInicio ?? null,
-              horaFim: p.horaFim ?? null,
-              seg: p.dias?.[0] ?? false,
-              ter: p.dias?.[1] ?? false,
-              qua: p.dias?.[2] ?? false,
-              qui: p.dias?.[3] ?? false,
-              sex: p.dias?.[4] ?? false,
-              sab: p.dias?.[5] ?? false,
-              dom: p.dias?.[6] ?? false,
-              descontoAte: p.descontoAte ?? null,
-            })),
-          );
-        }
-      }
-    }
-
+  private async replaceRelations(productId: string, payload: ProductInput, tx: Tx): Promise<void> {
     if (payload.transformacao !== undefined) {
       await tx.delete(productTransformacao).where(eq(productTransformacao.productId, productId));
       if (payload.transformacao) {
         const t = payload.transformacao;
         await tx.insert(productTransformacao).values({
-          productId,
-          precisao: t.precisao,
-          qtd: toDb(t.qtd),
-          unidade: t.unidade,
-          produtoReceituario: t.produtoReceituario,
-          refReceituario: t.refReceituario,
+          productId, precisao: t.precisao, qtd: toDb(t.qtd), unidade: t.unidade,
+          produtoReceituario: t.produtoReceituario, refReceituario: t.refReceituario,
         });
       }
     }
-
     if (payload.fiscal !== undefined) {
       await tx.delete(productFiscal).where(eq(productFiscal.productId, productId));
       if (payload.fiscal) {
         const f = payload.fiscal;
         await tx.insert(productFiscal).values({
-          productId,
-          ncm: f.ncm,
-          cest: f.cest,
-          categoria: f.categoria,
-          cstPisCofins: f.cstPisCofins,
-          aliquotaCheia: toDb(f.aliquotaCheia),
-          aliquotaFcp: toDb(f.aliquotaFcp),
-          aliquotaPis: toDb(f.aliquotaPis),
-          aliquotaCofins: toDb(f.aliquotaCofins),
-          reducaoIcms: toDb(f.reducaoIcms),
-          icms: toDb(f.icms),
+          productId, ncm: f.ncm, cest: f.cest, categoria: f.categoria, cstPisCofins: f.cstPisCofins,
+          aliquotaCheia: toDb(f.aliquotaCheia), aliquotaFcp: toDb(f.aliquotaFcp),
+          aliquotaPis: toDb(f.aliquotaPis), aliquotaCofins: toDb(f.aliquotaCofins),
+          reducaoIcms: toDb(f.reducaoIcms), icms: toDb(f.icms),
         });
+      }
+    }
+    if (payload.promocoes !== undefined) {
+      await tx.delete(promocoes).where(eq(promocoes.productId, productId));
+      if (payload.promocoes.length) {
+        await tx.insert(promocoes).values(
+          payload.promocoes.map((p) => ({
+            productId, tipo: p.tipo, valor: toDb(p.valor ?? null), descontoPct: toDb(p.descontoPct ?? null),
+            horaInicio: p.horaInicio ?? null, horaFim: p.horaFim ?? null,
+            seg: p.dias?.[0] ?? false, ter: p.dias?.[1] ?? false, qua: p.dias?.[2] ?? false,
+            qui: p.dias?.[3] ?? false, sex: p.dias?.[4] ?? false, sab: p.dias?.[5] ?? false, dom: p.dias?.[6] ?? false,
+            descontoAte: p.descontoAte ?? null,
+          })),
+        );
       }
     }
   }

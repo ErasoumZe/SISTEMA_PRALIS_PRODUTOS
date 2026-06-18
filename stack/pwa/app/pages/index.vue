@@ -4,20 +4,22 @@ import type { ProductSchemas } from '@pralis/shared';
 type Product = ProductSchemas.ProductEntity;
 
 const api = useApi();
+const { user } = useAuth();
 const products = ref<Product[]>([]);
 const search = ref('');
 const loading = ref(false);
 const erro = ref('');
+let timer: ReturnType<typeof setInterval> | null = null;
 
-async function load() {
-  loading.value = true;
+async function load(silent = false) {
+  if (!silent) loading.value = true;
   erro.value = '';
   try {
     products.value = await api.listProducts(search.value || undefined);
-  } catch (e: unknown) {
-    erro.value = 'Não foi possível carregar (a API está rodando em :3344?).';
+  } catch {
+    if (!silent) erro.value = 'Não foi possível carregar.';
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -27,10 +29,14 @@ async function remover(p: Product) {
   await load();
 }
 
-onMounted(load);
+onMounted(() => {
+  load();
+  timer = setInterval(() => load(true), 5000); // polling (atualização "em tempo real")
+});
+onUnmounted(() => { if (timer) clearInterval(timer); });
 
-function precoLoja(p: Product): string | null {
-  const v = p.lojas?.[0]?.vVendaPontual ?? null;
+function preco(p: Product): string | null {
+  const v = p.vVendaPontual ?? null;
   return v != null ? v.toFixed(2).replace('.', ',') : null;
 }
 </script>
@@ -39,6 +45,7 @@ function precoLoja(p: Product): string | null {
   <div>
     <div class="d-flex align-center mb-4 ga-3 flex-wrap">
       <h1 class="text-h5 font-weight-bold">Produtos</h1>
+      <v-chip v-if="user" color="primary" size="small" label prepend-icon="mdi-store">Loja {{ user.loja }}</v-chip>
       <v-spacer />
       <v-text-field
         v-model="search"
@@ -47,9 +54,10 @@ function precoLoja(p: Product): string | null {
         hide-details
         placeholder="Buscar..."
         prepend-inner-icon="mdi-magnify"
-        style="max-width: 280px"
-        @keyup.enter="load"
+        style="max-width: 240px"
+        @keyup.enter="load()"
       />
+      <v-btn variant="tonal" color="primary" prepend-icon="mdi-database-import" to="/importar">Importar da base</v-btn>
       <v-btn color="primary" prepend-icon="mdi-plus" to="/produtos/novo">Novo</v-btn>
     </div>
 
@@ -93,9 +101,12 @@ function precoLoja(p: Product): string | null {
               <span class="text-medium-emphasis">MARCA</span>
               <span>{{ p.marca || '—' }}</span>
             </div>
-            <div v-if="precoLoja(p)" class="d-flex justify-space-between text-body-2">
+            <div v-if="preco(p)" class="d-flex justify-space-between text-body-2 mb-1">
               <span class="text-medium-emphasis">V. VENDA</span>
-              <span class="font-weight-bold">R$ {{ precoLoja(p) }}</span>
+              <span class="font-weight-bold">R$ {{ preco(p) }}</span>
+            </div>
+            <div v-if="p.createdByName" class="text-caption text-medium-emphasis mt-2">
+              <v-icon size="13">mdi-account</v-icon> cadastrado por {{ p.createdByName }}
             </div>
           </v-card-text>
           <v-divider />

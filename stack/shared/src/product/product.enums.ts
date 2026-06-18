@@ -7,7 +7,9 @@ import { z } from 'zod/v4';
 
 export const statusProduto = z.enum(['ativo', 'inativo']);
 export const tipoProduto = z.enum(['revenda', 'transformacao']); // exclusivos
-export const loja = z.enum(['TNP', 'LI', 'HORA']);
+export const loja = z.enum(['TNP', 'LI', 'HORA']);          // loja do usuário
+export const catalogo = z.enum(['BASE', 'TNP', 'LI', 'HORA']); // catálogo do produto (BASE = geral)
+export const userRole = z.enum(['admin', 'user']);
 
 export const medidaBase = z.enum(['UN', 'KG', 'G', 'LT', 'ML']);   // MEDIDASCAD
 export const medidaCompra = z.enum(['UN', 'KG', 'LT']);            // MEDIDAS1
@@ -21,6 +23,8 @@ export const tipoPromocao = z.enum(['valor', 'desconto']);
 export type StatusProduto = z.infer<typeof statusProduto>;
 export type TipoProduto = z.infer<typeof tipoProduto>;
 export type Loja = z.infer<typeof loja>;
+export type Catalogo = z.infer<typeof catalogo>;
+export type UserRole = z.infer<typeof userRole>;
 export type MedidaBase = z.infer<typeof medidaBase>;
 export type MedidaCompra = z.infer<typeof medidaCompra>;
 export type Embalagem = z.infer<typeof embalagem>;

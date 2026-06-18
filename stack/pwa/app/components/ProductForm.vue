@@ -20,8 +20,8 @@ const form = reactive({
   marca: '', embalagem: '', cDe: 'DE', qtCad: 1, medidaCompra: '', grupo: '', codigoBarras: '',
   status: 'ativo' as 'ativo' | 'inativo', habilitarAjuda: false,
   tipo: 'revenda' as 'revenda' | 'transformacao',
-  // revenda (uma loja)
-  loja: 'TNP', custo: 0, margemPct: 0, auto: true, vVendaPontual: 0,
+  // comercial (revenda) — a loja vem do usuário logado
+  custo: 0, margemPct: 0, auto: true, vVendaPontual: 0,
   estoqueMin: 0, estoqueMax: 0, setorEstoque: '',
   // transformação
   precisao: 'EXATOS', qtdTransf: 0, unidadeTransf: 'G', produtoReceituario: '', refReceituario: '',
@@ -107,8 +107,9 @@ function buildPromocoes() {
   }];
 }
 
-function buildPayload(): ProductRequests.CreateProductRequest {
-  const base = {
+function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
+  const revenda = form.tipo === 'revenda';
+  return {
     nome: form.nome,
     quantidade: Number(form.quantidade) || 0,
     medidaBase: form.medidaBase as ProductRequests.CreateProductRequest['medidaBase'],
@@ -124,54 +125,50 @@ function buildPayload(): ProductRequests.CreateProductRequest {
     tipo: form.tipo,
     status: form.status,
     habilitarAjuda: form.habilitarAjuda,
-  };
-
-  if (form.tipo === 'revenda') {
-    return {
-      ...base,
-      lojas: [{
-        loja: form.loja as 'TNP' | 'LI' | 'HORA',
-        estoqueMin: Number(form.estoqueMin) || null,
-        estoqueMax: Number(form.estoqueMax) || null,
-        setorEstoque: form.setorEstoque || null,
-        custo: Number(form.custo) || null,
-        margemPontual: form.margemPct ? Number(form.margemPct) / 100 : null,
-        vVendaPontual: Number(form.vVendaPontual) || null,
-        auto: form.auto,
-        localVenda1: null,
-        localVenda2: null,
-        promocoes: buildPromocoes(),
-      }],
-      transformacao: null,
-      fiscal: buildFiscal(),
-    };
-  }
-
-  return {
-    ...base,
-    lojas: [],
-    transformacao: {
-      precisao: form.precisao as 'EXATOS' | 'APROXIMADOS',
-      qtd: Number(form.qtdTransf) || 0,
-      unidade: form.unidadeTransf as 'UN' | 'G' | 'ML',
-      produtoReceituario: form.produtoReceituario || null,
-      refReceituario: form.refReceituario || null,
-    },
+    // comercial (direto na linha — só preenche se for revenda)
+    estoqueMin: revenda ? Number(form.estoqueMin) || null : null,
+    estoqueMax: revenda ? Number(form.estoqueMax) || null : null,
+    setorEstoque: revenda ? form.setorEstoque || null : null,
+    custo: revenda ? Number(form.custo) || null : null,
+    margemPontual: revenda && form.margemPct ? Number(form.margemPct) / 100 : null,
+    vVendaPontual: revenda ? Number(form.vVendaPontual) || null : null,
+    auto: revenda ? form.auto : false,
+    localVenda1: null,
+    localVenda2: null,
+    promocoes: revenda ? buildPromocoes() : [],
+    transformacao: revenda
+      ? null
+      : {
+          precisao: form.precisao as 'EXATOS' | 'APROXIMADOS',
+          qtd: Number(form.qtdTransf) || 0,
+          unidade: form.unidadeTransf as 'UN' | 'G' | 'ML',
+          produtoReceituario: form.produtoReceituario || null,
+          refReceituario: form.refReceituario || null,
+        },
     fiscal: buildFiscal(),
+    forcar,
   };
 }
 
-async function salvar() {
+const duplicado = ref('');
+
+async function salvar(forcar = false) {
   if (!form.nome.trim()) { erro.value = 'Informe o nome do produto.'; return; }
   saving.value = true;
   erro.value = '';
+  duplicado.value = '';
   try {
-    if (props.productId) await api.updateProduct(props.productId, buildPayload());
-    else await api.createProduct(buildPayload());
+    const payload = buildPayload(forcar);
+    if (props.productId) await api.updateProduct(props.productId, payload);
+    else await api.createProduct(payload);
     await navigateTo('/');
   } catch (e: unknown) {
-    const msg = (e as { data?: { message?: string } })?.data?.message;
-    erro.value = msg || 'Erro ao salvar. Confira os campos.';
+    const err = e as { data?: { message?: string; details?: { code?: string } } };
+    if (err?.data?.details?.code === 'DUPLICATE_PRODUCT') {
+      duplicado.value = err.data.message || 'Produto já cadastrado nesta loja.';
+    } else {
+      erro.value = err?.data?.message || 'Erro ao salvar. Confira os campos.';
+    }
   } finally {
     saving.value = false;
   }
@@ -188,11 +185,10 @@ onMounted(async () => {
       qtCad: p.qtCad, medidaCompra: p.medidaCompra ?? '', grupo: p.grupo ?? '', fotoUrl: p.fotoUrl ?? '',
       codigoBarras: p.codigoBarras ?? '', status: p.status, habilitarAjuda: p.habilitarAjuda, tipo: p.tipo,
     });
-    const l = p.lojas?.[0];
-    if (l) Object.assign(form, {
-      loja: l.loja, custo: l.custo ?? 0, margemPct: l.margemPontual ? l.margemPontual * 100 : 0,
-      auto: l.auto, vVendaPontual: l.vVendaPontual ?? 0,
-      estoqueMin: l.estoqueMin ?? 0, estoqueMax: l.estoqueMax ?? 0, setorEstoque: l.setorEstoque ?? '',
+    Object.assign(form, {
+      custo: p.custo ?? 0, margemPct: p.margemPontual ? p.margemPontual * 100 : 0,
+      auto: p.auto, vVendaPontual: p.vVendaPontual ?? 0,
+      estoqueMin: p.estoqueMin ?? 0, estoqueMax: p.estoqueMax ?? 0, setorEstoque: p.setorEstoque ?? '',
     });
     if (p.transformacao) Object.assign(form, {
       precisao: p.transformacao.precisao, qtdTransf: p.transformacao.qtd, unidadeTransf: p.transformacao.unidade,
@@ -204,7 +200,7 @@ onMounted(async () => {
       aliquotaPis: p.fiscal.aliquotaPis ?? 0, aliquotaCofins: p.fiscal.aliquotaCofins ?? 0,
       reducaoIcms: p.fiscal.reducaoIcms ?? 0, icms: p.fiscal.icms ?? 0,
     });
-    const promo = l?.promocoes?.[0];
+    const promo = p.promocoes?.[0];
     if (promo) Object.assign(form, {
       promoTipo: promo.tipo, promoValor: promo.valor ?? 0,
       promoDescontoPct: promo.descontoPct ? promo.descontoPct * 100 : 0,
@@ -225,6 +221,16 @@ onMounted(async () => {
     </div>
 
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
+
+    <v-alert v-if="duplicado" type="warning" variant="tonal" class="mb-4">
+      <div class="d-flex align-center flex-wrap ga-2">
+        <span>{{ duplicado }}</span>
+        <v-spacer />
+        <v-btn size="small" color="warning" variant="flat" :loading="saving" @click="salvar(true)">
+          Cadastrar mesmo assim
+        </v-btn>
+      </div>
+    </v-alert>
 
     <!-- CADASTRO INICIAL -->
     <v-card flat border rounded="lg" class="mb-4">
@@ -308,10 +314,7 @@ onMounted(async () => {
         <!-- REVENDA -->
         <template v-if="form.tipo === 'revenda'">
           <v-row dense>
-            <v-col cols="12" sm="6">
-              <v-select v-model="form.loja" :items="LOJAS" label="Loja" variant="outlined" density="comfortable" />
-            </v-col>
-            <v-col cols="12" sm="6">
+            <v-col cols="12">
               <v-select v-model="form.setorEstoque" :items="SETORES" label="Setor de estoque" variant="outlined" density="comfortable" clearable />
             </v-col>
             <v-col cols="6" sm="3">
@@ -410,7 +413,7 @@ onMounted(async () => {
 
     <div class="d-flex justify-end ga-2">
       <v-btn variant="text" to="/">Cancelar</v-btn>
-      <v-btn color="primary" :loading="saving" prepend-icon="mdi-content-save" @click="salvar">Salvar produto</v-btn>
+      <v-btn color="primary" :loading="saving" prepend-icon="mdi-content-save" @click="salvar(false)">Salvar produto</v-btn>
     </div>
   </div>
 </template>
