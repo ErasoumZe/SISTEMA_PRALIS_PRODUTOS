@@ -12,7 +12,7 @@ export interface PublicUser {
   id: string;
   name: string;
   email: string;
-  loja: 'TNP' | 'LI' | 'HORA';
+  loja: 'TNP' | 'LI' | 'HORA' | null; // null para admin
   role: 'admin' | 'user';
   isActive: boolean;
 }
@@ -25,17 +25,21 @@ export class AuthService {
   ) {}
 
   /** Cria a conta como NÃO verificada e envia o código por e-mail. Não loga ainda. */
-  async register(data: { name: string; email: string; password: string; loja: 'TNP' | 'LI' | 'HORA' }): Promise<{ email: string }> {
+  async register(data: { name: string; email: string; password: string; loja?: 'TNP' | 'LI' | 'HORA' }): Promise<{ email: string }> {
     const exists = await this.repo.findByEmail(data.email);
     if (exists) throw new AppError('E-mail já cadastrado', 409, 'EMAIL_IN_USE');
 
-    const passwordHash = await argon2.hash(data.password);
     const role = data.email.trim().toLowerCase() === env.ADMIN_EMAIL ? 'admin' : 'user';
+    // admin não tem loja (casa = BASE); conta comum precisa escolher a loja
+    const loja = role === 'admin' ? null : data.loja ?? null;
+    if (role !== 'admin' && !loja) throw new AppError('Selecione a sua loja', 400, 'LOJA_REQUIRED');
+
+    const passwordHash = await argon2.hash(data.password);
     const code = genCode();
     const expires = new Date(Date.now() + CODE_TTL_MIN * 60_000);
 
     const user = await this.repo.createUser({
-      name: data.name, email: data.email, passwordHash, loja: data.loja, role,
+      name: data.name, email: data.email, passwordHash, loja, role,
       verificationCode: code, verificationExpiresAt: expires,
     });
     await this.email.sendVerificationCode(user.email, user.name, code);
@@ -86,7 +90,7 @@ export class AuthService {
     return this.publicUser(user);
   }
 
-  private publicUser(u: { id: string; name: string; email: string; loja: string; role: string; isActive: boolean }): PublicUser {
+  private publicUser(u: { id: string; name: string; email: string; loja: string | null; role: string; isActive: boolean }): PublicUser {
     return {
       id: u.id,
       name: u.name,

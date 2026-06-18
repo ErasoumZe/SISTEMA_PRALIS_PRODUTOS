@@ -83,7 +83,10 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'o
                 </div>
               </div>
             </td>
-            <td><v-chip :color="lojaColor[u.loja] || 'grey'" size="small" label>{{ u.loja }}</v-chip></td>
+            <td>
+              <v-chip v-if="u.loja" :color="lojaColor[u.loja] || 'grey'" size="small" label>{{ u.loja }}</v-chip>
+              <span v-else class="text-caption text-medium-emphasis">— (sem loja)</span>
+            </td>
             <td>
               <v-chip :color="u.role === 'admin' ? 'deep-purple' : 'grey'" size="small" label :prepend-icon="u.role === 'admin' ? 'mdi-shield-crown' : 'mdi-account'">
                 {{ u.role === 'admin' ? 'Administrador' : 'Usuário' }}

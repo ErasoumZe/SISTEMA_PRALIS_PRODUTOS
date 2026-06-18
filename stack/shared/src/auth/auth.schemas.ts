@@ -5,7 +5,7 @@ export const userSchema = z.object({
   id: z.uuidv7(),
   name: z.string(),
   email: z.string(),
-  loja,
+  loja: loja.nullable(), // null para admin
   role: userRole,
   isActive: z.boolean(),
 });

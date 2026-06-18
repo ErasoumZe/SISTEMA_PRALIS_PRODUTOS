@@ -14,6 +14,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:3344',
+      // e-mail do admin principal — usado no cadastro para esconder o seletor de loja
+      adminEmail: process.env.NUXT_PUBLIC_ADMIN_EMAIL || 'rodrigo@cicluz.com.br',
     },
   },
 

@@ -14,7 +14,7 @@ export async function authRoutes(app: FastifyInstance) {
   const userReply = apiResponseSchema(
     z.object({
       id: z.string(), name: z.string(), email: z.string(),
-      loja: z.string(), role: z.string(), isActive: z.boolean(),
+      loja: z.string().nullable(), role: z.string(), isActive: z.boolean(),
     }),
   );
   const emailReply = apiResponseSchema(z.object({ email: z.string() }));

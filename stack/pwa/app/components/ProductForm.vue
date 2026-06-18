@@ -4,6 +4,17 @@ import type { ProductRequests } from '@pralis/shared';
 
 const props = defineProps<{ productId?: string }>();
 const api = useApi();
+const { user } = useAuth();
+
+// admin escolhe o catálogo de destino ao criar (default Base); usuário comum vai p/ a loja dele
+const isAdmin = computed(() => user.value?.role === 'admin');
+const CATALOGOS = [
+  { title: 'Base (Geral)', value: 'BASE' },
+  { title: 'Loja TNP', value: 'TNP' },
+  { title: 'Loja LI', value: 'LI' },
+  { title: 'Loja HORA', value: 'HORA' },
+];
+const catalogoDestino = ref<'BASE' | 'TNP' | 'LI' | 'HORA'>('BASE');
 
 const MEDIDAS_BASE = ['UN', 'KG', 'G', 'LT', 'ML'];
 const MEDIDAS_COMPRA = ['UN', 'KG', 'LT'];
@@ -147,6 +158,8 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
         },
     fiscal: buildFiscal(),
     forcar,
+    // admin define o catálogo de destino; usuário comum omite (vai p/ a loja dele)
+    ...(isAdmin.value ? { loja: catalogoDestino.value } : {}),
   };
 }
 
@@ -231,6 +244,30 @@ onMounted(async () => {
         </v-btn>
       </div>
     </v-alert>
+
+    <!-- CATÁLOGO DE DESTINO (apenas admin, ao criar) -->
+    <v-card v-if="isAdmin && !productId" flat border rounded="lg" class="mb-4" color="deep-purple-lighten-5">
+      <v-card-text>
+        <div class="d-flex align-center ga-3 flex-wrap">
+          <v-icon color="deep-purple">mdi-shield-crown</v-icon>
+          <div class="flex-grow-1" style="min-width: 220px">
+            <v-select
+              v-model="catalogoDestino"
+              :items="CATALOGOS"
+              item-title="title"
+              item-value="value"
+              label="Cadastrar no catálogo"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+          </div>
+          <div class="text-caption text-medium-emphasis" style="max-width: 280px">
+            Como admin, você escolhe onde cadastrar. O padrão é o catálogo <strong>Base (Geral)</strong>.
+          </div>
+        </div>
+      </v-card-text>
+    </v-card>
 
     <!-- CADASTRO INICIAL -->
     <v-card flat border rounded="lg" class="mb-4">

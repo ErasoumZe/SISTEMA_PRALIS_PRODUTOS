@@ -2,6 +2,7 @@
 definePageMeta({ layout: 'auth' });
 
 const { login, register, verify, resend } = useAuth();
+const adminEmail = (useRuntimeConfig().public.adminEmail as string).toLowerCase();
 
 const modo = ref<'login' | 'registro' | 'verificar'>('login');
 const name = ref('');
@@ -13,10 +14,13 @@ const loading = ref(false);
 const erro = ref('');
 const aviso = ref('');
 
+// admin principal não escolhe loja (casa = catálogo Base)
+const ehAdmin = computed(() => email.value.trim().toLowerCase() === adminEmail);
+
 async function submit() {
   erro.value = '';
   aviso.value = '';
-  if (modo.value === 'registro' && !loja.value) {
+  if (modo.value === 'registro' && !ehAdmin.value && !loja.value) {
     erro.value = 'Selecione a sua loja.';
     return;
   }
@@ -26,7 +30,7 @@ async function submit() {
       await login(email.value, password.value);
       await navigateTo('/');
     } else if (modo.value === 'registro') {
-      await register(name.value, email.value, password.value, loja.value!);
+      await register(name.value, email.value, password.value, ehAdmin.value ? undefined : loja.value!);
       modo.value = 'verificar';
       aviso.value = `Enviamos um código de 6 dígitos para ${email.value}. Digite-o abaixo.`;
     } else {
@@ -111,7 +115,7 @@ const botao = computed(() =>
               hide-details
             />
             <v-select
-              v-if="modo === 'registro'"
+              v-if="modo === 'registro' && !ehAdmin"
               v-model="loja"
               :items="['TNP', 'LI', 'HORA']"
               label="Sua loja"
@@ -119,6 +123,14 @@ const botao = computed(() =>
               prepend-inner-icon="mdi-store-outline"
               class="mb-3"
               hide-details
+            />
+            <v-alert
+              v-else-if="modo === 'registro' && ehAdmin"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              text="Conta de administrador — sem loja (cadastra no catálogo Base por padrão)."
             />
             <v-text-field
               v-model="email"

@@ -15,6 +15,9 @@ export const createProductSchema = baseProductSchema
     fiscal: fiscalSchema.nullable().optional(),
     // se true, ignora o aviso de duplicado e cadastra mesmo assim
     forcar: z.boolean().optional(),
+    // catálogo de destino — só admin pode escolher (BASE/TNP/LI/HORA);
+    // ignorado para usuário comum (vai sempre para a loja dele). Default do admin: BASE.
+    loja: catalogo.optional(),
   })
   .refine((d) => d.tipo !== 'transformacao' || !!d.transformacao, {
     message: 'Produto de transformação exige o bloco de transformação.',

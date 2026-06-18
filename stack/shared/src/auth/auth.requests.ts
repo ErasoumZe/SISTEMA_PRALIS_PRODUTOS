@@ -5,7 +5,9 @@ export const registerSchema = z.object({
   name: z.string().min(1, 'Informe o nome'),
   email: z.email('E-mail inválido'),
   password: z.string().min(6, 'Mínimo 6 caracteres'),
-  loja, // loja onde o usuário trabalha (TNP/LI/HORA)
+  // loja onde o usuário trabalha (TNP/LI/HORA). Opcional: o admin não tem loja
+  // (o servidor exige a loja para contas comuns).
+  loja: loja.optional(),
 });
 export type RegisterRequest = z.infer<typeof registerSchema>;
 

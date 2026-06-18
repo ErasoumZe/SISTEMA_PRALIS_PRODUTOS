@@ -24,9 +24,10 @@ export function useAuth() {
     return r.data;
   }
 
-  async function register(name: string, email: string, password: string, loja: 'TNP' | 'LI' | 'HORA') {
-    // não loga: a conta só ativa após confirmar o código enviado por e-mail
-    await $fetch('/auth/register', { ...base, method: 'POST', body: { name, email, password, loja } });
+  async function register(name: string, email: string, password: string, loja?: 'TNP' | 'LI' | 'HORA') {
+    // não loga: a conta só ativa após confirmar o código enviado por e-mail.
+    // admin não envia loja (o servidor define como sem loja / casa = BASE)
+    await $fetch('/auth/register', { ...base, method: 'POST', body: { name, email, password, ...(loja ? { loja } : {}) } });
   }
 
   async function verify(email: string, code: string) {

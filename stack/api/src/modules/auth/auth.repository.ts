@@ -8,7 +8,7 @@ import { sessions } from '@/modules/auth/auth.table';
 export class AuthRepository {
   async createUser(
     data: {
-      name: string; email: string; passwordHash: string; loja: string; role: string;
+      name: string; email: string; passwordHash: string; loja: string | null; role: string;
       verificationCode: string; verificationExpiresAt: Date;
     },
     tx: Tx = db,

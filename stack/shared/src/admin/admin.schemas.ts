@@ -34,7 +34,7 @@ export const adminUserSchema = z.object({
   id: z.string(),
   name: z.string(),
   email: z.string(),
-  loja: z.string(),
+  loja: z.string().nullable(), // null para admin
   role: userRole,
   emailVerified: z.boolean(),
   isActive: z.boolean(),

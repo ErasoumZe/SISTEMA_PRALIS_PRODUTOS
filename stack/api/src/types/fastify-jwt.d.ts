@@ -12,7 +12,7 @@ export interface CurrentUser {
   id: string;
   name: string;
   email: string;
-  loja: 'TNP' | 'LI' | 'HORA';
+  loja: 'TNP' | 'LI' | 'HORA' | null; // null para admin (sem loja; casa = BASE)
   role: 'admin' | 'user';
 }
 

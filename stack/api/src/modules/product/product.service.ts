@@ -19,8 +19,17 @@ export class ProductService {
   }
 
   async create(user: CurrentUser, payload: ProductRequests.CreateProductRequest): Promise<ProductSchemas.ProductEntity> {
+    // admin escolhe o catálogo de destino (default BASE); usuário comum vai sempre para a loja dele
+    let alvo: 'BASE' | 'TNP' | 'LI' | 'HORA';
+    if (user.role === 'admin') {
+      alvo = payload.loja ?? 'BASE';
+    } else {
+      if (!user.loja) throw new AppError('Usuário sem loja definida', 400, 'NO_LOJA');
+      alvo = user.loja;
+    }
+
     if (!payload.forcar) {
-      const dup = await this.repo.findDuplicate(user.loja, payload.nome, payload.codigoBarras ?? null);
+      const dup = await this.repo.findDuplicate(alvo, payload.nome, payload.codigoBarras ?? null);
       if (dup) {
         throw new AppError(
           `Produto "${dup.nome}" já cadastrado${dup.createdByName ? ` por ${dup.createdByName}` : ''}.`,
@@ -31,7 +40,7 @@ export class ProductService {
     }
     const codigo = await this.novoCodigo();
     return this.repo.create(payload, {
-      loja: user.loja,
+      loja: alvo,
       codigo,
       createdByUserId: user.id,
       createdByName: user.name,
@@ -40,7 +49,7 @@ export class ProductService {
 
   async list(user: CurrentUser, filter: ProductRequests.ListProductQuery) {
     // admin pode visualizar qualquer catálogo (BASE/TNP/LI/HORA); usuário comum só a própria loja
-    const alvo = filter.loja && user.role === 'admin' ? filter.loja : user.loja;
+    const alvo = filter.loja && user.role === 'admin' ? filter.loja : user.loja ?? 'BASE';
     return this.repo.list(alvo, filter);
   }
 
@@ -72,16 +81,19 @@ export class ProductService {
 
   /** Importa produtos da BASE para a loja do usuário (pula os já importados/duplicados). */
   async importFromBase(user: CurrentUser, baseIds: string[]): Promise<{ imported: number; skipped: number }> {
+    // importação é da BASE para a loja do usuário; admin (sem loja) não usa este fluxo
+    const loja = user.loja;
+    if (!loja) throw new AppError('Apenas usuários de loja podem importar da base', 400, 'NO_LOJA');
     let imported = 0;
     let skipped = 0;
     for (const baseId of baseIds) {
       const base = await this.repo.findById(baseId);
       if (!base || base.loja !== 'BASE') { skipped++; continue; }
-      if (await this.repo.existsByBase(user.loja, baseId)) { skipped++; continue; }
-      if (await this.repo.findDuplicate(user.loja, base.nome, base.codigoBarras ?? null)) { skipped++; continue; }
+      if (await this.repo.existsByBase(loja, baseId)) { skipped++; continue; }
+      if (await this.repo.findDuplicate(loja, base.nome, base.codigoBarras ?? null)) { skipped++; continue; }
       const codigo = await this.novoCodigo();
       await this.repo.create(this.toCreatePayload(base), {
-        loja: user.loja,
+        loja,
         codigo,
         createdByUserId: user.id,
         createdByName: user.name,

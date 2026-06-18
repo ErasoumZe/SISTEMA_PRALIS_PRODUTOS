@@ -26,7 +26,7 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
       id: user.id,
       name: user.name,
       email: user.email,
-      loja: user.loja as 'TNP' | 'LI' | 'HORA',
+      loja: (user.loja ?? null) as 'TNP' | 'LI' | 'HORA' | null,
       role: user.role as 'admin' | 'user',
     };
   } catch {
