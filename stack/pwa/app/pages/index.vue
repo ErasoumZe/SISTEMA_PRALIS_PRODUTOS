@@ -11,17 +11,34 @@ const loading = ref(false);
 const erro = ref('');
 let timer: ReturnType<typeof setInterval> | null = null;
 
+// Admin enxerga o catálogo Geral (BASE) e o de cada loja; usuário comum só a própria loja.
+const isAdmin = computed(() => user.value?.role === 'admin');
+const abas = [
+  { key: 'BASE', label: 'Geral (Base)' },
+  { key: 'TNP', label: 'TNP' },
+  { key: 'LI', label: 'LI' },
+  { key: 'HORA', label: 'HORA' },
+] as const;
+const aba = ref<'BASE' | 'TNP' | 'LI' | 'HORA'>('BASE');
+
 async function load(silent = false) {
   if (!silent) loading.value = true;
   erro.value = '';
   try {
-    products.value = await api.listProducts(search.value || undefined);
+    const q = search.value || undefined;
+    if (isAdmin.value) {
+      products.value = aba.value === 'BASE' ? await api.listBase(q) : await api.listProducts(q, aba.value);
+    } else {
+      products.value = await api.listProducts(q);
+    }
   } catch {
     if (!silent) erro.value = 'Não foi possível carregar.';
   } finally {
     if (!silent) loading.value = false;
   }
 }
+
+watch(aba, () => load());
 
 async function remover(p: Product) {
   if (!confirm(`Excluir "${p.nome}"?`)) return;
@@ -45,7 +62,8 @@ function preco(p: Product): string | null {
   <div>
     <div class="d-flex align-center mb-4 ga-3 flex-wrap">
       <h1 class="text-h5 font-weight-bold">Produtos</h1>
-      <v-chip v-if="user" color="primary" size="small" label prepend-icon="mdi-store">Loja {{ user.loja }}</v-chip>
+      <v-chip v-if="user && !isAdmin" color="primary" size="small" label prepend-icon="mdi-store">Loja {{ user.loja }}</v-chip>
+      <v-chip v-else-if="isAdmin" color="deep-purple" size="small" label prepend-icon="mdi-shield-crown">Admin</v-chip>
       <v-spacer />
       <v-text-field
         v-model="search"
@@ -57,9 +75,14 @@ function preco(p: Product): string | null {
         style="max-width: 240px"
         @keyup.enter="load()"
       />
-      <v-btn variant="tonal" color="primary" prepend-icon="mdi-database-import" to="/importar">Importar da base</v-btn>
+      <v-btn v-if="!isAdmin" variant="tonal" color="primary" prepend-icon="mdi-database-import" to="/importar">Importar da base</v-btn>
       <v-btn color="primary" prepend-icon="mdi-plus" to="/produtos/novo">Novo</v-btn>
     </div>
+
+    <!-- Admin: alterna entre o catálogo Geral (Base) e o de cada loja -->
+    <v-tabs v-if="isAdmin" v-model="aba" color="primary" density="compact" class="mb-4">
+      <v-tab v-for="t in abas" :key="t.key" :value="t.key">{{ t.label }}</v-tab>
+    </v-tabs>
 
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
 

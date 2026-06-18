@@ -39,7 +39,9 @@ export class ProductService {
   }
 
   async list(user: CurrentUser, filter: ProductRequests.ListProductQuery) {
-    return this.repo.list(user.loja, filter);
+    // admin pode visualizar qualquer catálogo (BASE/TNP/LI/HORA); usuário comum só a própria loja
+    const alvo = filter.loja && user.role === 'admin' ? filter.loja : user.loja;
+    return this.repo.list(alvo, filter);
   }
 
   async listBase(filter: ProductRequests.ListProductQuery) {

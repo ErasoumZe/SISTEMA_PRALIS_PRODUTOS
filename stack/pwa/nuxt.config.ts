@@ -18,6 +18,14 @@ export default defineNuxtConfig({
   },
 
   vuetify: {
+    moduleOptions: {
+      // detecta a largura da viewport no SSR (client hints + cookie), evitando
+      // o "salto"/desenquadramento do layout na primeira carga por breakpoint errado
+      ssrClientHints: {
+        viewportSize: true,
+        prefersColorScheme: false,
+      },
+    },
     vuetifyOptions: {
       theme: {
         defaultTheme: 'light',

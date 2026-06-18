@@ -1,5 +1,5 @@
 import { z } from 'zod/v4';
-import { tipoProduto, statusProduto } from './product.enums';
+import { tipoProduto, statusProduto, catalogo } from './product.enums';
 import {
   baseProductSchema, promocaoSchema, transformacaoSchema, fiscalSchema,
 } from './product.schemas';
@@ -33,6 +33,8 @@ export const listProductQuerySchema = z.object({
   q: z.string().optional(),
   tipo: tipoProduto.optional(),
   status: statusProduto.optional(),
+  // só admin pode listar outro catálogo; ignorado para usuários comuns
+  loja: catalogo.optional(),
 });
 export type ListProductQuery = z.infer<typeof listProductQuerySchema>;
 

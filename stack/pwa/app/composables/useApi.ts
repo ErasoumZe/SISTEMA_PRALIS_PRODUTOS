@@ -11,8 +11,12 @@ export function useApi() {
   const unwrap = <T>(p: Promise<{ data: T }>) => p.then((r) => r.data);
 
   return {
-    listProducts: (q?: string) =>
-      unwrap($fetch<{ data: Product[] }>('/products', { ...base, query: q ? { q } : undefined })),
+    // `loja` só tem efeito para admin (visualizar outro catálogo); ignorado p/ usuário comum
+    listProducts: (q?: string, loja?: string) =>
+      unwrap($fetch<{ data: Product[] }>('/products', {
+        ...base,
+        query: { ...(q ? { q } : {}), ...(loja ? { loja } : {}) },
+      })),
 
     listBase: (q?: string) =>
       unwrap($fetch<{ data: Product[] }>('/products/base', { ...base, query: q ? { q } : undefined })),
