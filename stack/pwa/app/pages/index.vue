@@ -61,20 +61,17 @@ function preco(p: Product): string | null {
 <template>
   <div>
     <div class="d-flex align-center mb-4 ga-3 flex-wrap">
-      <h1 class="text-h5 font-weight-bold">Produtos</h1>
-      <v-chip v-if="user && !isAdmin" color="primary" size="small" label prepend-icon="mdi-store">Loja {{ user.loja }}</v-chip>
-      <v-chip v-else-if="isAdmin" color="deep-purple" size="small" label prepend-icon="mdi-shield-crown">Admin</v-chip>
-      <v-spacer />
       <v-text-field
         v-model="search"
         density="compact"
         variant="outlined"
         hide-details
-        placeholder="Buscar..."
+        placeholder="Buscar produto..."
         prepend-inner-icon="mdi-magnify"
-        style="max-width: 240px"
+        style="max-width: 280px"
         @keyup.enter="load()"
       />
+      <v-spacer />
       <v-btn v-if="!isAdmin" variant="tonal" color="primary" prepend-icon="mdi-database-import" to="/importar">Importar da base</v-btn>
       <v-btn color="primary" prepend-icon="mdi-plus" to="/produtos/novo">Novo</v-btn>
     </div>

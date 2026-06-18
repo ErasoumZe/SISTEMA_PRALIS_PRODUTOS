@@ -1,6 +1,8 @@
-import type { ProductSchemas, ProductRequests } from '@pralis/shared';
+import type { ProductSchemas, ProductRequests, AdminSchemas } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
+type Dashboard = AdminSchemas.Dashboard;
+type AdminUser = AdminSchemas.AdminUser;
 
 /**
  * Cliente da API (envelope { message, data, details }). Tipado pelos schemas do @pralis/shared.
@@ -41,5 +43,11 @@ export function useApi() {
       fd.append('file', file);
       return $fetch<{ data: { url: string } }>('/files', { ...base, method: 'POST', body: fd }).then((r) => r.data.url);
     },
+
+    // ---- admin ----
+    dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),
+    listUsers: () => unwrap($fetch<{ data: AdminUser[] }>('/admin/users', { ...base })),
+    setUserRole: (id: string, role: 'admin' | 'user') =>
+      $fetch(`/admin/users/${id}/role`, { ...base, method: 'PATCH', body: { role } }),
   };
 }

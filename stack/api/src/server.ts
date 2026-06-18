@@ -17,6 +17,7 @@ import { AppError } from '@/config/api.replies';
 import { productRoutes } from '@/modules/product/product.routes';
 import { authRoutes } from '@/modules/auth/auth.routes';
 import { fileRoutes } from '@/modules/file/file.routes';
+import { adminRoutes } from '@/modules/admin/admin.routes';
 
 const app = Fastify({
   logger: env.NODE_ENV === 'dev',
@@ -61,6 +62,7 @@ app.register(fastifySwaggerUi, { routePrefix: '/docs' });
 app.register(authRoutes);
 app.register(fileRoutes);
 app.register(productRoutes);
+app.register(adminRoutes);
 
 app.get('/health', async () => ({ ok: true }));
 

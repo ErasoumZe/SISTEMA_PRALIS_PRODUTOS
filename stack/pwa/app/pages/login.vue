@@ -1,4 +1,6 @@
 <script setup lang="ts">
+definePageMeta({ layout: 'auth' });
+
 const { login, register, verify, resend } = useAuth();
 
 const modo = ref<'login' | 'registro' | 'verificar'>('login');
@@ -33,7 +35,6 @@ async function submit() {
     }
   } catch (e: unknown) {
     const err = e as { data?: { message?: string; details?: { code?: string } } };
-    // login com e-mail não confirmado → vai pra etapa de verificação
     if (err?.data?.details?.code === 'EMAIL_NOT_VERIFIED') {
       await resend(email.value).catch(() => {});
       modo.value = 'verificar';
@@ -53,7 +54,14 @@ async function reenviar() {
 }
 
 const titulo = computed(() =>
-  modo.value === 'login' ? 'Entre na sua conta' : modo.value === 'registro' ? 'Crie sua conta' : 'Confirme seu e-mail',
+  modo.value === 'login' ? 'Bem-vindo de volta' : modo.value === 'registro' ? 'Crie sua conta' : 'Confirme seu e-mail',
+);
+const subtitulo = computed(() =>
+  modo.value === 'login'
+    ? 'Entre para gerenciar os produtos da sua loja'
+    : modo.value === 'registro'
+      ? 'Preencha seus dados para começar'
+      : 'Digite o código que enviamos por e-mail',
 );
 const botao = computed(() =>
   modo.value === 'login' ? 'Entrar' : modo.value === 'registro' ? 'Criar conta' : 'Confirmar',
@@ -61,71 +69,92 @@ const botao = computed(() =>
 </script>
 
 <template>
-  <v-row justify="center" class="mt-8">
-    <v-col cols="12" sm="8" md="5" lg="4">
-      <v-card flat border rounded="lg" class="pa-2">
-        <v-card-item class="text-center">
-          <v-icon color="primary" size="40">mdi-package-variant-closed</v-icon>
-          <div class="text-h6 font-weight-bold mt-2">Cadastro de Produtos — Pralis</div>
-          <div class="text-body-2 text-medium-emphasis">{{ titulo }}</div>
-        </v-card-item>
+  <div class="d-flex align-center justify-center pa-4" style="min-height: 100vh">
+    <v-card width="440" max-width="100%" rounded="xl" elevation="12" class="pa-2">
+      <v-card-text class="pa-8">
+        <div class="text-center mb-6">
+          <v-avatar color="primary" size="56" rounded="lg" class="mb-3">
+            <v-icon size="30" color="white">mdi-package-variant-closed</v-icon>
+          </v-avatar>
+          <div class="text-overline text-medium-emphasis">CADASTRO DE PRODUTOS — PRALIS</div>
+          <div class="text-h5 font-weight-bold mt-1">{{ titulo }}</div>
+          <div class="text-body-2 text-medium-emphasis">{{ subtitulo }}</div>
+        </div>
 
-        <v-card-text>
-          <v-alert v-if="erro" type="error" variant="tonal" density="compact" class="mb-3">{{ erro }}</v-alert>
-          <v-alert v-if="aviso" type="info" variant="tonal" density="compact" class="mb-3">{{ aviso }}</v-alert>
+        <v-alert v-if="erro" type="error" variant="tonal" density="compact" class="mb-4">{{ erro }}</v-alert>
+        <v-alert v-if="aviso" type="info" variant="tonal" density="compact" class="mb-4">{{ aviso }}</v-alert>
 
-          <v-form @submit.prevent="submit">
-            <!-- etapa de confirmação por código -->
-            <template v-if="modo === 'verificar'">
-              <v-text-field
-                v-model="code"
-                label="Código (6 dígitos)"
-                variant="outlined"
-                density="comfortable"
-                prepend-inner-icon="mdi-shield-key"
-                maxlength="6"
-                class="mb-2"
-              />
-              <v-btn type="submit" color="primary" block size="large" :loading="loading">Confirmar</v-btn>
-              <div class="text-center mt-3 text-body-2">
-                <a href="#" class="text-primary text-decoration-none" @click.prevent="reenviar">Reenviar código</a>
-              </div>
-            </template>
+        <v-form @submit.prevent="submit">
+          <template v-if="modo === 'verificar'">
+            <v-text-field
+              v-model="code"
+              label="Código (6 dígitos)"
+              variant="outlined"
+              prepend-inner-icon="mdi-shield-key-outline"
+              maxlength="6"
+              class="mb-1"
+            />
+            <v-btn type="submit" color="primary" block size="large" rounded="lg" :loading="loading" class="mt-2">Confirmar</v-btn>
+            <div class="text-center mt-4 text-body-2">
+              <a href="#" class="text-primary text-decoration-none font-weight-medium" @click.prevent="reenviar">Reenviar código</a>
+            </div>
+          </template>
 
-            <!-- login / registro -->
-            <template v-else>
-              <v-text-field
-                v-if="modo === 'registro'"
-                v-model="name"
-                label="Nome"
-                variant="outlined"
-                density="comfortable"
-                prepend-inner-icon="mdi-account"
-                class="mb-2"
-              />
-              <v-select
-                v-if="modo === 'registro'"
-                v-model="loja"
-                :items="['TNP', 'LI', 'HORA']"
-                label="Sua loja"
-                variant="outlined"
-                density="comfortable"
-                prepend-inner-icon="mdi-store"
-                class="mb-2"
-              />
-              <v-text-field v-model="email" label="E-mail" type="email" variant="outlined" density="comfortable" prepend-inner-icon="mdi-email" class="mb-2" />
-              <v-text-field v-model="password" label="Senha" type="password" variant="outlined" density="comfortable" prepend-inner-icon="mdi-lock" class="mb-2" />
-              <v-btn type="submit" color="primary" block size="large" :loading="loading">{{ botao }}</v-btn>
-            </template>
-          </v-form>
+          <template v-else>
+            <v-text-field
+              v-if="modo === 'registro'"
+              v-model="name"
+              label="Nome"
+              variant="outlined"
+              prepend-inner-icon="mdi-account-outline"
+              class="mb-3"
+              hide-details
+            />
+            <v-select
+              v-if="modo === 'registro'"
+              v-model="loja"
+              :items="['TNP', 'LI', 'HORA']"
+              label="Sua loja"
+              variant="outlined"
+              prepend-inner-icon="mdi-store-outline"
+              class="mb-3"
+              hide-details
+            />
+            <v-text-field
+              v-model="email"
+              label="E-mail"
+              type="email"
+              variant="outlined"
+              prepend-inner-icon="mdi-email-outline"
+              class="mb-3"
+              hide-details
+            />
+            <v-text-field
+              v-model="password"
+              label="Senha"
+              type="password"
+              variant="outlined"
+              prepend-inner-icon="mdi-lock-outline"
+              class="mb-2"
+              hide-details
+            />
+            <v-btn type="submit" color="primary" block size="large" rounded="lg" :loading="loading" class="mt-4">
+              {{ botao }}
+            </v-btn>
+          </template>
+        </v-form>
 
-          <div v-if="modo !== 'verificar'" class="text-center mt-4 text-body-2">
-            <a href="#" class="text-primary text-decoration-none" @click.prevent="modo = modo === 'login' ? 'registro' : 'login'">
-              {{ modo === 'login' ? 'Não tem conta? Criar uma' : 'Já tem conta? Entrar' }}
-            </a>
-          </div>
-        </v-card-text>
-      </v-card>
-    </v-col>
-  </v-row>
+        <div v-if="modo !== 'verificar'" class="text-center mt-5 text-body-2 text-medium-emphasis">
+          {{ modo === 'login' ? 'Não tem conta?' : 'Já tem conta?' }}
+          <a
+            href="#"
+            class="text-primary text-decoration-none font-weight-medium ml-1"
+            @click.prevent="modo = modo === 'login' ? 'registro' : 'login'"
+          >
+            {{ modo === 'login' ? 'Criar uma' : 'Entrar' }}
+          </a>
+        </div>
+      </v-card-text>
+    </v-card>
+  </div>
 </template>
