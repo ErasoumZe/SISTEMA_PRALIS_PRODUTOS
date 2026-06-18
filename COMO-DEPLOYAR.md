@@ -24,9 +24,20 @@ Os artefatos já estão prontos:
    | `JWT_SECRET` `COOKIE_SECRET` | **gere segredos fortes** (ex.: `openssl rand -hex 32`) |
    | `CLOUDINARY_CLOUD_NAME` `CLOUDINARY_API_KEY` `CLOUDINARY_API_SECRET` | do dashboard do Cloudinary |
 
-4. **Deploy.** O Coolify builda as imagens e sobe os 3 serviços.
-5. **Domínios + Cloudflare:** aponte os domínios (front e API) para o servidor, com DNS no
-   Cloudflare. Libere os usuários no **Zero Trust → Access → Applications** se usar essa camada.
+4. **Domínios (no Coolify):** atribua um domínio a **cada serviço exposto**:
+   - serviço **`pwa`** → o domínio do front (= `APP_URL`)
+   - serviço **`api`** → o domínio da API (= `API_URL`)
+   O proxy do Coolify roteia por domínio (por isso o compose usa `expose`, sem fixar porta no host —
+   **zero risco de conflito com o app da Cicluz**).
+5. **Deploy.** O Coolify builda as imagens e sobe os 3 serviços (em containers isolados).
+6. **Cloudflare:** aponte os domínios (front e API) para o servidor, com DNS no Cloudflare.
+   Libere os usuários no **Zero Trust → Access → Applications** se usar essa camada.
+
+## Não afeta o app da Cicluz
+O Pralis sobe como um **recurso novo e isolado** no Coolify: containers próprios
+(`pralis_postgres`, `pralis_api`, `pralis_pwa`), **rede e volume próprios** e **banco Postgres
+separado**. Não compartilha nada com o app existente da Cicluz. O `name: pralis` no compose
+garante que o projeto não colide com outros.
 
 ## Detalhes importantes
 
@@ -36,13 +47,10 @@ Os artefatos já estão prontos:
 - `CORS_ORIGIN` deve ser a URL exata do front (não use `*` com cookies em produção).
 - O front lê a API por `NUXT_PUBLIC_API_BASE` (= `API_URL`).
 
-## Simular produção localmente (opcional)
-Crie um `.env` ao lado do compose com as variáveis acima e rode:
-```bash
-cd pralis
-docker compose -f docker-compose.coolify.yaml up --build
-```
-Front em http://localhost:3000, API em http://localhost:3344.
+## Testar localmente
+Para desenvolvimento local, use o fluxo do **[COMO-RODAR.md](COMO-RODAR.md)** (Postgres no Docker +
+`tsx` na API + `nuxt dev`). O `docker-compose.coolify.yaml` é otimizado para o Coolify (usa `expose`
+em vez de publicar portas no host), então não é o ideal para abrir direto no navegador local.
 
 ## Merge → deploy automático
 Como na Cicluz: configure o Coolify para **redeploy automático no push da branch main**.

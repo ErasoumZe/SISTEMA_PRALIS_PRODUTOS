@@ -36,8 +36,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - '3344:3344'
+    # sem 'ports' no host: o proxy do Coolify roteia pelo domínio (defina API_URL no serviço)
+    expose:
+      - '3344'
     restart: unless-stopped
 
   pwa:
@@ -48,8 +49,9 @@ services:
       NUXT_PUBLIC_API_BASE: ${API_URL}
     depends_on:
       - api
-    ports:
-      - '3000:3000'
+    # sem 'ports' no host: o proxy do Coolify roteia pelo domínio (defina APP_URL no serviço)
+    expose:
+      - '3000'
     restart: unless-stopped
 
 volumes:
