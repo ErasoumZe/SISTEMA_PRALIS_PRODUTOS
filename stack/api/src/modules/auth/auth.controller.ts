@@ -38,6 +38,16 @@ export class AuthController {
     return reply.status(200).send(buildResponse(null, 'Se a conta existir, um novo código foi enviado.'));
   }
 
+  async forgotPassword(request: FastifyRequest<{ Body: AuthRequests.ForgotPasswordRequest }>, reply: FastifyReply) {
+    await this.service.forgotPassword(request.body.email);
+    return reply.status(200).send(buildResponse(null, 'Se a conta existir, enviamos um código de recuperação.'));
+  }
+
+  async resetPassword(request: FastifyRequest<{ Body: AuthRequests.ResetPasswordRequest }>, reply: FastifyReply) {
+    await this.service.resetPassword(request.body.email, request.body.code, request.body.password);
+    return reply.status(200).send(buildResponse(null, 'Senha redefinida! Faça login com a nova senha.'));
+  }
+
   async login(request: FastifyRequest<{ Body: AuthRequests.LoginRequest }>, reply: FastifyReply) {
     const { user, sessionId } = await this.service.login(request.body.email, request.body.password);
     const token = await reply.jwtSign({ sub: user.id, sessionId });

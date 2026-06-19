@@ -17,12 +17,37 @@ export class EmailService {
       from: env.EMAIL_FROM,
       to,
       subject: 'Seu código de acesso — Pralis',
-      html: EmailService.verificationHtml(name, code),
+      html: EmailService.codeEmail({
+        name,
+        code,
+        intro: 'Use o código abaixo para confirmar seu e-mail e ativar sua conta:',
+        nota: 'É só voltar à tela de confirmação e digitá-lo.',
+      }),
     });
   }
 
-  /** Template HTML do e-mail de verificação (identidade Pralis). */
-  static verificationHtml(name: string, code: string): string {
+  /** Envia o código de recuperação de senha. Sem Resend (dev), apenas loga. */
+  async sendPasswordReset(to: string, name: string, code: string): Promise<void> {
+    if (!this.resend) {
+      // eslint-disable-next-line no-console
+      console.log(`\n[DEV] Código de recuperação de senha para ${to}: ${code}\n`);
+      return;
+    }
+    await this.resend.emails.send({
+      from: env.EMAIL_FROM,
+      to,
+      subject: 'Recuperação de senha — Pralis',
+      html: EmailService.codeEmail({
+        name,
+        code,
+        intro: 'Recebemos um pedido para redefinir a sua senha. Use o código abaixo:',
+        nota: 'É só voltar à tela de recuperação e digitá-lo para criar uma nova senha.',
+      }),
+    });
+  }
+
+  /** Template HTML (identidade Pralis) de e-mail com código em destaque. */
+  static codeEmail({ name, code, intro, nota }: { name: string; code: string; intro: string; nota: string }): string {
     const appUrl =
       env.CORS_ORIGIN && env.CORS_ORIGIN !== '*'
         ? env.CORS_ORIGIN.replace(/\/$/, '')
@@ -41,7 +66,7 @@ export class EmailService {
         </td></tr>
         <tr><td style="padding:8px 36px 0;">
           <h1 style="margin:16px 0 6px;font-size:22px;color:#1d1d1f;font-weight:700;">Olá, ${safeName}!</h1>
-          <p style="margin:0;font-size:15px;line-height:1.6;color:#5c5c61;">Use o código abaixo para confirmar seu e-mail e ativar sua conta:</p>
+          <p style="margin:0;font-size:15px;line-height:1.6;color:#5c5c61;">${intro}</p>
         </td></tr>
         <tr><td style="padding:22px 36px;">
           <div style="background:#f4ecdd;border-radius:14px;padding:22px;text-align:center;">
@@ -49,11 +74,11 @@ export class EmailService {
           </div>
         </td></tr>
         <tr><td style="padding:0 36px;">
-          <p style="margin:0;font-size:13px;line-height:1.6;color:#8a8a8f;">O código expira em <strong style="color:#ee7a1e;">15 minutos</strong>. É só voltar à tela de confirmação e digitá-lo.</p>
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#8a8a8f;">O código expira em <strong style="color:#ee7a1e;">15 minutos</strong>. ${nota}</p>
         </td></tr>
         <tr><td style="padding:24px 36px 32px;">
           <hr style="border:none;border-top:1px solid #ececee;margin:0 0 16px;" />
-          <p style="margin:0;font-size:12px;line-height:1.6;color:#a0a0a5;">Se você não solicitou este código, pode ignorar este e-mail com segurança.</p>
+          <p style="margin:0;font-size:12px;line-height:1.6;color:#a0a0a5;">Se você não solicitou, pode ignorar este e-mail com segurança.</p>
           <p style="margin:10px 0 0;font-size:12px;color:#a0a0a5;">— Equipe <strong style="color:#5c3a34;">Pralis</strong> · Cicluz</p>
         </td></tr>
       </table>

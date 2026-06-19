@@ -70,6 +70,28 @@ export class AuthService {
     await this.email.sendVerificationCode(user.email, user.name, code);
   }
 
+  /** Inicia a recuperação: gera código e envia por e-mail (não revela se a conta existe). */
+  async forgotPassword(email: string): Promise<void> {
+    const user = await this.repo.findByEmail(email);
+    if (!user || !user.isActive) return;
+    const code = genCode();
+    const expires = new Date(Date.now() + CODE_TTL_MIN * 60_000);
+    await this.repo.setResetCode(user.id, code, expires);
+    await this.email.sendPasswordReset(user.email, user.name, code);
+  }
+
+  /** Conclui a recuperação: valida o código e define a nova senha. */
+  async resetPassword(email: string, code: string, password: string): Promise<void> {
+    const user = await this.repo.findByEmail(email);
+    if (!user) throw new AppError('Conta não encontrada', 404, 'USER_NOT_FOUND');
+    if (!user.resetCode || user.resetCode !== code) throw new AppError('Código inválido.', 400, 'INVALID_CODE');
+    if (!user.resetExpiresAt || user.resetExpiresAt.getTime() < Date.now()) {
+      throw new AppError('Código expirado. Solicite um novo.', 400, 'CODE_EXPIRED');
+    }
+    const passwordHash = await argon2.hash(password);
+    await this.repo.resetPassword(user.id, passwordHash);
+  }
+
   async login(email: string, password: string): Promise<{ user: PublicUser; sessionId: string }> {
     const user = await this.repo.findByEmail(email);
     if (!user || !user.isActive) throw new AppError('Credenciais inválidas', 401, 'INVALID_CREDENTIALS');

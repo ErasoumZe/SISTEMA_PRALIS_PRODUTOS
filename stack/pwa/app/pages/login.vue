@@ -1,11 +1,12 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'auth' });
 
-const { login, register, verify, resend } = useAuth();
+const { login, register, verify, resend, forgotPassword, resetPassword } = useAuth();
 const adminEmail = (useRuntimeConfig().public.adminEmail as string).toLowerCase();
 const brandLogo = '/brand/simbolo.png';
 
-const modo = ref<'login' | 'registro' | 'verificar'>('login');
+type Modo = 'login' | 'registro' | 'verificar' | 'esqueci' | 'redefinir';
+const modo = ref<Modo>('login');
 const name = ref('');
 const email = ref('');
 const password = ref('');
@@ -17,6 +18,14 @@ const aviso = ref('');
 
 // admin principal não escolhe loja (casa = catálogo Base)
 const ehAdmin = computed(() => email.value.trim().toLowerCase() === adminEmail);
+
+function irPara(m: Modo) {
+  modo.value = m;
+  erro.value = '';
+  aviso.value = '';
+  code.value = '';
+  if (m === 'esqueci' || m === 'login') password.value = '';
+}
 
 async function submit() {
   erro.value = '';
@@ -34,9 +43,19 @@ async function submit() {
       await register(name.value, email.value, password.value, ehAdmin.value ? undefined : loja.value!);
       modo.value = 'verificar';
       aviso.value = `Enviamos um código de 6 dígitos para ${email.value}. Digite-o abaixo.`;
-    } else {
+    } else if (modo.value === 'verificar') {
       await verify(email.value, code.value);
       await navigateTo('/');
+    } else if (modo.value === 'esqueci') {
+      await forgotPassword(email.value);
+      modo.value = 'redefinir';
+      aviso.value = `Se a conta existir, enviamos um código para ${email.value}. Digite-o e crie uma nova senha.`;
+    } else {
+      await resetPassword(email.value, code.value, password.value);
+      modo.value = 'login';
+      password.value = '';
+      code.value = '';
+      aviso.value = 'Senha redefinida! Entre com a nova senha.';
     }
   } catch (e: unknown) {
     const err = e as { data?: { message?: string; details?: { code?: string } } };
@@ -58,18 +77,35 @@ async function reenviar() {
   aviso.value = `Novo código enviado para ${email.value}.`;
 }
 
-const titulo = computed(() =>
-  modo.value === 'login' ? 'Bem-vindo de volta' : modo.value === 'registro' ? 'Crie sua conta' : 'Confirme seu e-mail',
+const titulo = computed(
+  () =>
+    ({
+      login: 'Bem-vindo de volta',
+      registro: 'Crie sua conta',
+      verificar: 'Confirme seu e-mail',
+      esqueci: 'Recuperar senha',
+      redefinir: 'Criar nova senha',
+    })[modo.value],
 );
-const subtitulo = computed(() =>
-  modo.value === 'login'
-    ? 'Entre para gerenciar os produtos da sua loja'
-    : modo.value === 'registro'
-      ? 'Preencha seus dados para começar'
-      : 'Digite o código que enviamos por e-mail',
+const subtitulo = computed(
+  () =>
+    ({
+      login: 'Entre para gerenciar os produtos da sua loja',
+      registro: 'Preencha seus dados para começar',
+      verificar: 'Digite o código que enviamos por e-mail',
+      esqueci: 'Enviaremos um código para o seu e-mail',
+      redefinir: 'Digite o código e a sua nova senha',
+    })[modo.value],
 );
-const botao = computed(() =>
-  modo.value === 'login' ? 'Entrar' : modo.value === 'registro' ? 'Criar conta' : 'Confirmar',
+const botao = computed(
+  () =>
+    ({
+      login: 'Entrar',
+      registro: 'Criar conta',
+      verificar: 'Confirmar',
+      esqueci: 'Enviar código',
+      redefinir: 'Redefinir senha',
+    })[modo.value],
 );
 </script>
 
@@ -99,31 +135,34 @@ const botao = computed(() =>
         <v-alert v-if="aviso" type="info" variant="tonal" density="compact" class="mb-4">{{ aviso }}</v-alert>
 
         <v-form @submit.prevent="submit">
+          <!-- confirmar e-mail -->
           <template v-if="modo === 'verificar'">
-            <v-text-field
-              v-model="code"
-              label="Código (6 dígitos)"
-              variant="outlined"
-              prepend-inner-icon="password"
-              maxlength="6"
-              class="mb-1"
-            />
+            <v-text-field v-model="code" label="Código (6 dígitos)" variant="outlined" prepend-inner-icon="password" maxlength="6" class="mb-1" />
             <v-btn type="submit" color="primary" block size="large" rounded="lg" :loading="loading" class="mt-2">Confirmar</v-btn>
             <div class="text-center mt-4 text-body-2">
               <a href="#" class="text-primary text-decoration-none font-weight-medium" @click.prevent="reenviar">Reenviar código</a>
             </div>
           </template>
 
+          <!-- recuperar senha: pedir e-mail -->
+          <template v-else-if="modo === 'esqueci'">
+            <v-text-field v-model="email" label="E-mail" type="email" variant="outlined" prepend-inner-icon="mail" class="mb-2" hide-details />
+            <v-btn type="submit" color="primary" block size="large" rounded="lg" :loading="loading" class="mt-4">{{ botao }}</v-btn>
+          </template>
+
+          <!-- recuperar senha: código + nova senha -->
+          <template v-else-if="modo === 'redefinir'">
+            <v-text-field v-model="code" label="Código (6 dígitos)" variant="outlined" prepend-inner-icon="password" maxlength="6" class="mb-3" hide-details />
+            <v-text-field v-model="password" label="Nova senha" type="password" variant="outlined" prepend-inner-icon="lock" class="mb-1" hide-details />
+            <v-btn type="submit" color="primary" block size="large" rounded="lg" :loading="loading" class="mt-4">{{ botao }}</v-btn>
+            <div class="text-center mt-4 text-body-2">
+              <a href="#" class="text-primary text-decoration-none font-weight-medium" @click.prevent="reenviar">Reenviar código</a>
+            </div>
+          </template>
+
+          <!-- login / registro -->
           <template v-else>
-            <v-text-field
-              v-if="modo === 'registro'"
-              v-model="name"
-              label="Nome"
-              variant="outlined"
-              prepend-inner-icon="person"
-              class="mb-3"
-              hide-details
-            />
+            <v-text-field v-if="modo === 'registro'" v-model="name" label="Nome" variant="outlined" prepend-inner-icon="person" class="mb-3" hide-details />
             <v-select
               v-if="modo === 'registro' && !ehAdmin"
               v-model="loja"
@@ -142,39 +181,24 @@ const botao = computed(() =>
               class="mb-3"
               text="Conta de administrador — sem loja (cadastra no catálogo Base por padrão)."
             />
-            <v-text-field
-              v-model="email"
-              label="E-mail"
-              type="email"
-              variant="outlined"
-              prepend-inner-icon="mail"
-              class="mb-3"
-              hide-details
-            />
-            <v-text-field
-              v-model="password"
-              label="Senha"
-              type="password"
-              variant="outlined"
-              prepend-inner-icon="lock"
-              class="mb-2"
-              hide-details
-            />
-            <v-btn type="submit" color="primary" block size="large" rounded="lg" :loading="loading" class="mt-4">
-              {{ botao }}
-            </v-btn>
+            <v-text-field v-model="email" label="E-mail" type="email" variant="outlined" prepend-inner-icon="mail" class="mb-3" hide-details />
+            <v-text-field v-model="password" label="Senha" type="password" variant="outlined" prepend-inner-icon="lock" class="mb-1" hide-details />
+            <div v-if="modo === 'login'" class="text-right mb-1">
+              <a href="#" class="text-primary text-decoration-none text-caption font-weight-medium" @click.prevent="irPara('esqueci')">Esqueci a senha</a>
+            </div>
+            <v-btn type="submit" color="primary" block size="large" rounded="lg" :loading="loading" class="mt-3">{{ botao }}</v-btn>
           </template>
         </v-form>
 
-        <div v-if="modo !== 'verificar'" class="text-center mt-5 text-body-2 text-medium-emphasis">
+        <!-- rodapé: alternar login/registro ou voltar -->
+        <div v-if="modo === 'login' || modo === 'registro'" class="text-center mt-5 text-body-2 text-medium-emphasis">
           {{ modo === 'login' ? 'Não tem conta?' : 'Já tem conta?' }}
-          <a
-            href="#"
-            class="text-primary text-decoration-none font-weight-medium ml-1"
-            @click.prevent="modo = modo === 'login' ? 'registro' : 'login'"
-          >
+          <a href="#" class="text-primary text-decoration-none font-weight-medium ml-1" @click.prevent="irPara(modo === 'login' ? 'registro' : 'login')">
             {{ modo === 'login' ? 'Criar uma' : 'Entrar' }}
           </a>
+        </div>
+        <div v-else class="text-center mt-5 text-body-2">
+          <a href="#" class="text-medium-emphasis text-decoration-none font-weight-medium" @click.prevent="irPara('login')">← Voltar ao login</a>
         </div>
       </v-card-text>
     </v-card>

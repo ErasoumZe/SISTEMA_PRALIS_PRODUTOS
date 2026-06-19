@@ -37,4 +37,10 @@ export class AdminController {
     await this.service.updateRole(request.params.id, request.body.role);
     return reply.status(200).send(buildResponse(null, 'Permissão atualizada'));
   }
+
+  async deleteUser(request: FastifyRequest<{ Params: AdminRequests.AdminUserIdParam }>, reply: FastifyReply) {
+    const admin = requireAdmin(request);
+    await this.service.deleteUser(admin.id, request.params.id);
+    return reply.status(200).send(buildResponse(null, 'Usuário excluído'));
+  }
 }

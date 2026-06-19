@@ -49,5 +49,7 @@ export function useApi() {
     listUsers: () => unwrap($fetch<{ data: AdminUser[] }>('/admin/users', { ...base })),
     setUserRole: (id: string, role: 'admin' | 'user') =>
       $fetch(`/admin/users/${id}/role`, { ...base, method: 'PATCH', body: { role } }),
+
+    deleteUser: (id: string) => $fetch(`/admin/users/${id}`, { ...base, method: 'DELETE' }),
   };
 }

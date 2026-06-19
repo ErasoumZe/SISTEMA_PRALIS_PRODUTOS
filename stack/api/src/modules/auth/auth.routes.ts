@@ -38,6 +38,18 @@ export async function authRoutes(app: FastifyInstance) {
     controller.resend.bind(controller),
   );
 
+  a.post<{ Body: AuthRequests.ForgotPasswordRequest }>(
+    '/auth/forgot-password',
+    { schema: { body: AuthRequests.forgotPasswordSchema, response: { 200: okReply }, summary: 'Solicitar recuperação de senha', tags: ['AUTH'] } },
+    controller.forgotPassword.bind(controller),
+  );
+
+  a.post<{ Body: AuthRequests.ResetPasswordRequest }>(
+    '/auth/reset-password',
+    { schema: { body: AuthRequests.resetPasswordSchema, response: { 200: okReply }, summary: 'Redefinir senha com código', tags: ['AUTH'] } },
+    controller.resetPassword.bind(controller),
+  );
+
   a.post<{ Body: AuthRequests.LoginRequest }>(
     '/auth/login',
     { schema: { body: AuthRequests.loginSchema, response: { 200: userReply }, summary: 'Login', tags: ['AUTH'] } },

@@ -3,10 +3,30 @@ import type { AdminSchemas } from '@pralis/shared';
 
 const api = useApi();
 const { user: atual } = useAuth();
+const adminEmail = (useRuntimeConfig().public.adminEmail as string).toLowerCase();
 const users = ref<AdminSchemas.AdminUser[]>([]);
 const loading = ref(true);
 const erro = ref('');
 const salvandoId = ref<string | null>(null);
+const excluindoId = ref<string | null>(null);
+
+// não pode excluir a si mesmo nem o admin-raiz
+const podeExcluir = (u: AdminSchemas.AdminUser) =>
+  u.id !== atual.value?.id && u.email.trim().toLowerCase() !== adminEmail;
+
+async function excluir(u: AdminSchemas.AdminUser) {
+  if (!confirm(`Excluir o usuário ${u.name}? Os produtos que ele cadastrou continuam (mantêm o nome).`)) return;
+  excluindoId.value = u.id;
+  erro.value = '';
+  try {
+    await api.deleteUser(u.id);
+    await load();
+  } catch (e: unknown) {
+    erro.value = (e as { data?: { message?: string } })?.data?.message || 'Não foi possível excluir o usuário.';
+  } finally {
+    excluindoId.value = null;
+  }
+}
 
 async function load() {
   loading.value = true;
@@ -96,18 +116,30 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
             <td class="text-center font-weight-medium">{{ u.produtos }}</td>
             <td class="text-medium-emphasis">{{ quando(u.createdAt) }}</td>
             <td class="text-right">
-              <v-btn
-                v-if="u.id !== atual?.id"
-                size="small"
-                variant="tonal"
-                :color="u.role === 'admin' ? 'error' : 'primary'"
-                :loading="salvandoId === u.id"
-                :prepend-icon="u.role === 'admin' ? 'arrow_downward' : 'arrow_upward'"
-                @click="toggleRole(u)"
-              >
-                {{ u.role === 'admin' ? 'Rebaixar' : 'Tornar admin' }}
-              </v-btn>
-              <span v-else class="text-caption text-medium-emphasis">—</span>
+              <div class="d-flex justify-end align-center ga-1">
+                <v-btn
+                  v-if="u.id !== atual?.id"
+                  size="small"
+                  variant="tonal"
+                  :color="u.role === 'admin' ? 'error' : 'primary'"
+                  :loading="salvandoId === u.id"
+                  :prepend-icon="u.role === 'admin' ? 'arrow_downward' : 'arrow_upward'"
+                  @click="toggleRole(u)"
+                >
+                  {{ u.role === 'admin' ? 'Rebaixar' : 'Tornar admin' }}
+                </v-btn>
+                <v-btn
+                  v-if="podeExcluir(u)"
+                  icon="delete"
+                  size="small"
+                  variant="text"
+                  color="error"
+                  :loading="excluindoId === u.id"
+                  title="Excluir usuário"
+                  @click="excluir(u)"
+                />
+                <span v-if="u.id === atual?.id" class="text-caption text-medium-emphasis">—</span>
+              </div>
             </td>
           </tr>
           <tr v-if="!loading && !users.length">

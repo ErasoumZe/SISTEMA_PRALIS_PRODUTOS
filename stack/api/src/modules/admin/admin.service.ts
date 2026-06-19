@@ -25,4 +25,15 @@ export class AdminService {
     }
     await this.repo.updateRole(id, role);
   }
+
+  /** Exclui um usuário. Não permite excluir a si mesmo nem o admin-raiz (ADMIN_EMAIL). */
+  async deleteUser(actorId: string, id: string): Promise<void> {
+    const user = await this.repo.findUser(id);
+    if (!user) throw new AppError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
+    if (id === actorId) throw new AppError('Você não pode excluir a própria conta.', 400, 'CANNOT_DELETE_SELF');
+    if (user.email.trim().toLowerCase() === env.ADMIN_EMAIL) {
+      throw new AppError('O administrador principal não pode ser excluído.', 400, 'CANNOT_DELETE_ROOT');
+    }
+    await this.repo.deleteUser(id);
+  }
 }

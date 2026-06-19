@@ -132,4 +132,10 @@ export class AdminRepository {
     const updated = await db.update(users).set({ role }).where(eq(users.id, id)).returning({ id: users.id });
     return updated.length > 0;
   }
+
+  async deleteUser(id: string): Promise<boolean> {
+    // produtos criados por ele ficam (FK createdByUserId é ON DELETE SET NULL; createdByName permanece)
+    const deleted = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id });
+    return deleted.length > 0;
+  }
 }

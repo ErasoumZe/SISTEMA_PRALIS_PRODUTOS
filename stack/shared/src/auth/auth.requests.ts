@@ -27,3 +27,15 @@ export const resendCodeSchema = z.object({
   email: z.email('E-mail inválido'),
 });
 export type ResendCodeRequest = z.infer<typeof resendCodeSchema>;
+
+export const forgotPasswordSchema = z.object({
+  email: z.email('E-mail inválido'),
+});
+export type ForgotPasswordRequest = z.infer<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z.object({
+  email: z.email('E-mail inválido'),
+  code: z.string().length(6, 'O código tem 6 dígitos'),
+  password: z.string().min(6, 'Mínimo 6 caracteres'),
+});
+export type ResetPasswordRequest = z.infer<typeof resetPasswordSchema>;

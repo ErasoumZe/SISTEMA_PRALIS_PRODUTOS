@@ -40,6 +40,14 @@ export function useAuth() {
     await $fetch('/auth/resend', { ...base, method: 'POST', body: { email } });
   }
 
+  async function forgotPassword(email: string) {
+    await $fetch('/auth/forgot-password', { ...base, method: 'POST', body: { email } });
+  }
+
+  async function resetPassword(email: string, code: string, password: string) {
+    await $fetch('/auth/reset-password', { ...base, method: 'POST', body: { email, code, password } });
+  }
+
   async function logout() {
     try {
       await $fetch('/auth/logout', { ...base, method: 'POST' });
@@ -50,5 +58,5 @@ export function useAuth() {
     await navigateTo('/login');
   }
 
-  return { user, fetchMe, login, register, verify, resend, logout };
+  return { user, fetchMe, login, register, verify, resend, forgotPassword, resetPassword, logout };
 }

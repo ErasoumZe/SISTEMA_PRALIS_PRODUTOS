@@ -43,4 +43,17 @@ export async function adminRoutes(app: FastifyInstance) {
     },
     controller.updateRole.bind(controller),
   );
+
+  a.delete<{ Params: AdminRequests.AdminUserIdParam }>(
+    '/admin/users/:id',
+    {
+      schema: {
+        params: AdminRequests.adminUserIdParamSchema,
+        response: { 200: okReply },
+        summary: 'Excluir usuário',
+        tags: ['ADMIN'],
+      },
+    },
+    controller.deleteUser.bind(controller),
+  );
 }

@@ -32,6 +32,18 @@ export class AuthRepository {
       .where(eq(users.id, userId));
   }
 
+  async setResetCode(userId: string, code: string, expiresAt: Date, tx: Tx = db) {
+    await tx.update(users).set({ resetCode: code, resetExpiresAt: expiresAt }).where(eq(users.id, userId));
+  }
+
+  /** Define a nova senha e limpa o código de reset. */
+  async resetPassword(userId: string, passwordHash: string, tx: Tx = db) {
+    await tx
+      .update(users)
+      .set({ passwordHash, resetCode: null, resetExpiresAt: null })
+      .where(eq(users.id, userId));
+  }
+
   async findByEmail(email: string, tx: Tx = db) {
     const [user] = await tx.select().from(users).where(eq(users.email, email)).limit(1);
     return user ?? null;
