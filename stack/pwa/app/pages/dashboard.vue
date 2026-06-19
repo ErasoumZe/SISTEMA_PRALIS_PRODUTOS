@@ -27,11 +27,11 @@ const cards = computed(() => {
   const t = data.value?.totais;
   if (!t) return [];
   return [
-    { label: 'Usuários', value: t.usuarios, icon: 'mdi-account-group', color: '#6366f1' },
-    { label: 'Lojas ativas', value: t.lojas, icon: 'mdi-store', color: '#10b981' },
-    { label: 'Produtos (total)', value: t.produtos, icon: 'mdi-package-variant-closed', color: '#3b82f6', hint: `${nf(t.base)} no catálogo Base` },
-    { label: 'Ativos', value: t.ativos, icon: 'mdi-check-circle', color: '#22c55e', hint: `${pct(t.ativos, t.produtos)}% do total` },
-    { label: 'Inativos', value: t.inativos, icon: 'mdi-close-circle', color: '#ef4444', hint: `${pct(t.inativos, t.produtos)}% do total` },
+    { label: 'Usuários', value: t.usuarios, icon: 'group', color: '#5C3A34' },
+    { label: 'Lojas ativas', value: t.lojas, icon: 'storefront', color: '#EE7A1E' },
+    { label: 'Produtos (total)', value: t.produtos, icon: 'inventory_2', color: '#3B82F6', hint: `${nf(t.base)} no catálogo Base` },
+    { label: 'Ativos', value: t.ativos, icon: 'check_circle', color: '#34A853', hint: `${pct(t.ativos, t.produtos)}% do total` },
+    { label: 'Inativos', value: t.inativos, icon: 'cancel', color: '#E5484D', hint: `${pct(t.inativos, t.produtos)}% do total` },
   ];
 });
 
@@ -40,7 +40,7 @@ const donut = computed(() => ({
   series: [data.value?.totais.ativos ?? 0, data.value?.totais.inativos ?? 0],
   options: {
     labels: ['Ativos', 'Inativos'],
-    colors: ['#22c55e', '#ef4444'],
+    colors: ['#34A853', '#E5484D'],
     legend: { position: 'bottom' },
     dataLabels: { enabled: false },
     plotOptions: { pie: { donut: { size: '68%' } } },
@@ -53,9 +53,9 @@ const produtividade = computed(() => {
   return {
     series: [{ name: 'Produtos cadastrados', data: p.map((x) => x.total) }],
     options: {
-      chart: { toolbar: { show: false } },
-      colors: ['#7c3aed'],
-      plotOptions: { bar: { horizontal: true, borderRadius: 4, barHeight: '60%' } },
+      chart: { toolbar: { show: false }, fontFamily: 'Montserrat, sans-serif' },
+      colors: ['#EE7A1E'],
+      plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '58%' } },
       dataLabels: { enabled: true },
       xaxis: { categories: p.map((x) => x.nome) },
       grid: { borderColor: '#eef2f7' },
@@ -68,8 +68,8 @@ const porDia = computed(() => {
   return {
     series: [{ name: 'Cadastros', data: d.map((x) => x.total) }],
     options: {
-      chart: { toolbar: { show: false } },
-      colors: ['#3b82f6'],
+      chart: { toolbar: { show: false }, fontFamily: 'Montserrat, sans-serif' },
+      colors: ['#5C3A34'],
       stroke: { curve: 'smooth', width: 3 },
       fill: { type: 'gradient', gradient: { opacityFrom: 0.4, opacityTo: 0.05 } },
       dataLabels: { enabled: false },
@@ -87,7 +87,7 @@ function quando(iso: string) {
   const d = new Date(iso);
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
-const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'orange', BASE: 'deep-purple' };
+const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'secondary', BASE: 'primary' };
 </script>
 
 <template>
@@ -95,7 +95,7 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'o
     <div class="d-flex align-center mb-5">
       <div class="text-body-2 text-medium-emphasis">Métricas calculadas em tempo real a partir dos cadastros.</div>
       <v-spacer />
-      <v-btn variant="tonal" color="primary" prepend-icon="mdi-refresh" :loading="loading" @click="load">Atualizar</v-btn>
+      <v-btn variant="tonal" color="primary" prepend-icon="refresh" :loading="loading" @click="load">Atualizar</v-btn>
     </div>
 
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
@@ -130,7 +130,7 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'o
               <apexchart v-if="temProdutividade" type="bar" height="320" :options="produtividade.options" :series="produtividade.series" />
             </client-only>
             <div v-if="!temProdutividade" class="text-center text-medium-emphasis py-10">
-              <v-icon size="40" class="mb-2">mdi-chart-bar</v-icon>
+              <v-icon size="40" class="mb-2">bar_chart</v-icon>
               <div>Ainda não há produtos cadastrados nas lojas.</div>
             </div>
           </v-card>
@@ -156,7 +156,7 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'o
               <apexchart v-if="temDias" type="area" height="280" :options="porDia.options" :series="porDia.series" />
             </client-only>
             <div v-if="!temDias" class="text-center text-medium-emphasis py-10">
-              <v-icon size="40" class="mb-2">mdi-chart-line</v-icon>
+              <v-icon size="40" class="mb-2">monitoring</v-icon>
               <div>Sem cadastros nos últimos 30 dias.</div>
             </div>
           </v-card>
@@ -167,7 +167,7 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'o
           <v-card flat border rounded="lg" class="pa-4 mb-4">
             <div class="text-subtitle-1 font-weight-bold mb-3">Produtos por loja</div>
             <div v-for="l in porLoja" :key="l.loja" class="d-flex align-center justify-space-between mb-2">
-              <v-chip :color="lojaColor[l.loja]" size="small" label>{{ l.loja }}</v-chip>
+              <v-chip :color="lojaColor[l.loja]" variant="tonal" size="small" class="font-weight-medium">{{ l.loja }}</v-chip>
               <span class="font-weight-bold">{{ nf(l.total) }}</span>
             </div>
             <div v-if="!porLoja.length" class="text-caption text-medium-emphasis">Nenhuma loja com produtos ainda.</div>
@@ -176,7 +176,7 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'o
           <v-card flat border rounded="lg" class="pa-4">
             <div class="text-subtitle-1 font-weight-bold mb-3">Atividades recentes</div>
             <div v-for="(r, i) in data.recentes" :key="i" class="d-flex align-center ga-3 mb-3">
-              <v-avatar color="grey-lighten-3" size="34" rounded="lg"><v-icon size="18" color="grey-darken-1">mdi-package-variant-closed</v-icon></v-avatar>
+              <v-avatar color="bege" size="34" rounded="lg"><v-icon size="18" color="primary">inventory_2</v-icon></v-avatar>
               <div style="min-width: 0">
                 <div class="text-body-2 font-weight-medium text-truncate">{{ r.nome }}</div>
                 <div class="text-caption text-medium-emphasis">{{ r.createdByName || '—' }} · {{ r.loja }} · {{ quando(r.createdAt) }}</div>

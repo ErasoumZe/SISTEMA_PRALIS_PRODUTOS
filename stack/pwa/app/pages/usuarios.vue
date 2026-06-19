@@ -41,7 +41,7 @@ async function toggleRole(u: AdminSchemas.AdminUser) {
 function quando(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR');
 }
-const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'orange' };
+const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'secondary' };
 </script>
 
 <template>
@@ -49,7 +49,7 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'o
     <div class="d-flex align-center mb-5">
       <div class="text-body-2 text-medium-emphasis">Gerencie quem tem acesso de administrador.</div>
       <v-spacer />
-      <v-btn variant="tonal" color="primary" prepend-icon="mdi-refresh" :loading="loading" @click="load">Atualizar</v-btn>
+      <v-btn variant="tonal" color="primary" prepend-icon="refresh" :loading="loading" @click="load">Atualizar</v-btn>
     </div>
 
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
@@ -71,7 +71,7 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'o
           <tr v-for="u in users" :key="u.id">
             <td>
               <div class="d-flex align-center ga-3 py-2">
-                <v-avatar :color="u.role === 'admin' ? 'deep-purple' : 'primary'" size="38">
+                <v-avatar :color="u.role === 'admin' ? 'primary' : 'primary'" size="38">
                   {{ u.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase() }}
                 </v-avatar>
                 <div style="line-height: 1.2">
@@ -88,10 +88,10 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'o
               <span v-else class="text-caption text-medium-emphasis">— (sem loja)</span>
             </td>
             <td>
-              <v-chip :color="u.role === 'admin' ? 'deep-purple' : 'grey'" size="small" label :prepend-icon="u.role === 'admin' ? 'mdi-shield-crown' : 'mdi-account'">
+              <v-chip :color="u.role === 'admin' ? 'primary' : 'grey'" size="small" label :prepend-icon="u.role === 'admin' ? 'shield_person' : 'person'">
                 {{ u.role === 'admin' ? 'Administrador' : 'Usuário' }}
               </v-chip>
-              <v-icon v-if="!u.emailVerified" size="16" color="warning" class="ml-2" title="E-mail não confirmado">mdi-email-alert</v-icon>
+              <v-icon v-if="!u.emailVerified" size="16" color="warning" class="ml-2" title="E-mail não confirmado">mark_email_unread</v-icon>
             </td>
             <td class="text-center font-weight-medium">{{ u.produtos }}</td>
             <td class="text-medium-emphasis">{{ quando(u.createdAt) }}</td>
@@ -100,9 +100,9 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 'o
                 v-if="u.id !== atual?.id"
                 size="small"
                 variant="tonal"
-                :color="u.role === 'admin' ? 'error' : 'deep-purple'"
+                :color="u.role === 'admin' ? 'error' : 'primary'"
                 :loading="salvandoId === u.id"
-                :prepend-icon="u.role === 'admin' ? 'mdi-arrow-down-bold' : 'mdi-arrow-up-bold'"
+                :prepend-icon="u.role === 'admin' ? 'arrow_downward' : 'arrow_upward'"
                 @click="toggleRole(u)"
               >
                 {{ u.role === 'admin' ? 'Rebaixar' : 'Tornar admin' }}

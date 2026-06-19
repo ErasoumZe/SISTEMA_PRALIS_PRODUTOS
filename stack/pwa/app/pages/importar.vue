@@ -55,15 +55,15 @@ async function importar() {
 <template>
   <div>
     <div class="d-flex align-center mb-4 ga-3 flex-wrap">
-      <v-btn icon="mdi-arrow-left" variant="text" to="/" />
+      <v-btn icon="arrow_back" variant="text" to="/" />
       <h1 class="text-h5 font-weight-bold">Importar da base</h1>
-      <v-chip v-if="user" color="primary" size="small" label prepend-icon="mdi-store">→ Loja {{ user.loja }}</v-chip>
+      <v-chip v-if="user" color="primary" size="small" label prepend-icon="storefront">→ Loja {{ user.loja }}</v-chip>
       <v-spacer />
       <v-btn
         color="primary"
         :loading="importing"
         :disabled="!selected.length"
-        prepend-icon="mdi-database-import"
+        prepend-icon="download"
         @click="importar"
       >
         Importar selecionados ({{ selected.length }})
@@ -81,7 +81,7 @@ async function importar() {
         flat
         hide-details
         placeholder="Buscar na base..."
-        prepend-inner-icon="mdi-magnify"
+        prepend-inner-icon="search"
         class="pa-2"
       />
       <v-data-table

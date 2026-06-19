@@ -20,7 +20,6 @@ const MEDIDAS_BASE = ['UN', 'KG', 'G', 'LT', 'ML'];
 const MEDIDAS_COMPRA = ['UN', 'KG', 'LT'];
 const EMBALAGENS = ['UN', 'KG', 'LT', 'MIL', 'FD', 'PCT', 'CX', 'POTE', 'EMB', 'SACO', 'BAND'];
 const UNIDADES_TR = ['UN', 'G', 'ML'];
-const LOJAS = ['TNP', 'LI', 'HORA'];
 const SETORES = [
   'LJ - CAIXAS', 'LJ - VITRINES', 'LJ - ESTOQUE  LOJA', 'LJ - TREINAMENTO',
   'PROD. - PANIFICAÇÃO', 'PROD. - CONFEITARIA', 'PROD. - ESTOQUE PRODUÇÃO',
@@ -229,7 +228,7 @@ onMounted(async () => {
 <template>
   <div style="max-width: 760px; margin: 0 auto">
     <div class="d-flex align-center mb-4">
-      <v-btn icon="mdi-arrow-left" variant="text" to="/" />
+      <v-btn icon="arrow_back" variant="text" to="/" />
       <h1 class="text-h5 font-weight-bold ml-2">{{ productId ? 'Editar produto' : 'Novo produto' }}</h1>
     </div>
 
@@ -249,7 +248,7 @@ onMounted(async () => {
     <v-card v-if="isAdmin && !productId" flat border rounded="lg" class="mb-4" color="deep-purple-lighten-5">
       <v-card-text>
         <div class="d-flex align-center ga-3 flex-wrap">
-          <v-icon color="deep-purple">mdi-shield-crown</v-icon>
+          <v-icon color="deep-purple">shield_person</v-icon>
           <div class="flex-grow-1" style="min-width: 220px">
             <v-select
               v-model="catalogoDestino"
@@ -299,7 +298,7 @@ onMounted(async () => {
             <v-file-input
               label="Foto do produto"
               accept="image/*"
-              prepend-icon="mdi-camera"
+              prepend-icon="photo_camera"
               variant="outlined"
               density="comfortable"
               :loading="uploadingFoto"
@@ -450,7 +449,7 @@ onMounted(async () => {
 
     <div class="d-flex justify-end ga-2">
       <v-btn variant="text" to="/">Cancelar</v-btn>
-      <v-btn color="primary" :loading="saving" prepend-icon="mdi-content-save" @click="salvar(false)">Salvar produto</v-btn>
+      <v-btn color="primary" :loading="saving" prepend-icon="save" @click="salvar(false)">Salvar produto</v-btn>
     </div>
   </div>
 </template>

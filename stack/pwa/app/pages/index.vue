@@ -21,6 +21,26 @@ const abas = [
 ] as const;
 const aba = ref<'BASE' | 'TNP' | 'LI' | 'HORA'>('BASE');
 
+// filtro de status + paginação (10 por página, no cliente)
+const statusFiltro = ref<'todos' | 'ativo' | 'inativo'>('todos');
+const statusOpcoes = [
+  { value: 'todos', label: 'Todos' },
+  { value: 'ativo', label: 'Ativos' },
+  { value: 'inativo', label: 'Inativos' },
+] as const;
+const page = ref(1);
+const PER_PAGE = 10;
+
+const filtrados = computed(() =>
+  statusFiltro.value === 'todos' ? products.value : products.value.filter((p) => p.status === statusFiltro.value),
+);
+const totalPaginas = computed(() => Math.max(1, Math.ceil(filtrados.value.length / PER_PAGE)));
+const paginados = computed(() => filtrados.value.slice((page.value - 1) * PER_PAGE, page.value * PER_PAGE));
+
+// volta pra página 1 ao trocar filtro/busca/aba; mantém a página válida quando a lista muda (polling/exclusão)
+watch([statusFiltro, search, aba], () => { page.value = 1; });
+watch(totalPaginas, (n) => { if (page.value > n) page.value = n; });
+
 async function load(silent = false) {
   if (!silent) loading.value = true;
   erro.value = '';
@@ -67,13 +87,26 @@ function preco(p: Product): string | null {
         variant="outlined"
         hide-details
         placeholder="Buscar produto..."
-        prepend-inner-icon="mdi-magnify"
+        prepend-inner-icon="search"
         style="max-width: 280px"
         @keyup.enter="load()"
       />
+      <div class="d-flex ga-2 flex-wrap">
+        <v-btn
+          v-for="s in statusOpcoes"
+          :key="s.value"
+          size="small"
+          rounded="lg"
+          :variant="statusFiltro === s.value ? 'flat' : 'outlined'"
+          :color="statusFiltro === s.value ? 'primary' : 'grey-darken-1'"
+          @click="statusFiltro = s.value"
+        >
+          {{ s.label }}
+        </v-btn>
+      </div>
       <v-spacer />
-      <v-btn v-if="!isAdmin" variant="tonal" color="primary" prepend-icon="mdi-database-import" to="/importar">Importar da base</v-btn>
-      <v-btn color="primary" prepend-icon="mdi-plus" to="/produtos/novo">Novo</v-btn>
+      <v-btn v-if="!isAdmin" variant="tonal" color="primary" prepend-icon="download" to="/importar">Importar da base</v-btn>
+      <v-btn color="primary" prepend-icon="add" to="/produtos/novo">Novo</v-btn>
     </div>
 
     <!-- Admin: alterna entre o catálogo Geral (Base) e o de cada loja -->
@@ -85,31 +118,31 @@ function preco(p: Product): string | null {
 
     <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-4" />
 
-    <v-row v-if="products.length">
-      <v-col v-for="p in products" :key="p.id" cols="12" sm="6" md="4">
-        <v-card border flat rounded="lg" class="h-100">
+    <v-row v-if="paginados.length">
+      <v-col v-for="p in paginados" :key="p.id" cols="12" sm="6" md="4">
+        <v-card border flat rounded="lg" class="h-100 product-card">
           <v-card-item>
             <div class="d-flex align-center justify-space-between ga-2">
               <div class="d-flex align-center ga-3" style="min-width: 0">
-                <v-avatar size="44" rounded="lg" :color="p.fotoUrl ? undefined : 'grey-lighten-3'">
+                <v-avatar size="46" rounded="lg" :color="p.fotoUrl ? undefined : 'bege'">
                   <v-img v-if="p.fotoUrl" :src="p.fotoUrl" cover />
-                  <v-icon v-else color="grey">mdi-package-variant-closed</v-icon>
+                  <v-icon v-else color="primary">inventory_2</v-icon>
                 </v-avatar>
                 <div style="min-width: 0">
                   <div class="text-subtitle-1 font-weight-bold text-truncate">{{ p.nome }}</div>
                   <div class="text-caption text-medium-emphasis">{{ p.codigo }}</div>
                 </div>
               </div>
-              <v-chip :color="p.status === 'ativo' ? 'green' : 'grey'" size="small" label>
+              <v-chip :color="p.status === 'ativo' ? 'success' : 'grey'" variant="tonal" size="small" class="font-weight-medium">
                 {{ p.status === 'ativo' ? 'Ativo' : 'Inativo' }}
               </v-chip>
             </div>
           </v-card-item>
           <v-divider />
           <v-card-text>
-            <div class="d-flex justify-space-between text-body-2 mb-1">
+            <div class="d-flex justify-space-between align-center text-body-2 mb-2">
               <span class="text-medium-emphasis">TIPO</span>
-              <v-chip size="x-small" label :color="p.tipo === 'revenda' ? 'primary' : 'orange'">
+              <v-chip size="x-small" variant="tonal" class="font-weight-medium" :color="p.tipo === 'revenda' ? 'primary' : 'secondary'">
                 {{ p.tipo === 'revenda' ? 'Revenda' : 'Transformação' }}
               </v-chip>
             </div>
@@ -126,23 +159,51 @@ function preco(p: Product): string | null {
               <span class="font-weight-bold">R$ {{ preco(p) }}</span>
             </div>
             <div v-if="p.createdByName" class="text-caption text-medium-emphasis mt-2">
-              <v-icon size="13">mdi-account</v-icon> cadastrado por {{ p.createdByName }}
+              <v-icon size="13">person</v-icon> cadastrado por {{ p.createdByName }}
             </div>
           </v-card-text>
           <v-divider />
           <v-card-actions>
-            <v-btn size="small" variant="text" :to="`/produtos/${p.id}`" prepend-icon="mdi-pencil">Editar</v-btn>
+            <v-btn size="small" variant="text" :to="`/produtos/${p.id}`" prepend-icon="edit">Editar</v-btn>
             <v-spacer />
-            <v-btn size="small" variant="text" color="error" prepend-icon="mdi-delete" @click="remover(p)">Excluir</v-btn>
+            <v-btn size="small" variant="text" color="error" prepend-icon="delete" @click="remover(p)">Excluir</v-btn>
           </v-card-actions>
         </v-card>
       </v-col>
     </v-row>
 
     <v-card v-else-if="!loading && !erro" flat border rounded="lg" class="pa-12 text-center text-medium-emphasis">
-      <v-icon size="48" class="mb-2">mdi-package-variant</v-icon>
-      <div>Nenhum produto cadastrado ainda.</div>
-      <v-btn color="primary" variant="tonal" class="mt-4" to="/produtos/novo">Cadastrar o primeiro</v-btn>
+      <v-icon size="48" class="mb-2">inventory_2</v-icon>
+      <div>{{ statusFiltro === 'todos' ? 'Nenhum produto cadastrado ainda.' : `Nenhum produto ${statusFiltro === 'ativo' ? 'ativo' : 'inativo'}.` }}</div>
+      <v-btn v-if="statusFiltro === 'todos'" color="primary" variant="tonal" class="mt-4" to="/produtos/novo">Cadastrar o primeiro</v-btn>
     </v-card>
+
+    <!-- paginação (10 por página) -->
+    <div v-if="filtrados.length" class="d-flex align-center justify-space-between mt-4 flex-wrap ga-2">
+      <div class="text-caption text-medium-emphasis">
+        {{ filtrados.length }} produto(s){{ statusFiltro !== 'todos' ? ` ${statusFiltro}(s)` : '' }} · página {{ page }} de {{ totalPaginas }}
+      </div>
+      <v-pagination
+        v-if="totalPaginas > 1"
+        v-model="page"
+        :length="totalPaginas"
+        :total-visible="6"
+        density="comfortable"
+        rounded="lg"
+        active-color="primary"
+      />
+    </div>
   </div>
 </template>
+
+<style scoped>
+.product-card {
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.product-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 2px 6px rgba(29, 29, 31, 0.06),
+    0 12px 28px rgba(29, 29, 31, 0.08) !important;
+}
+</style>

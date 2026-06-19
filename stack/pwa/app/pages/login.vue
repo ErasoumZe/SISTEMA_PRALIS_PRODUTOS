@@ -3,6 +3,7 @@ definePageMeta({ layout: 'auth' });
 
 const { login, register, verify, resend } = useAuth();
 const adminEmail = (useRuntimeConfig().public.adminEmail as string).toLowerCase();
+const brandLogo = '/brand/simbolo.png';
 
 const modo = ref<'login' | 'registro' | 'verificar'>('login');
 const name = ref('');
@@ -77,8 +78,17 @@ const botao = computed(() =>
     <v-card width="440" max-width="100%" rounded="xl" elevation="12" class="pa-2">
       <v-card-text class="pa-8">
         <div class="text-center mb-6">
-          <v-avatar color="primary" size="56" rounded="lg" class="mb-3">
-            <v-icon size="30" color="white">mdi-package-variant-closed</v-icon>
+          <v-avatar
+            color="primary"
+            size="64"
+            class="mb-3"
+            style="border-radius: 20px; box-shadow: 0 8px 22px rgba(92, 58, 52, 0.35)"
+          >
+            <v-img :src="brandLogo" cover>
+              <template #error>
+                <v-icon size="32" color="white">storefront</v-icon>
+              </template>
+            </v-img>
           </v-avatar>
           <div class="text-overline text-medium-emphasis">CADASTRO DE PRODUTOS — PRALIS</div>
           <div class="text-h5 font-weight-bold mt-1">{{ titulo }}</div>
@@ -94,7 +104,7 @@ const botao = computed(() =>
               v-model="code"
               label="Código (6 dígitos)"
               variant="outlined"
-              prepend-inner-icon="mdi-shield-key-outline"
+              prepend-inner-icon="password"
               maxlength="6"
               class="mb-1"
             />
@@ -110,7 +120,7 @@ const botao = computed(() =>
               v-model="name"
               label="Nome"
               variant="outlined"
-              prepend-inner-icon="mdi-account-outline"
+              prepend-inner-icon="person"
               class="mb-3"
               hide-details
             />
@@ -120,7 +130,7 @@ const botao = computed(() =>
               :items="['TNP', 'LI', 'HORA']"
               label="Sua loja"
               variant="outlined"
-              prepend-inner-icon="mdi-store-outline"
+              prepend-inner-icon="storefront"
               class="mb-3"
               hide-details
             />
@@ -137,7 +147,7 @@ const botao = computed(() =>
               label="E-mail"
               type="email"
               variant="outlined"
-              prepend-inner-icon="mdi-email-outline"
+              prepend-inner-icon="mail"
               class="mb-3"
               hide-details
             />
@@ -146,7 +156,7 @@ const botao = computed(() =>
               label="Senha"
               type="password"
               variant="outlined"
-              prepend-inner-icon="mdi-lock-outline"
+              prepend-inner-icon="lock"
               class="mb-2"
               hide-details
             />

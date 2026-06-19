@@ -1,0 +1,9 @@
+{
+  "// Vetur é do Vue 2 e não entende auto-imports do Nuxt — desliga a validação dele (use o Volar)": "",
+  "vetur.validation.template": false,
+  "vetur.validation.script": false,
+  "vetur.validation.style": false,
+  "vetur.experimental.templateInterpolationService": false,
+  "vetur.format.enable": false,
+  "typescript.tsdk": "node_modules/typescript/lib"
+}
