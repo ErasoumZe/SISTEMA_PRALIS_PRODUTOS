@@ -1,6 +1,7 @@
 import { injectable } from 'tsyringe';
 import { cloudinary, cloudinaryConfigured } from '@/config/cloudinary';
 import { AppError } from '@/config/api.replies';
+import { env } from '@/config/env';
 
 @injectable()
 export class FileService {
@@ -18,7 +19,12 @@ export class FileService {
       const stream = cloudinary.uploader.upload_stream(
         { folder: 'pralis/produtos', resource_type: 'image' },
         (err, result) => {
-          if (err || !result) return reject(new AppError('Falha ao enviar a imagem.', 502, 'UPLOAD_FAILED'));
+          if (err || !result) {
+            const motivo = err?.message ?? 'resposta vazia do Cloudinary';
+            // eslint-disable-next-line no-console
+            console.error('[Cloudinary] upload falhou:', motivo, '| cloud_name:', env.CLOUDINARY_CLOUD_NAME);
+            return reject(new AppError(`Falha ao enviar a imagem: ${motivo}`, 502, 'UPLOAD_FAILED'));
+          }
           resolve(result.secure_url);
         },
       );
