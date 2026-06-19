@@ -11,7 +11,11 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     volumes:
-      - pralis_pg:/var/lib/postgresql/data
+      # Postgres 18 grava os dados em /var/lib/postgresql/18/docker (PGDATA mudou
+      # nessa versão). O volume precisa cobrir /var/lib/postgresql — montar em
+      # .../data deixava os dados na camada efêmera do container e eles sumiam a
+      # cada redeploy. Este é o path declarado como VOLUME pela imagem do PG 18.
+      - pralis_pg:/var/lib/postgresql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_NAME}']
       interval: 5s
