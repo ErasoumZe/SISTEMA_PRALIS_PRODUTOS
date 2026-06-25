@@ -10,8 +10,9 @@ import {
 } from './product.rules';
 
 describe('R1 — descrição', () => {
-  it('monta NOME + QUANTIDADE(3 casas) + MEDIDA (= célula H12 da planilha)', () => {
-    expect(montarDescricao('FARINHA DE TRIGO ALVEAR', 25, 'KG')).toBe('FARINHA DE TRIGO ALVEAR 25,000 KG');
+  it('monta NOME + QUANTIDADE (sem zeros à direita) + MEDIDA', () => {
+    expect(montarDescricao('FARINHA DE TRIGO ALVEAR', 25, 'KG')).toBe('FARINHA DE TRIGO ALVEAR 25 KG');
+    expect(montarDescricao('PÃO', 25.5, 'G')).toBe('PÃO 25,5 G');
   });
   it('vazio quando tudo vazio', () => {
     expect(montarDescricao('', 0, '')).toBe('');

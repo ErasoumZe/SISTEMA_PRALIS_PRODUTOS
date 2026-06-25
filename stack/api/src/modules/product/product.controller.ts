@@ -27,8 +27,7 @@ export class ProductController {
   }
 
   async listBase(request: FastifyRequest<{ Querystring: ProductRequests.ListProductQuery }>, reply: FastifyReply) {
-    requireUser(request);
-    const data = await this.service.listBase(request.query);
+    const data = await this.service.listBase(requireUser(request), request.query);
     return reply.status(200).send(buildResponse(data, 'Catálogo base'));
   }
 

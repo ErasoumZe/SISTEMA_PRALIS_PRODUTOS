@@ -2,7 +2,11 @@
 export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
   devtools: { enabled: false },
-  ssr: true,
+  // App interno 100% autenticado (cookie httpOnly cross-domain não chega no SSR).
+  // SPA evita hydration mismatch e deixa o cliente saber a largura real no 1º paint.
+  ssr: false,
+  // SPA não precisa do app manifest (evita o erro "#app-manifest" em rebuilds)
+  experimental: { appManifest: false },
 
   modules: ['vuetify-nuxt-module'],
 
@@ -40,14 +44,6 @@ export default defineNuxtConfig({
   },
 
   vuetify: {
-    moduleOptions: {
-      // detecta a largura da viewport no SSR (client hints + cookie), evitando
-      // o "salto"/desenquadramento do layout na primeira carga por breakpoint errado
-      ssrClientHints: {
-        viewportSize: true,
-        prefersColorScheme: false,
-      },
-    },
     vuetifyOptions: {
       // ícones Material Symbols são registrados no plugin app/plugins/vuetify-icons.ts
       theme: {

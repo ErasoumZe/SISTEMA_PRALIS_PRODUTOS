@@ -82,6 +82,7 @@ export const selectProductSchema = baseProductSchema.extend({
   baseProductId: z.uuidv7().nullable(), // origem, se importado da BASE
   createdByName: z.string().nullable(), // quem cadastrou (para o aviso de duplicado)
   createdAt: z.string(),
+  importado: z.boolean().optional(), // só na listagem da BASE: já foi importado por alguma loja?
   promocoes: z.array(promocaoSchema).default([]),
   transformacao: transformacaoSchema.nullable(),
   fiscal: fiscalSchema.nullable(),

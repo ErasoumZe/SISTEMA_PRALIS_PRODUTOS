@@ -1,5 +1,5 @@
 import { injectable } from 'tsyringe';
-import { and, eq, ilike, inArray, or, desc } from 'drizzle-orm';
+import { and, eq, ilike, inArray, or, desc, isNotNull, sql } from 'drizzle-orm';
 import { db, Tx } from '@/db/databases';
 import { ProductSchemas, ProductRequests } from '@pralis/shared';
 import { products, productTransformacao, productFiscal, promocoes } from './product.table';
@@ -14,6 +14,7 @@ export interface CreateContext {
   createdByUserId: string | null;
   createdByName: string | null;
   baseProductId?: string | null;
+  codigoInterno?: string | null; // código interno (00001...) — igual entre as lojas
 }
 
 // ---- helpers de conversão ----
@@ -102,6 +103,7 @@ export class ProductRepository {
           createdByUserId: ctx.createdByUserId,
           createdByName: ctx.createdByName,
           ...this.productColumns(payload),
+          codigoInterno: ctx.codigoInterno ?? null, // do contexto (sobrepõe o do payload)
         } as typeof products.$inferInsert)
         .returning();
       if (!created) throw new Error('Falha ao criar produto');
@@ -148,6 +150,15 @@ export class ProductRepository {
     return row ?? null;
   }
 
+  /** Próximo código interno sequencial (00001...), baseado no maior já atribuído (em qualquer produto). */
+  async proximoCodigoInterno(tx: Tx = db): Promise<string> {
+    const res = await tx.execute(
+      sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max FROM products WHERE codigo_interno ~ '^[0-9]+$'`,
+    );
+    const max = Number((res.rows?.[0] as { max?: number | string } | undefined)?.max ?? 0);
+    return String(max + 1).padStart(5, '0');
+  }
+
   /** Produto duplicado dentro da loja: mesmo nome (case-insensitive) OU mesmo código de barras. */
   async findDuplicate(
     loja: Catalogo,
@@ -174,7 +185,11 @@ export class ProductRepository {
     return !!row;
   }
 
-  async list(loja: Catalogo, filter: ProductRequests.ListProductQuery): Promise<ProductEntity[]> {
+  async list(
+    loja: Catalogo,
+    filter: ProductRequests.ListProductQuery,
+    importadosNaLoja?: Catalogo | null,
+  ): Promise<ProductEntity[]> {
     const conditions = [eq(products.loja, loja)];
     if (filter.tipo) conditions.push(eq(products.tipo, filter.tipo));
     if (filter.status) conditions.push(eq(products.status, filter.status));
@@ -202,11 +217,23 @@ export class ProductRepository {
     const transfByProduct = new Map(transfs.map((t) => [t.productId, mapTransformacao(t)]));
     const fiscalByProduct = new Map(fiscais.map((f) => [f.productId, mapFiscal(f)]));
 
+    // tela de importar: marca quais produtos da BASE já estão na loja do colaborador
+    const marcarImportados = loja === 'BASE' && !!importadosNaLoja;
+    let importados = new Set<string>();
+    if (marcarImportados) {
+      const refs = await db
+        .selectDistinct({ baseProductId: products.baseProductId })
+        .from(products)
+        .where(and(eq(products.loja, importadosNaLoja as Catalogo), isNotNull(products.baseProductId)));
+      importados = new Set(refs.map((r) => r.baseProductId).filter((x): x is string => !!x));
+    }
+
     return rows.map((r) => ({
       ...mapProduct(r),
       promocoes: promosByProduct.get(r.id) ?? [],
       transformacao: transfByProduct.get(r.id) ?? null,
       fiscal: fiscalByProduct.get(r.id) ?? null,
+      ...(marcarImportados ? { importado: importados.has(r.id) } : {}),
     }));
   }
 

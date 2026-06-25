@@ -137,23 +137,22 @@ const iniciais = computed(() =>
       </template>
     </v-navigation-drawer>
 
-    <v-app-bar flat color="surface" height="72" class="app-bar-border">
+    <v-app-bar flat color="surface" :height="mdAndUp ? 72 : 60" class="app-bar-border">
       <!-- no desktop quem recolhe/expande é o logo; aqui só no mobile p/ abrir o menu -->
-      <v-btn v-if="!mdAndUp" icon="menu" variant="text" @click="toggleNav" />
-      <div class="px-1">
-        <div class="text-h6 font-weight-bold" style="line-height: 1.1">{{ titulo }}</div>
-        <div v-if="subtitulo" class="text-caption text-medium-emphasis">{{ subtitulo }}</div>
+      <v-btn v-if="!mdAndUp" icon="menu" variant="text" class="ms-1" @click="toggleNav" />
+      <div class="px-1" style="min-width: 0; flex: 1 1 auto">
+        <div class="text-subtitle-1 text-md-h6 font-weight-bold text-truncate" style="line-height: 1.1">{{ titulo }}</div>
+        <div v-if="subtitulo" class="text-caption text-medium-emphasis text-truncate d-none d-sm-block">{{ subtitulo }}</div>
       </div>
-      <v-spacer />
       <v-chip
         v-if="user"
         :color="isAdmin ? 'primary' : 'secondary'"
         variant="tonal"
         size="small"
-        class="mr-4 font-weight-medium"
+        class="ms-2 me-2 me-md-4 font-weight-medium flex-shrink-0"
         :prepend-icon="isAdmin ? 'shield_person' : 'storefront'"
       >
-        {{ isAdmin ? 'Admin' : `Loja ${user.loja}` }}
+        {{ isAdmin ? 'Admin' : (user.loja || '—') }}
       </v-chip>
     </v-app-bar>
 

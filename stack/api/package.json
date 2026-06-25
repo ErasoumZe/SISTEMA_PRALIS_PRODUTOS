@@ -6,13 +6,14 @@
   "scripts": {
     "start:dev": "cross-env NODE_ENV=dev tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "start:prod": "drizzle-kit push --config ./src/db/drizzle.config.ts --force && tsx src/db/seed-base.ts && tsx src/server.ts",
+    "start:prod": "drizzle-kit push --config ./src/db/drizzle.config.ts --force && tsx src/db/seed-base.ts && tsx src/db/backfill-codigo-interno.ts && tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "db:push": "cross-env DOTENV_CONFIG_PATH=.env drizzle-kit push --config ./src/db/drizzle.config.ts",
     "db:generate": "drizzle-kit generate --config ./src/db/drizzle.config.ts",
     "gen:base": "tsx src/db/gen-base-json.ts",
-    "seed:base": "tsx src/db/seed-base.ts"
+    "seed:base": "tsx src/db/seed-base.ts",
+    "backfill:codigo": "tsx src/db/backfill-codigo-interno.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

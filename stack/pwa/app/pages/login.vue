@@ -166,7 +166,7 @@ const botao = computed(
             <v-select
               v-if="modo === 'registro' && !ehAdmin"
               v-model="loja"
-              :items="['TNP', 'LI', 'HORA']"
+              :items="['TNP', 'LI']"
               label="Sua loja"
               variant="outlined"
               prepend-inner-icon="storefront"

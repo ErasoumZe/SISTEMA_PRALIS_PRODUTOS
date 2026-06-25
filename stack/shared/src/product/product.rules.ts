@@ -15,7 +15,8 @@ function arred(n: number, casas = 0): number {
 
 function fmtQtd3(v: number | string): string {
   const n = parseFloat(String(v ?? 0).replace(',', '.')) || 0;
-  return n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+  // sem zeros à direita: 25,000 -> "25"; 25,5 -> "25,5" (até 3 casas quando houver)
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
 }
 
 function up(s: unknown): string {

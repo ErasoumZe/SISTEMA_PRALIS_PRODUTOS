@@ -19,14 +19,12 @@ export class ProductService {
   }
 
   async create(user: CurrentUser, payload: ProductRequests.CreateProductRequest): Promise<ProductSchemas.ProductEntity> {
-    // admin escolhe o catálogo de destino (default BASE); usuário comum vai sempre para a loja dele
-    let alvo: 'BASE' | 'TNP' | 'LI' | 'HORA';
-    if (user.role === 'admin') {
-      alvo = payload.loja ?? 'BASE';
-    } else {
-      if (!user.loja) throw new AppError('Usuário sem loja definida', 400, 'NO_LOJA');
-      alvo = user.loja;
+    // Governança: produto NOVO só o admin cria, e sempre na base geral.
+    // As lojas recebem produtos por importação (importFromBase), nunca por cadastro direto.
+    if (user.role !== 'admin') {
+      throw new AppError('Apenas o administrador cadastra produtos novos (na base geral).', 403, 'ONLY_ADMIN_CREATE');
     }
+    const alvo = 'BASE' as const;
 
     if (!payload.forcar) {
       const dup = await this.repo.findDuplicate(alvo, payload.nome, payload.codigoBarras ?? null);
@@ -39,9 +37,11 @@ export class ProductService {
       }
     }
     const codigo = await this.novoCodigo();
+    const codigoInterno = await this.repo.proximoCodigoInterno();
     return this.repo.create(payload, {
       loja: alvo,
       codigo,
+      codigoInterno,
       createdByUserId: user.id,
       createdByName: user.name,
     });
@@ -53,8 +53,9 @@ export class ProductService {
     return this.repo.list(alvo, filter);
   }
 
-  async listBase(filter: ProductRequests.ListProductQuery) {
-    return this.repo.list('BASE', filter);
+  /** Catálogo base; marca `importado` conforme já está na loja do usuário (tela de importar). */
+  async listBase(user: CurrentUser, filter: ProductRequests.ListProductQuery) {
+    return this.repo.list('BASE', filter, user.loja);
   }
 
   async getById(user: CurrentUser, id: string): Promise<ProductSchemas.ProductEntity> {
@@ -67,14 +68,24 @@ export class ProductService {
   }
 
   async update(user: CurrentUser, id: string, payload: ProductRequests.UpdateProductRequest) {
-    await this.assertOwnership(user, id);
+    // editar: admin (qualquer produto) ou colaborador (produtos da própria loja)
+    const p = await this.repo.findById(id);
+    if (!p) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
+    if (user.role !== 'admin' && p.loja !== user.loja) {
+      throw new AppError('Você só pode editar produtos da sua loja.', 403, 'FORBIDDEN');
+    }
     const updated = await this.repo.update(id, payload);
     if (!updated) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
     return updated;
   }
 
   async delete(user: CurrentUser, id: string) {
-    await this.assertOwnership(user, id);
+    // excluir é exclusivo do admin
+    if (user.role !== 'admin') {
+      throw new AppError('Apenas o administrador exclui produtos.', 403, 'ONLY_ADMIN_DELETE');
+    }
+    const p = await this.repo.findById(id);
+    if (!p) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
     const ok = await this.repo.delete(id);
     if (!ok) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
   }
@@ -95,6 +106,7 @@ export class ProductService {
       await this.repo.create(this.toCreatePayload(base), {
         loja,
         codigo,
+        codigoInterno: base.codigoInterno, // herda o mesmo código interno da base (igual entre lojas)
         createdByUserId: user.id,
         createdByName: user.name,
         baseProductId: baseId,
@@ -102,14 +114,6 @@ export class ProductService {
       imported++;
     }
     return { imported, skipped };
-  }
-
-  private async assertOwnership(user: CurrentUser, id: string) {
-    const p = await this.repo.findById(id);
-    if (!p) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
-    if (p.loja !== user.loja && user.role !== 'admin') {
-      throw new AppError('Você só pode alterar produtos da sua loja', 403, 'FORBIDDEN');
-    }
   }
 
   private toCreatePayload(p: ProductSchemas.ProductEntity): ProductRequests.CreateProductRequest {

@@ -18,7 +18,7 @@ const headers = [
   { title: 'Nome', key: 'nome' },
   { title: 'Marca', key: 'marca' },
   { title: 'Tipo', key: 'tipo' },
-  { title: 'Código', key: 'codigo' },
+  { title: 'Cód. interno', key: 'codigoInterno' },
 ] as const;
 
 async function load() {
@@ -95,8 +95,15 @@ async function importar() {
         density="comfortable"
         items-per-page="25"
       >
+        <template #[`item.nome`]="{ item }">
+          <div class="d-flex align-center justify-space-between ga-2" style="min-width: 220px">
+            <span class="font-weight-medium">{{ item.nome }}</span>
+            <v-chip v-if="item.importado === false" size="x-small" label class="font-weight-bold flex-shrink-0" style="background: #ee7a1e; color: #1a1a1a">Novo</v-chip>
+            <v-chip v-else-if="item.importado === true" size="x-small" label class="font-weight-bold flex-shrink-0" style="background: #5c3a34; color: #fff">Importado</v-chip>
+          </div>
+        </template>
         <template #[`item.tipo`]="{ item }">
-          <v-chip size="x-small" label :color="item.tipo === 'revenda' ? 'primary' : 'orange'">
+          <v-chip size="x-small" label :color="item.tipo === 'revenda' ? 'primary' : 'secondary'">
             {{ item.tipo === 'revenda' ? 'Revenda' : 'Transformação' }}
           </v-chip>
         </template>

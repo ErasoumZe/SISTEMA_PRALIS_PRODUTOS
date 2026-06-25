@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ProductRules } from '@pralis/shared';
 import type { ProductSchemas } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
@@ -17,28 +18,83 @@ const abas = [
   { key: 'BASE', label: 'Geral (Base)' },
   { key: 'TNP', label: 'TNP' },
   { key: 'LI', label: 'LI' },
-  { key: 'HORA', label: 'HORA' },
+  // HORA desabilitada por enquanto
 ] as const;
 const aba = ref<'BASE' | 'TNP' | 'LI' | 'HORA'>('BASE');
 
-// filtro de status + paginação (10 por página, no cliente)
-const statusFiltro = ref<'todos' | 'ativo' | 'inativo'>('todos');
+// filtros (sem "Todos" — nada selecionado = sem filtro; pílulas alternam/limpam)
+const statusFiltro = ref<'ativo' | 'inativo' | null>(null);
 const statusOpcoes = [
-  { value: 'todos', label: 'Todos' },
   { value: 'ativo', label: 'Ativos' },
   { value: 'inativo', label: 'Inativos' },
 ] as const;
+const tipoFiltro = ref<'revenda' | 'transformacao' | null>(null);
+const tipoOpcoes = [
+  { value: 'revenda', label: 'Revenda' },
+  { value: 'transformacao', label: 'Transformação' },
+] as const;
+const setorFiltro = ref<string | null>(null);
+const grupoFiltro = ref<string | null>(null);
+const setores = computed(() => [...new Set(products.value.map((p) => p.setorEstoque).filter((s): s is string => !!s))]);
+const grupos = computed(() => [...new Set(products.value.map((p) => p.grupo).filter((g): g is string => !!g))]);
+
+// ordenação
+const ordenar = ref<'recentes' | 'antigos' | 'az' | 'za' | 'codigo_asc' | 'codigo_desc'>('recentes');
+const ordenarOpcoes = [
+  { value: 'recentes', label: 'Mais recentes' },
+  { value: 'antigos', label: 'Mais antigos' },
+  { value: 'az', label: 'Nome (A–Z)' },
+  { value: 'za', label: 'Nome (Z–A)' },
+  { value: 'codigo_asc', label: 'Código (00001 →)' },
+  { value: 'codigo_desc', label: 'Código (→ 00001)' },
+] as const;
+
+// painel de filtros (mostra/esconde) + contador de filtros ativos
+const mostrarFiltros = ref(false);
+const numFiltros = computed(
+  () =>
+    [statusFiltro.value, tipoFiltro.value, setorFiltro.value, grupoFiltro.value].filter(Boolean).length +
+    (ordenar.value !== 'recentes' ? 1 : 0),
+);
+const temFiltro = computed(() => numFiltros.value > 0 || !!search.value);
+function limparFiltros() {
+  statusFiltro.value = null;
+  tipoFiltro.value = null;
+  setorFiltro.value = null;
+  grupoFiltro.value = null;
+  ordenar.value = 'recentes';
+  search.value = '';
+}
+
 const page = ref(1);
 const PER_PAGE = 10;
 
 const filtrados = computed(() =>
-  statusFiltro.value === 'todos' ? products.value : products.value.filter((p) => p.status === statusFiltro.value),
+  products.value.filter((p) => {
+    if (statusFiltro.value && p.status !== statusFiltro.value) return false;
+    if (tipoFiltro.value && p.tipo !== tipoFiltro.value) return false;
+    if (setorFiltro.value && p.setorEstoque !== setorFiltro.value) return false;
+    if (grupoFiltro.value && p.grupo !== grupoFiltro.value) return false;
+    return true;
+  }),
 );
-const totalPaginas = computed(() => Math.max(1, Math.ceil(filtrados.value.length / PER_PAGE)));
-const paginados = computed(() => filtrados.value.slice((page.value - 1) * PER_PAGE, page.value * PER_PAGE));
+const codigoNum = (p: Product) => Number(p.codigoInterno) || 0;
+const ordenados = computed(() => {
+  const arr = [...filtrados.value];
+  switch (ordenar.value) {
+    case 'antigos': return arr.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || codigoNum(a) - codigoNum(b));
+    case 'az': return arr.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    case 'za': return arr.sort((a, b) => b.nome.localeCompare(a.nome, 'pt-BR'));
+    case 'codigo_asc': return arr.sort((a, b) => codigoNum(a) - codigoNum(b));
+    case 'codigo_desc': return arr.sort((a, b) => codigoNum(b) - codigoNum(a));
+    default: return arr.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || codigoNum(b) - codigoNum(a)); // recentes (último → primeiro)
+  }
+});
+const totalPaginas = computed(() => Math.max(1, Math.ceil(ordenados.value.length / PER_PAGE)));
+const paginados = computed(() => ordenados.value.slice((page.value - 1) * PER_PAGE, page.value * PER_PAGE));
 
-// volta pra página 1 ao trocar filtro/busca/aba; mantém a página válida quando a lista muda (polling/exclusão)
-watch([statusFiltro, search, aba], () => { page.value = 1; });
+// volta pra página 1 ao trocar filtro/ordem/busca/aba; mantém a página válida quando a lista muda
+watch([statusFiltro, tipoFiltro, setorFiltro, grupoFiltro, ordenar, search, aba], () => { page.value = 1; });
 watch(totalPaginas, (n) => { if (page.value > n) page.value = n; });
 
 async function load(silent = false) {
@@ -72,9 +128,19 @@ onMounted(() => {
 });
 onUnmounted(() => { if (timer) clearInterval(timer); });
 
+// BUG-01: quando o cálculo é automático, o card mostra o V. Venda CALCULADO
+// (custo/qtCad + margem); senão, o valor pontual. Mesma regra do formulário.
 function preco(p: Product): string | null {
-  const v = p.vVendaPontual ?? null;
-  return v != null ? v.toFixed(2).replace('.', ',') : null;
+  const v = ProductRules.calcularVVenda({
+    auto: p.auto,
+    custo: p.custo ?? 0,
+    qtCad: p.qtCad,
+    margemPontual: p.margemPontual,
+    margemGrupo: 0,
+    vVendaPontual: p.vVendaPontual ?? 0,
+    descricao: p.nome, // não-vazio garante o cálculo (descrição vazia retornaria 0)
+  });
+  return v ? v.toFixed(2).replace('.', ',') : null;
 }
 </script>
 
@@ -88,26 +154,66 @@ function preco(p: Product): string | null {
         hide-details
         placeholder="Buscar produto..."
         prepend-inner-icon="search"
-        style="max-width: 280px"
+        style="flex: 1 1 220px; max-width: 320px"
         @keyup.enter="load()"
       />
-      <div class="d-flex ga-2 flex-wrap">
-        <v-btn
-          v-for="s in statusOpcoes"
-          :key="s.value"
-          size="small"
-          rounded="lg"
-          :variant="statusFiltro === s.value ? 'flat' : 'outlined'"
-          :color="statusFiltro === s.value ? 'primary' : 'grey-darken-1'"
-          @click="statusFiltro = s.value"
-        >
-          {{ s.label }}
-        </v-btn>
-      </div>
       <v-spacer />
+      <!-- botão que mostra/esconde o painel de filtros (estilo marketplace) -->
+      <v-btn variant="outlined" color="grey-darken-2" rounded="lg" @click="mostrarFiltros = !mostrarFiltros">
+        <v-icon start>tune</v-icon>
+        Filtros
+        <v-chip v-if="numFiltros" size="x-small" color="primary" class="ml-2 font-weight-bold">{{ numFiltros }}</v-chip>
+        <v-icon end size="18">{{ mostrarFiltros ? 'expand_less' : 'expand_more' }}</v-icon>
+      </v-btn>
       <v-btn v-if="!isAdmin" variant="tonal" color="primary" prepend-icon="download" to="/importar">Importar da base</v-btn>
-      <v-btn color="primary" prepend-icon="add" to="/produtos/novo">Novo</v-btn>
+      <!-- só o admin cadastra produto novo (sempre na base geral) -->
+      <v-btn v-if="isAdmin" color="primary" prepend-icon="add" to="/produtos/novo">Novo</v-btn>
     </div>
+
+    <!-- painel de filtros (abre/fecha) -->
+    <v-expand-transition>
+      <v-card v-show="mostrarFiltros" flat border rounded="lg" class="pa-3 mb-4">
+        <div class="d-flex flex-column flex-sm-row flex-sm-wrap align-stretch align-sm-center ga-3">
+          <!-- Status -->
+          <div class="d-flex align-center ga-2 flex-wrap">
+            <span class="text-caption text-medium-emphasis" style="width: 44px">Status</span>
+            <v-btn
+              v-for="s in statusOpcoes"
+              :key="s.value"
+              size="small"
+              rounded="lg"
+              :variant="statusFiltro === s.value ? 'flat' : 'outlined'"
+              :color="statusFiltro === s.value ? 'primary' : 'grey-darken-1'"
+              @click="statusFiltro = statusFiltro === s.value ? null : s.value"
+            >
+              {{ s.label }}
+            </v-btn>
+          </div>
+          <v-divider vertical class="mx-1 d-none d-sm-flex" style="height: 24px; align-self: center" />
+          <!-- Tipo -->
+          <div class="d-flex align-center ga-2 flex-wrap">
+            <span class="text-caption text-medium-emphasis" style="width: 44px">Tipo</span>
+            <v-btn
+              v-for="t in tipoOpcoes"
+              :key="t.value"
+              size="small"
+              rounded="lg"
+              :variant="tipoFiltro === t.value ? 'flat' : 'outlined'"
+              :color="tipoFiltro === t.value ? 'primary' : 'grey-darken-1'"
+              @click="tipoFiltro = tipoFiltro === t.value ? null : t.value"
+            >
+              {{ t.label }}
+            </v-btn>
+          </div>
+          <v-divider vertical class="mx-1 d-none d-sm-flex" style="height: 24px; align-self: center" />
+          <v-select v-model="setorFiltro" :items="setores" label="Setor" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="warehouse" class="filtro-select filtro-item" />
+          <v-select v-model="grupoFiltro" :items="grupos" label="Grupo" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="sell" class="filtro-select filtro-item" />
+          <v-select v-model="ordenar" :items="ordenarOpcoes" item-title="label" item-value="value" label="Ordenar" density="compact" variant="outlined" hide-details rounded="lg" prepend-inner-icon="swap_vert" class="filtro-select filtro-item" />
+          <v-spacer class="d-none d-sm-block" />
+          <v-btn v-if="temFiltro" size="small" variant="text" color="medium-emphasis" prepend-icon="close" class="align-self-start align-self-sm-center" @click="limparFiltros">Limpar</v-btn>
+        </div>
+      </v-card>
+    </v-expand-transition>
 
     <!-- Admin: alterna entre o catálogo Geral (Base) e o de cada loja -->
     <v-tabs v-if="isAdmin" v-model="aba" color="primary" density="compact" class="mb-4">
@@ -130,10 +236,10 @@ function preco(p: Product): string | null {
                 </v-avatar>
                 <div style="min-width: 0">
                   <div class="text-subtitle-1 font-weight-bold text-truncate">{{ p.nome }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ p.codigo }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ p.codigoInterno || '—' }}</div>
                 </div>
               </div>
-              <v-chip :color="p.status === 'ativo' ? 'success' : 'grey'" variant="tonal" size="small" class="font-weight-medium">
+              <v-chip :color="p.status === 'ativo' ? 'success' : 'grey'" variant="tonal" size="small" class="font-weight-medium flex-shrink-0">
                 {{ p.status === 'ativo' ? 'Ativo' : 'Inativo' }}
               </v-chip>
             </div>
@@ -164,9 +270,10 @@ function preco(p: Product): string | null {
           </v-card-text>
           <v-divider />
           <v-card-actions>
+            <!-- editar: admin e colaborador; excluir: só admin -->
             <v-btn size="small" variant="text" :to="`/produtos/${p.id}`" prepend-icon="edit">Editar</v-btn>
             <v-spacer />
-            <v-btn size="small" variant="text" color="error" prepend-icon="delete" @click="remover(p)">Excluir</v-btn>
+            <v-btn v-if="isAdmin" size="small" variant="text" color="error" prepend-icon="delete" @click="remover(p)">Excluir</v-btn>
           </v-card-actions>
         </v-card>
       </v-col>
@@ -174,14 +281,15 @@ function preco(p: Product): string | null {
 
     <v-card v-else-if="!loading && !erro" flat border rounded="lg" class="pa-12 text-center text-medium-emphasis">
       <v-icon size="48" class="mb-2">inventory_2</v-icon>
-      <div>{{ statusFiltro === 'todos' ? 'Nenhum produto cadastrado ainda.' : `Nenhum produto ${statusFiltro === 'ativo' ? 'ativo' : 'inativo'}.` }}</div>
-      <v-btn v-if="statusFiltro === 'todos'" color="primary" variant="tonal" class="mt-4" to="/produtos/novo">Cadastrar o primeiro</v-btn>
+      <div>{{ temFiltro ? 'Nenhum produto com esses filtros.' : 'Nenhum produto cadastrado ainda.' }}</div>
+      <v-btn v-if="temFiltro" color="primary" variant="tonal" class="mt-4" @click="limparFiltros">Limpar filtros</v-btn>
+      <v-btn v-else color="primary" variant="tonal" class="mt-4" to="/produtos/novo">Cadastrar o primeiro</v-btn>
     </v-card>
 
     <!-- paginação (10 por página) -->
     <div v-if="filtrados.length" class="d-flex align-center justify-space-between mt-4 flex-wrap ga-2">
       <div class="text-caption text-medium-emphasis">
-        {{ filtrados.length }} produto(s){{ statusFiltro !== 'todos' ? ` ${statusFiltro}(s)` : '' }} · página {{ page }} de {{ totalPaginas }}
+        {{ filtrados.length }} produto(s) · página {{ page }} de {{ totalPaginas }}
       </div>
       <v-pagination
         v-if="totalPaginas > 1"
@@ -197,6 +305,36 @@ function preco(p: Product): string | null {
 </template>
 
 <style scoped>
+/* selects do filtro: largura total no mobile, limitada no desktop */
+.filtro-item {
+  width: 100%;
+}
+@media (min-width: 600px) {
+  .filtro-item {
+    width: auto;
+    min-width: 175px;
+    max-width: 230px;
+  }
+}
+/* filtros setor/grupo no mesmo padrão compacto das pílulas */
+.filtro-select :deep(.v-field) {
+  min-height: 32px;
+  font-size: 0.82rem;
+}
+.filtro-select :deep(.v-field__input) {
+  min-height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+  --v-input-control-height: 32px;
+}
+.filtro-select :deep(.v-field__prepend-inner),
+.filtro-select :deep(.v-field__append-inner) {
+  padding-top: 4px;
+}
+.filtro-select :deep(.v-field-label) {
+  top: 6px;
+  font-size: 0.82rem;
+}
 .product-card {
   transition: box-shadow 0.2s ease, transform 0.2s ease;
 }

@@ -4,17 +4,6 @@ import type { ProductRequests } from '@pralis/shared';
 
 const props = defineProps<{ productId?: string }>();
 const api = useApi();
-const { user } = useAuth();
-
-// admin escolhe o catálogo de destino ao criar (default Base); usuário comum vai p/ a loja dele
-const isAdmin = computed(() => user.value?.role === 'admin');
-const CATALOGOS = [
-  { title: 'Base (Geral)', value: 'BASE' },
-  { title: 'Loja TNP', value: 'TNP' },
-  { title: 'Loja LI', value: 'LI' },
-  { title: 'Loja HORA', value: 'HORA' },
-];
-const catalogoDestino = ref<'BASE' | 'TNP' | 'LI' | 'HORA'>('BASE');
 
 const MEDIDAS_BASE = ['UN', 'KG', 'G', 'LT', 'ML'];
 const MEDIDAS_COMPRA = ['UN', 'KG', 'LT'];
@@ -64,6 +53,23 @@ async function onFoto(files: File | File[] | null) {
   }
 }
 
+// leitor de código de barras pela câmera
+const scanOpen = ref(false);
+function onScanned(code: string) {
+  form.codigoBarras = code;
+}
+
+// dropzone da foto (clique ou arrastar)
+const fileInput = ref<HTMLInputElement | null>(null);
+function onPick(e: Event) {
+  const f = (e.target as HTMLInputElement).files?.[0];
+  if (f) onFoto(f);
+}
+function onDrop(e: DragEvent) {
+  const f = e.dataTransfer?.files?.[0];
+  if (f) onFoto(f);
+}
+
 // ---- preview ao vivo (regras compartilhadas) ----
 const descricao = computed(() => ProductRules.montarDescricao(form.nome, form.quantidade, form.medidaBase));
 const vVenda = computed(() =>
@@ -82,6 +88,58 @@ const validacaoQtd = computed(() =>
     ? ProductRules.montarValidacaoQtd(descricao.value, form.precisao, Number(form.qtdTransf) || 0, form.unidadeTransf)
     : '',
 );
+
+// UX-04: "Como se compra" — concatenação informativa (embalagem + qtd + medida + descrição)
+const EMB_LABEL: Record<string, string> = {
+  SACO: 'Saco', PCT: 'Pacote', CX: 'Caixa', UN: 'Unidade', FD: 'Fardo',
+  POTE: 'Pote', BAND: 'Bandeja', EMB: 'Embalagem', MIL: 'Milheiro', KG: 'Kg', LT: 'Litro',
+};
+const comoSeCompra = computed(() => {
+  if (!form.embalagem) return '';
+  const emb = EMB_LABEL[form.embalagem] ?? form.embalagem;
+  const cde = form.cDe === 'C/' ? 'com' : 'de';
+  const qtd = form.qtCad ? `${form.qtCad}${form.medidaCompra ? ' ' + form.medidaCompra : ''}` : '';
+  return [emb, cde, qtd, descricao.value ? '— ' + descricao.value : ''].filter(Boolean).join(' ');
+});
+
+// UX-02: estoque, setor, custo e margem são do PRODUTO (valem para revenda E transformação)
+function clampMargem() {
+  form.margemPct = Math.min(1000, Math.max(0, Number(form.margemPct) || 0));
+}
+
+// "Habilitar ajuda": mostra dicas nos campos quando focados (hint só aparece no foco)
+const dicas: Record<string, string> = {
+  nome: 'Nome do produto, sem a gramatura. Ex.: "Talento Meio Amargo".',
+  quantidade: 'Gramatura/peso da unidade. Ex.: 25 (para 25 g).',
+  medidaBase: 'Unidade da gramatura: UN, KG, G, LT ou ML.',
+  marca: 'Marca/fabricante do produto.',
+  codigoBarras: 'Código de barras (EAN) do produto, se houver.',
+  embalagem: 'Embalagem de compra: saco, caixa, pacote, fardo...',
+  cDe: 'C/ = "com" (caixa com 12). DE = "de" (saco de 25 kg).',
+  qtCad: 'Quantas unidades/medidas vêm na embalagem de compra.',
+  medidaCompra: 'Unidade da embalagem de compra (UN, KG, LT).',
+  setorEstoque: 'Onde o produto fica armazenado.',
+  estoqueMin: 'Quantidade mínima desejada em estoque.',
+  estoqueMax: 'Quantidade máxima desejada em estoque.',
+  custo: 'Preço de custo do produto (R$).',
+  vVendaPontual: 'Preço de venda definido na mão (quando o cálculo automático está desligado).',
+  precisao: 'EXATOS (peso fixo) ou APROXIMADOS (varia um pouco).',
+  qtdTransf: 'Quantidade usada na transformação/receita.',
+  unidadeTransf: 'Unidade da quantidade de transformação (UN, G, ML).',
+  produtoReceituario: 'Produto/ingrediente do receituário, se aplicável.',
+  refReceituario: 'Referência do receituário, se aplicável.',
+  ncm: 'Código NCM do produto (informação fiscal).',
+  cest: 'Código CEST, quando o produto exige.',
+  categoria: 'Categoria fiscal do produto.',
+  cstPisCofins: 'CST de PIS/COFINS.',
+  aliquotaCheia: 'Alíquota cheia (%).',
+  aliquotaFcp: 'Alíquota do FCP (%).',
+  icms: 'Alíquota de ICMS (%).',
+  aliquotaPis: 'Alíquota de PIS (%).',
+  aliquotaCofins: 'Alíquota de COFINS (%).',
+  reducaoIcms: 'Percentual de redução da base de ICMS (%).',
+};
+const ajuda = (campo: string) => (form.habilitarAjuda ? dicas[campo] : undefined);
 
 function buildFiscal() {
   const has =
@@ -135,16 +193,17 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
     tipo: form.tipo,
     status: form.status,
     habilitarAjuda: form.habilitarAjuda,
-    // comercial (direto na linha — só preenche se for revenda)
-    estoqueMin: revenda ? Number(form.estoqueMin) || null : null,
-    estoqueMax: revenda ? Number(form.estoqueMax) || null : null,
-    setorEstoque: revenda ? form.setorEstoque || null : null,
-    custo: revenda ? Number(form.custo) || null : null,
-    margemPontual: revenda && form.margemPct ? Number(form.margemPct) / 100 : null,
-    vVendaPontual: revenda ? Number(form.vVendaPontual) || null : null,
-    auto: revenda ? form.auto : false,
+    // UX-02: estoque/setor/custo/margem/valor são do PRODUTO (revenda E transformação)
+    estoqueMin: Number(form.estoqueMin) || null,
+    estoqueMax: Number(form.estoqueMax) || null,
+    setorEstoque: form.setorEstoque || null,
+    custo: Number(form.custo) || null,
+    margemPontual: form.margemPct ? Number(form.margemPct) / 100 : null,
+    vVendaPontual: Number(form.vVendaPontual) || null,
+    auto: form.auto,
     localVenda1: null,
     localVenda2: null,
+    // promoção continua só para revenda (será movida para a tela do gerente — UX-06)
     promocoes: revenda ? buildPromocoes() : [],
     transformacao: revenda
       ? null
@@ -157,8 +216,6 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
         },
     fiscal: buildFiscal(),
     forcar,
-    // admin define o catálogo de destino; usuário comum omite (vai p/ a loja dele)
-    ...(isAdmin.value ? { loja: catalogoDestino.value } : {}),
   };
 }
 
@@ -244,187 +301,164 @@ onMounted(async () => {
       </div>
     </v-alert>
 
-    <!-- CATÁLOGO DE DESTINO (apenas admin, ao criar) -->
-    <v-card v-if="isAdmin && !productId" flat border rounded="lg" class="mb-4" color="deep-purple-lighten-5">
-      <v-card-text>
-        <div class="d-flex align-center ga-3 flex-wrap">
-          <v-icon color="deep-purple">shield_person</v-icon>
-          <div class="flex-grow-1" style="min-width: 220px">
-            <v-select
-              v-model="catalogoDestino"
-              :items="CATALOGOS"
-              item-title="title"
-              item-value="value"
-              label="Cadastrar no catálogo"
-              variant="outlined"
-              density="comfortable"
-              hide-details
-            />
-          </div>
-          <div class="text-caption text-medium-emphasis" style="max-width: 280px">
-            Como admin, você escolhe onde cadastrar. O padrão é o catálogo <strong>Base (Geral)</strong>.
-          </div>
-        </div>
-      </v-card-text>
-    </v-card>
-
-    <!-- CADASTRO INICIAL -->
+    <!-- PRODUTO (cadastro inicial + geral unificados — UX-03) -->
     <v-card flat border rounded="lg" class="mb-4">
-      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">CADASTRO INICIAL</v-card-title>
+      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">PRODUTO</v-card-title>
       <v-card-text>
         <v-row dense>
-          <v-col cols="12" sm="6">
-            <v-select v-model="form.status" :items="['ativo', 'inativo']" label="Status" variant="outlined" density="comfortable" />
-          </v-col>
-          <v-col cols="12" sm="6">
+          <!-- status (primeiro campo) ao lado da foto -->
+          <v-col cols="12" sm="5">
+            <v-select v-model="form.status" :items="['ativo', 'inativo']" label="Status" variant="outlined" density="comfortable" hide-details class="mb-3" />
             <v-switch v-model="form.habilitarAjuda" label="Habilitar ajuda" color="primary" inset hide-details />
           </v-col>
+          <!-- foto: dropzone (clique ou arraste) -->
+          <v-col cols="12" sm="7">
+            <div class="dropzone" :class="{ 'dropzone--full': form.fotoUrl }" @click="!form.fotoUrl && fileInput?.click()" @dragover.prevent @drop.prevent="onDrop">
+              <input ref="fileInput" type="file" accept="image/*" class="d-none" @change="onPick" >
+              <template v-if="form.fotoUrl">
+                <v-img :src="form.fotoUrl" height="120" cover class="rounded-lg" />
+                <div class="d-flex justify-center ga-2 mt-2">
+                  <v-btn size="small" variant="tonal" color="primary" prepend-icon="photo_camera" @click.stop="fileInput?.click()">Trocar</v-btn>
+                  <v-btn size="small" variant="text" color="error" prepend-icon="delete" @click.stop="form.fotoUrl = ''">Remover</v-btn>
+                </div>
+              </template>
+              <template v-else>
+                <v-progress-circular v-if="uploadingFoto" indeterminate color="primary" class="mb-2" />
+                <v-icon v-else size="38" color="primary" class="mb-2">cloud_upload</v-icon>
+                <div class="text-body-2 font-weight-medium">Selecione ou arraste a foto</div>
+                <div class="text-caption text-medium-emphasis mb-2">PNG, JPG aceitos</div>
+                <v-btn size="small" color="primary" variant="flat" rounded="lg" :loading="uploadingFoto">Selecionar</v-btn>
+              </template>
+            </div>
+          </v-col>
+          <!-- código de barras abaixo da foto (UX-03) -->
+          <v-col cols="12" sm="6">
+            <v-text-field
+              v-model="form.codigoBarras"
+              label="Código de barras"
+              variant="outlined"
+              density="comfortable"
+              :hint="ajuda('codigoBarras')"
+              append-inner-icon="barcode_scanner"
+              @click:append-inner="scanOpen = true"
+            />
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="form.marca" label="Marca" variant="outlined" density="comfortable" :hint="ajuda('marca')" />
+          </v-col>
           <v-col cols="12">
-            <v-text-field v-model="form.nome" label="Nome do produto *" variant="outlined" density="comfortable" />
+            <v-text-field v-model="form.nome" label="Nome do produto *" variant="outlined" density="comfortable" :hint="ajuda('nome')" />
           </v-col>
-          <v-col cols="6" sm="4">
-            <v-text-field v-model.number="form.quantidade" type="number" label="Gramatura" variant="outlined" density="comfortable" />
+          <v-col cols="6">
+            <v-text-field v-model.number="form.quantidade" type="number" label="Gramatura" variant="outlined" density="comfortable" :hint="ajuda('quantidade')" />
           </v-col>
-          <v-col cols="6" sm="4">
-            <v-select v-model="form.medidaBase" :items="MEDIDAS_BASE" label="Medida base" variant="outlined" density="comfortable" />
-          </v-col>
-          <v-col cols="12" sm="4">
-            <v-text-field v-model="form.marca" label="Marca" variant="outlined" density="comfortable" />
+          <v-col cols="6">
+            <v-select v-model="form.medidaBase" :items="MEDIDAS_BASE" label="Medida base" variant="outlined" density="comfortable" :hint="ajuda('medidaBase')" />
           </v-col>
           <v-col cols="12">
             <v-text-field :model-value="descricao" label="Descrição (automática)" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" />
           </v-col>
-          <v-col cols="12" sm="8">
-            <v-file-input
-              label="Foto do produto"
-              accept="image/*"
-              prepend-icon="photo_camera"
+
+          <!-- COMO SE COMPRA (UX-04) -->
+          <v-col cols="12"><v-divider class="mb-2" /><div class="text-caption text-medium-emphasis mb-1" style="letter-spacing: 0.5px">COMO SE COMPRA</div></v-col>
+          <v-col cols="6" sm="3">
+            <v-select v-model="form.embalagem" :items="EMBALAGENS" label="Embalagem" variant="outlined" density="comfortable" clearable :hint="ajuda('embalagem')" />
+          </v-col>
+          <v-col cols="6" sm="3">
+            <v-select v-model="form.cDe" :items="['C/', 'DE']" label="C/DE" variant="outlined" density="comfortable" :hint="ajuda('cDe')" />
+          </v-col>
+          <v-col cols="6" sm="3">
+            <v-text-field v-model.number="form.qtCad" type="number" label="Qt. embalagem" variant="outlined" density="comfortable" :hint="ajuda('qtCad')" />
+          </v-col>
+          <v-col cols="6" sm="3">
+            <v-select v-model="form.medidaCompra" :items="MEDIDAS_COMPRA" label="Medida de compra" variant="outlined" density="comfortable" clearable :hint="ajuda('medidaCompra')" />
+          </v-col>
+          <v-col cols="12">
+            <v-text-field
+              :model-value="comoSeCompra"
+              label="Como se compra (automático)"
               variant="outlined"
               density="comfortable"
-              :loading="uploadingFoto"
-              hide-details
-              @update:model-value="onFoto"
+              readonly
+              bg-color="grey-lighten-4"
+              placeholder="Preencha a embalagem para gerar"
             />
           </v-col>
-          <v-col cols="12" sm="4" class="d-flex align-center">
-            <v-img v-if="form.fotoUrl" :src="form.fotoUrl" max-height="80" max-width="120" class="rounded border" />
-            <span v-else class="text-caption text-medium-emphasis">Sem foto</span>
-          </v-col>
         </v-row>
       </v-card-text>
     </v-card>
 
-    <!-- CADASTRO GERAL -->
+    <!-- REVENDA OU TRANSFORMAÇÃO (seletor único — UX-01) -->
     <v-card flat border rounded="lg" class="mb-4">
-      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">CADASTRO GERAL</v-card-title>
-      <v-card-text>
-        <v-row dense>
-          <v-col cols="12" sm="6">
-            <v-text-field v-model="form.codigoBarras" label="Código de barras" variant="outlined" density="comfortable" />
-          </v-col>
-          <v-col cols="12" sm="6">
-            <v-select v-model="form.embalagem" :items="EMBALAGENS" label="Embalagem" variant="outlined" density="comfortable" clearable />
-          </v-col>
-          <v-col cols="6" sm="3">
-            <v-select v-model="form.cDe" :items="['C/', 'DE']" label="C/DE" variant="outlined" density="comfortable" />
-          </v-col>
-          <v-col cols="6" sm="3">
-            <v-text-field v-model.number="form.qtCad" type="number" label="Qt. embalagem" variant="outlined" density="comfortable" />
-          </v-col>
-          <v-col cols="12" sm="6">
-            <v-select v-model="form.medidaCompra" :items="MEDIDAS_COMPRA" label="Medida de compra" variant="outlined" density="comfortable" clearable />
-          </v-col>
-        </v-row>
-      </v-card-text>
-    </v-card>
-
-    <!-- DESTINO -->
-    <v-card flat border rounded="lg" class="mb-4">
-      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">DESTINO DO PRODUTO</v-card-title>
+      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">REVENDA OU TRANSFORMAÇÃO</v-card-title>
       <v-card-text>
         <v-btn-toggle v-model="form.tipo" mandatory color="primary" divided class="mb-4">
           <v-btn value="revenda">Revenda</v-btn>
           <v-btn value="transformacao">Transformação</v-btn>
         </v-btn-toggle>
 
-        <!-- REVENDA -->
-        <template v-if="form.tipo === 'revenda'">
-          <v-row dense>
-            <v-col cols="12">
-              <v-select v-model="form.setorEstoque" :items="SETORES" label="Setor de estoque" variant="outlined" density="comfortable" clearable />
-            </v-col>
-            <v-col cols="6" sm="3">
-              <v-text-field v-model.number="form.estoqueMin" type="number" label="Estoque mín." variant="outlined" density="comfortable" />
-            </v-col>
-            <v-col cols="6" sm="3">
-              <v-text-field v-model.number="form.estoqueMax" type="number" label="Estoque máx." variant="outlined" density="comfortable" />
-            </v-col>
-            <v-col cols="6" sm="3">
-              <v-text-field v-model.number="form.custo" type="number" label="Custo (R$)" variant="outlined" density="comfortable" />
-            </v-col>
-            <v-col cols="6" sm="3">
-              <v-text-field v-model.number="form.margemPct" type="number" label="Margem %" variant="outlined" density="comfortable" />
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-switch v-model="form.auto" label="Calcular venda automático" color="primary" inset hide-details />
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-text-field v-model.number="form.vVendaPontual" type="number" label="V. Venda pontual (R$)" variant="outlined" density="comfortable" :disabled="form.auto" />
-            </v-col>
-            <v-col cols="12">
-              <v-text-field :model-value="`R$ ${vVenda.toFixed(2).replace('.', ',')}`" label="V. Venda (calculado)" variant="outlined" density="comfortable" readonly bg-color="purple-lighten-5" />
-            </v-col>
+        <v-row dense>
+          <!-- campos do PRODUTO: valem para revenda E transformação (UX-02) -->
+          <v-col cols="12">
+            <v-select v-model="form.setorEstoque" :items="SETORES" label="Setor de estoque" variant="outlined" density="comfortable" clearable :hint="ajuda('setorEstoque')" />
+          </v-col>
+          <v-col cols="6" sm="3">
+            <v-text-field v-model.number="form.estoqueMin" type="number" label="Estoque mín." variant="outlined" density="comfortable" :hint="ajuda('estoqueMin')" />
+          </v-col>
+          <v-col cols="6" sm="3">
+            <v-text-field v-model.number="form.estoqueMax" type="number" label="Estoque máx." variant="outlined" density="comfortable" :hint="ajuda('estoqueMax')" />
+          </v-col>
+          <v-col cols="6" sm="3">
+            <v-text-field v-model.number="form.custo" type="number" label="Custo (R$)" variant="outlined" density="comfortable" :hint="ajuda('custo')" />
+          </v-col>
+          <v-col cols="6" sm="3">
+            <v-text-field
+              v-model.number="form.margemPct"
+              type="number"
+              label="Margem"
+              suffix="%"
+              :min="0"
+              :max="1000"
+              hint="Ex.: 70 = 70%"
+              persistent-hint
+              variant="outlined"
+              density="comfortable"
+              @blur="clampMargem"
+            />
+          </v-col>
+          <v-col cols="12" sm="6" class="d-flex align-center">
+            <v-switch v-model="form.auto" label="Calcular venda automático" color="primary" inset hide-details />
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model.number="form.vVendaPontual" type="number" label="V. Venda pontual (R$)" variant="outlined" density="comfortable" :disabled="form.auto" :hint="ajuda('vVendaPontual')" />
+          </v-col>
+          <v-col cols="12">
+            <v-text-field :model-value="`R$ ${vVenda.toFixed(2).replace('.', ',')}`" label="V. Venda (calculado)" variant="outlined" density="comfortable" readonly bg-color="purple-lighten-5" />
+          </v-col>
 
-            <v-col cols="12"><v-divider class="my-1" /><div class="text-subtitle-2 font-weight-bold mt-1">PROMOÇÃO</div></v-col>
-            <v-col cols="12">
-              <v-btn-toggle v-model="form.promoTipo" mandatory color="primary" divided density="comfortable">
-                <v-btn value="nenhum">Sem promoção</v-btn>
-                <v-btn value="valor">Valor fixo</v-btn>
-                <v-btn value="desconto">Desconto %</v-btn>
-              </v-btn-toggle>
-            </v-col>
-            <template v-if="form.promoTipo !== 'nenhum'">
-              <v-col v-if="form.promoTipo === 'valor'" cols="6" sm="4">
-                <v-text-field v-model.number="form.promoValor" type="number" label="Valor promo (R$)" variant="outlined" density="comfortable" />
-              </v-col>
-              <v-col v-if="form.promoTipo === 'desconto'" cols="6" sm="4">
-                <v-text-field v-model.number="form.promoDescontoPct" type="number" label="Desconto %" variant="outlined" density="comfortable" />
-              </v-col>
-              <v-col cols="6" sm="4"><v-text-field v-model="form.promoHoraInicio" type="time" label="Início" variant="outlined" density="comfortable" /></v-col>
-              <v-col cols="6" sm="4"><v-text-field v-model="form.promoHoraFim" type="time" label="Término" variant="outlined" density="comfortable" /></v-col>
-              <v-col cols="12">
-                <div class="text-caption text-medium-emphasis mb-1">Dias da semana</div>
-                <div class="d-flex flex-wrap ga-3">
-                  <v-checkbox v-for="(d, i) in DIAS" :key="i" v-model="form.promoDias[i]" :label="d" density="compact" hide-details color="primary" />
-                </div>
-              </v-col>
-            </template>
-          </v-row>
-        </template>
-
-        <!-- TRANSFORMAÇÃO -->
-        <template v-else>
-          <v-row dense>
+          <!-- exclusivo de transformação -->
+          <template v-if="form.tipo === 'transformacao'">
+            <v-col cols="12"><v-divider class="my-1" /><div class="text-subtitle-2 font-weight-bold mt-1">TRANSFORMAÇÃO</div></v-col>
             <v-col cols="6" sm="4">
-              <v-select v-model="form.precisao" :items="['EXATOS', 'APROXIMADOS']" label="Precisão" variant="outlined" density="comfortable" />
+              <v-select v-model="form.precisao" :items="['EXATOS', 'APROXIMADOS']" label="Precisão" variant="outlined" density="comfortable" :hint="ajuda('precisao')" />
             </v-col>
             <v-col cols="6" sm="4">
-              <v-text-field v-model.number="form.qtdTransf" type="number" label="Quantidade" variant="outlined" density="comfortable" />
+              <v-text-field v-model.number="form.qtdTransf" type="number" label="Quantidade" variant="outlined" density="comfortable" :hint="ajuda('qtdTransf')" />
             </v-col>
             <v-col cols="12" sm="4">
-              <v-select v-model="form.unidadeTransf" :items="UNIDADES_TR" label="Unidade" variant="outlined" density="comfortable" />
+              <v-select v-model="form.unidadeTransf" :items="UNIDADES_TR" label="Unidade" variant="outlined" density="comfortable" :hint="ajuda('unidadeTransf')" />
             </v-col>
             <v-col cols="12" sm="6">
-              <v-text-field v-model="form.produtoReceituario" label="Produto receituário" variant="outlined" density="comfortable" />
+              <v-text-field v-model="form.produtoReceituario" label="Produto receituário" variant="outlined" density="comfortable" :hint="ajuda('produtoReceituario')" />
             </v-col>
             <v-col cols="12" sm="6">
-              <v-text-field v-model="form.refReceituario" label="Ref. receituário" variant="outlined" density="comfortable" />
+              <v-text-field v-model="form.refReceituario" label="Ref. receituário" variant="outlined" density="comfortable" :hint="ajuda('refReceituario')" />
             </v-col>
             <v-col cols="12">
               <v-text-field :model-value="validacaoQtd" label="Validação de quantidade (automática)" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" />
             </v-col>
-          </v-row>
-        </template>
+          </template>
+        </v-row>
       </v-card-text>
     </v-card>
 
@@ -433,16 +467,48 @@ onMounted(async () => {
       <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">FISCAL</v-card-title>
       <v-card-text>
         <v-row dense>
-          <v-col cols="12" sm="6"><v-text-field v-model="form.ncm" label="NCM" variant="outlined" density="comfortable" /></v-col>
-          <v-col cols="12" sm="6"><v-text-field v-model="form.cest" label="Código CEST" variant="outlined" density="comfortable" /></v-col>
-          <v-col cols="12" sm="6"><v-text-field v-model="form.categoria" label="Categoria" variant="outlined" density="comfortable" /></v-col>
-          <v-col cols="12" sm="6"><v-text-field v-model="form.cstPisCofins" label="CST PIS/COFINS" variant="outlined" density="comfortable" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaCheia" type="number" label="Alíquota cheia %" variant="outlined" density="comfortable" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaFcp" type="number" label="Alíquota FCP %" variant="outlined" density="comfortable" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.icms" type="number" label="ICMS %" variant="outlined" density="comfortable" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaPis" type="number" label="Alíquota PIS %" variant="outlined" density="comfortable" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaCofins" type="number" label="Alíquota COFINS %" variant="outlined" density="comfortable" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.reducaoIcms" type="number" label="Redução ICMS %" variant="outlined" density="comfortable" /></v-col>
+          <v-col cols="12" sm="6"><v-text-field v-model="form.ncm" label="NCM" variant="outlined" density="comfortable" :hint="ajuda('ncm')" /></v-col>
+          <v-col cols="12" sm="6"><v-text-field v-model="form.cest" label="Código CEST" variant="outlined" density="comfortable" :hint="ajuda('cest')" /></v-col>
+          <v-col cols="12" sm="6"><v-text-field v-model="form.categoria" label="Categoria" variant="outlined" density="comfortable" :hint="ajuda('categoria')" /></v-col>
+          <v-col cols="12" sm="6"><v-text-field v-model="form.cstPisCofins" label="CST PIS/COFINS" variant="outlined" density="comfortable" :hint="ajuda('cstPisCofins')" /></v-col>
+          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaCheia" type="number" label="Alíquota cheia %" variant="outlined" density="comfortable" :hint="ajuda('aliquotaCheia')" /></v-col>
+          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaFcp" type="number" label="Alíquota FCP %" variant="outlined" density="comfortable" :hint="ajuda('aliquotaFcp')" /></v-col>
+          <v-col cols="6" sm="4"><v-text-field v-model.number="form.icms" type="number" label="ICMS %" variant="outlined" density="comfortable" :hint="ajuda('icms')" /></v-col>
+          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaPis" type="number" label="Alíquota PIS %" variant="outlined" density="comfortable" :hint="ajuda('aliquotaPis')" /></v-col>
+          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaCofins" type="number" label="Alíquota COFINS %" variant="outlined" density="comfortable" :hint="ajuda('aliquotaCofins')" /></v-col>
+          <v-col cols="6" sm="4"><v-text-field v-model.number="form.reducaoIcms" type="number" label="Redução ICMS %" variant="outlined" density="comfortable" :hint="ajuda('reducaoIcms')" /></v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
+
+    <!-- PROMOÇÃO (por último, separada — UX-05; vira tela do gerente no UX-06) -->
+    <v-card v-if="form.tipo === 'revenda'" flat border rounded="lg" class="mb-4">
+      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">PROMOÇÃO</v-card-title>
+      <v-card-text>
+        <v-row dense>
+          <v-col cols="12">
+            <v-btn-toggle v-model="form.promoTipo" mandatory color="primary" divided density="comfortable">
+              <v-btn value="nenhum">Sem promoção</v-btn>
+              <v-btn value="valor">Valor fixo</v-btn>
+              <v-btn value="desconto">Desconto %</v-btn>
+            </v-btn-toggle>
+          </v-col>
+          <template v-if="form.promoTipo !== 'nenhum'">
+            <v-col v-if="form.promoTipo === 'valor'" cols="6" sm="4">
+              <v-text-field v-model.number="form.promoValor" type="number" label="Valor promo (R$)" variant="outlined" density="comfortable" />
+            </v-col>
+            <v-col v-if="form.promoTipo === 'desconto'" cols="6" sm="4">
+              <v-text-field v-model.number="form.promoDescontoPct" type="number" label="Desconto %" variant="outlined" density="comfortable" />
+            </v-col>
+            <v-col cols="6" sm="4"><v-text-field v-model="form.promoHoraInicio" type="time" label="Início" variant="outlined" density="comfortable" /></v-col>
+            <v-col cols="6" sm="4"><v-text-field v-model="form.promoHoraFim" type="time" label="Término" variant="outlined" density="comfortable" /></v-col>
+            <v-col cols="12">
+              <div class="text-caption text-medium-emphasis mb-1">Dias da semana</div>
+              <div class="d-flex flex-wrap ga-3">
+                <v-checkbox v-for="(d, i) in DIAS" :key="i" v-model="form.promoDias[i]" :label="d" density="compact" hide-details color="primary" />
+              </div>
+            </v-col>
+          </template>
         </v-row>
       </v-card-text>
     </v-card>
@@ -451,5 +517,28 @@ onMounted(async () => {
       <v-btn variant="text" to="/">Cancelar</v-btn>
       <v-btn color="primary" :loading="saving" prepend-icon="save" @click="salvar(false)">Salvar produto</v-btn>
     </div>
+
+    <!-- leitor de código de barras pela câmera (laser USB/BT já digita direto no campo) -->
+    <BarcodeScanner v-model:open="scanOpen" @scanned="onScanned" />
   </div>
 </template>
+
+<style scoped>
+.dropzone {
+  border: 2px dashed rgba(92, 58, 52, 0.28);
+  border-radius: 14px;
+  padding: 22px 16px;
+  text-align: center;
+  cursor: pointer;
+  background: #faf7f4;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.dropzone:hover {
+  border-color: #5c3a34;
+  background: #f5efea;
+}
+.dropzone--full {
+  cursor: default;
+  padding: 12px;
+}
+</style>
