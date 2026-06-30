@@ -1,6 +1,7 @@
 /**
  * Atribui o código interno sequencial (00001, 00002...) aos produtos da BASE que ainda
- * não têm, e propaga o mesmo código para as cópias importadas nas lojas.
+ * não têm, propaga o mesmo código para as cópias importadas nas lojas e dá um código
+ * próprio aos produtos órfãos (criados direto na loja no modelo antigo, sem base).
  * Idempotente: só preenche o que falta. Roda no start:prod (e pode rodar manualmente).
  *
  * Uso: npm run backfill:codigo
@@ -8,9 +9,15 @@
 import 'reflect-metadata';
 import 'dotenv/config';
 import { sql } from 'drizzle-orm';
-import { db } from '@/db/databases';
+import { db as defaultDb } from '@/db/databases';
 
-async function main() {
+type Database = typeof defaultDb;
+
+/**
+ * Executa o backfill. Recebe o `db` por parâmetro para ser testável contra um banco
+ * descartável (Testcontainers). Retorna quantos foram numerados em cada etapa.
+ */
+export async function backfillCodigoInterno(db: Database = defaultDb): Promise<{ base: number; orfaos: number }> {
   // continua a numeração a partir do maior já atribuído (qualquer produto)
   const maxRes = await db.execute(
     sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max FROM products WHERE codigo_interno ~ '^[0-9]+$'`,
@@ -47,11 +54,19 @@ async function main() {
     await db.execute(sql`UPDATE products SET codigo_interno = ${String(n).padStart(5, '0')} WHERE id = ${r.id}`);
   }
 
-  console.log(`✅ Código interno: ${baseIds.length} da BASE + ${orfaoIds.length} órfão(s) numerados; propagado para as lojas.`);
+  return { base: baseIds.length, orfaos: orfaoIds.length };
+}
+
+async function main() {
+  const { base, orfaos } = await backfillCodigoInterno();
+  console.log(`✅ Código interno: ${base} da BASE + ${orfaos} órfão(s) numerados; propagado para as lojas.`);
   process.exit(0);
 }
 
-main().catch((e) => {
-  console.error('Falha no backfill de código interno:', e);
-  process.exit(1);
-});
+// só roda automaticamente quando executado como script (não quando importado por um teste)
+if (!process.env.VITEST) {
+  main().catch((e) => {
+    console.error('Falha no backfill de código interno:', e);
+    process.exit(1);
+  });
+}
