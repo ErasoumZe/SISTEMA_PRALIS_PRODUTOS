@@ -4,6 +4,9 @@ type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
 type AdminUser = AdminSchemas.AdminUser;
 
+/** Estado do espelhamento do produto na planilha (etapa 1: só a BASE). */
+export type SheetSyncStatus = 'synced' | 'failed' | 'disabled' | 'skipped';
+
 /**
  * Cliente da API (envelope { message, data, details }). Tipado pelos schemas do @pralis/shared.
  */
@@ -29,8 +32,13 @@ export function useApi() {
     getProduct: (id: string) =>
       unwrap($fetch<{ data: Product }>(`/products/${id}`, { ...base })),
 
+    // devolve o envelope inteiro: `details.sheetSync` diz se o espelho na
+    // planilha ficou 'synced', 'failed', 'disabled' ou 'skipped'
     createProduct: (body: ProductRequests.CreateProductRequest) =>
-      unwrap($fetch<{ data: Product }>('/products', { ...base, method: 'POST', body })),
+      $fetch<{ data: Product; message: string; details: { sheetSync?: SheetSyncStatus } | null }>(
+        '/products',
+        { ...base, method: 'POST', body },
+      ),
 
     updateProduct: (id: string, body: ProductRequests.UpdateProductRequest) =>
       unwrap($fetch<{ data: Product }>(`/products/${id}`, { ...base, method: 'PUT', body })),

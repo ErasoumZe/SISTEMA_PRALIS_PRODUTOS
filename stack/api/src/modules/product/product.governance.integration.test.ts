@@ -46,8 +46,13 @@ beforeAll(async () => {
 
   const { ProductRepository } = await import('./product.repository');
   const { ProductService } = await import('./product.service');
+  const { ProductSheetRepository } = await import('@/modules/google-sheets/product-sheet.repository');
+  const { ProductSheetService } = await import('@/modules/google-sheets/product-sheet.service');
+  const { FakeSheetsGateway } = await import('@/modules/google-sheets/fake-sheets.gateway');
   repo = new ProductRepository();
-  service = new ProductService(repo);
+  // governança não testa planilha: Google mockado e integração desligada por env
+  const sheetService = new ProductSheetService(repo, new ProductSheetRepository(), new FakeSheetsGateway());
+  service = new ProductService(repo, sheetService);
   backfill = (await import('@/db/backfill-codigo-interno')).backfillCodigoInterno as typeof backfill;
 
   // cria os usuários referenciados pelos produtos (createdByUserId é FK)

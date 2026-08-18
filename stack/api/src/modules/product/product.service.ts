@@ -2,15 +2,22 @@ import { inject, injectable } from 'tsyringe';
 import { customAlphabet } from 'nanoid';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { ProductRepository } from './product.repository';
+import { ProductSheetService, type SheetSyncOutcome } from '@/modules/google-sheets/product-sheet.service';
 import { AppError } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
 
 const rand4 = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', 4);
 const genCodigo = () => `PR-${rand4()}-${rand4()}`;
 
+/** Produto criado + como ficou o espelhamento na planilha (nunca bloqueia o cadastro). */
+export type CreatedProduct = ProductSchemas.ProductEntity & { sheetSync: SheetSyncOutcome };
+
 @injectable()
 export class ProductService {
-  constructor(@inject(ProductRepository) private repo: ProductRepository) {}
+  constructor(
+    @inject(ProductRepository) private repo: ProductRepository,
+    @inject(ProductSheetService) private sheets: ProductSheetService,
+  ) {}
 
   private async novoCodigo(): Promise<string> {
     let codigo = genCodigo();
@@ -18,7 +25,7 @@ export class ProductService {
     return codigo;
   }
 
-  async create(user: CurrentUser, payload: ProductRequests.CreateProductRequest): Promise<ProductSchemas.ProductEntity> {
+  async create(user: CurrentUser, payload: ProductRequests.CreateProductRequest): Promise<CreatedProduct> {
     // Governança: produto NOVO só o admin cria, e sempre na base geral.
     // As lojas recebem produtos por importação (importFromBase), nunca por cadastro direto.
     if (user.role !== 'admin') {
@@ -38,13 +45,19 @@ export class ProductService {
     }
     const codigo = await this.novoCodigo();
     const codigoInterno = await this.repo.proximoCodigoInterno();
-    return this.repo.create(payload, {
-      loja: alvo,
-      codigo,
-      codigoInterno,
-      createdByUserId: user.id,
-      createdByName: user.name,
-    });
+
+    // produto + registro `pending` de espelhamento na MESMA transação
+    const created = await this.repo.create(
+      payload,
+      { loja: alvo, codigo, codigoInterno, createdByUserId: user.id, createdByName: user.name },
+      (productId, tx) => this.sheets.registerPending(productId, tx),
+    );
+
+    // Depois do commit: tenta espelhar. O produto JÁ está salvo — se o Google
+    // falhar, o registro fica `failed` e o usuário vê "sincronização pendente",
+    // nunca um erro que o faça cadastrar de novo.
+    const sync = await this.sheets.syncProduct(created.id).catch(() => ({ outcome: 'failed' as const }));
+    return { ...created, sheetSync: sync.outcome };
   }
 
   async list(user: CurrentUser, filter: ProductRequests.ListProductQuery) {

@@ -6,6 +6,12 @@ type Product = ProductSchemas.ProductEntity;
 
 const api = useApi();
 const { user } = useAuth();
+const flash = useFlash();
+// aviso vindo do formulário (ex.: espelhamento na planilha pendente)
+const mostrarFlash = computed({
+  get: () => !!flash.value,
+  set: (v: boolean) => { if (!v) flash.value = null; },
+});
 const products = ref<Product[]>([]);
 const search = ref('');
 const loading = ref(false);
@@ -146,6 +152,18 @@ function preco(p: Product): string | null {
 
 <template>
   <div>
+    <v-snackbar
+      v-model="mostrarFlash"
+      :color="flash?.tipo ?? 'success'"
+      :timeout="flash?.tipo === 'warning' ? 9000 : 4000"
+      location="top"
+    >
+      {{ flash?.texto }}
+      <template #actions>
+        <v-btn variant="text" @click="mostrarFlash = false">Fechar</v-btn>
+      </template>
+    </v-snackbar>
+
     <div class="d-flex align-center mb-4 ga-3 flex-wrap">
       <v-text-field
         v-model="search"

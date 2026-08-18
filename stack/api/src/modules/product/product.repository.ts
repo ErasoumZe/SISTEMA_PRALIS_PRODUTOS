@@ -92,7 +92,16 @@ type ProductInput = ProductRequests.CreateProductRequest | ProductRequests.Updat
 
 @injectable()
 export class ProductRepository {
-  async create(payload: ProductRequests.CreateProductRequest, ctx: CreateContext): Promise<ProductEntity> {
+  /**
+   * `onCreated` roda DENTRO da mesma transação do produto — é assim que o
+   * registro `pending` de espelhamento nasce junto com o produto (tudo ou nada).
+   * O repositório continua sem saber o que é Google: recebe só um callback.
+   */
+  async create(
+    payload: ProductRequests.CreateProductRequest,
+    ctx: CreateContext,
+    onCreated?: (productId: string, tx: Tx) => Promise<void>,
+  ): Promise<ProductEntity> {
     return db.transaction(async (tx) => {
       const [created] = await tx
         .insert(products)
@@ -108,6 +117,7 @@ export class ProductRepository {
         .returning();
       if (!created) throw new Error('Falha ao criar produto');
       await this.replaceRelations(created.id, payload, tx);
+      if (onCreated) await onCreated(created.id, tx);
       const full = await this.findById(created.id, tx);
       if (!full) throw new Error('Falha ao montar produto criado');
       return full;

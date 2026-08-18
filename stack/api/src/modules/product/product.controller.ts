@@ -17,8 +17,15 @@ export class ProductController {
   constructor(@inject(ProductService) private service: ProductService) {}
 
   async create(request: FastifyRequest<{ Body: ProductRequests.CreateProductRequest }>, reply: FastifyReply) {
-    const product = await this.service.create(requireUser(request), request.body);
-    return reply.status(201).send(buildResponse(product, 'Produto criado com sucesso'));
+    const { sheetSync, ...product } = await this.service.create(requireUser(request), request.body);
+    // O produto está salvo nos três casos; a mensagem só informa o estado do espelho.
+    const message =
+      sheetSync === 'synced'
+        ? 'Produto salvo no banco e na planilha'
+        : sheetSync === 'failed'
+          ? 'Produto salvo no banco. Sincronização com a planilha pendente'
+          : 'Produto criado com sucesso';
+    return reply.status(201).send(buildResponse(product, message, { sheetSync }));
   }
 
   async list(request: FastifyRequest<{ Querystring: ProductRequests.ListProductQuery }>, reply: FastifyReply) {

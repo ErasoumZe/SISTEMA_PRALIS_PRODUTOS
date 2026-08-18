@@ -4,6 +4,7 @@ import type { ProductRequests } from '@pralis/shared';
 
 const props = defineProps<{ productId?: string }>();
 const api = useApi();
+const flash = useFlash();
 
 const MEDIDAS_BASE = ['UN', 'KG', 'G', 'LT', 'ML'];
 const MEDIDAS_COMPRA = ['UN', 'KG', 'LT'];
@@ -228,8 +229,21 @@ async function salvar(forcar = false) {
   duplicado.value = '';
   try {
     const payload = buildPayload(forcar);
-    if (props.productId) await api.updateProduct(props.productId, payload);
-    else await api.createProduct(payload);
+    if (props.productId) {
+      await api.updateProduct(props.productId, payload);
+      flash.value = { texto: 'Produto atualizado com sucesso', tipo: 'success' };
+    } else {
+      const res = await api.createProduct(payload);
+      // O produto JÁ está salvo no banco nos três casos — a mensagem só informa
+      // como ficou o espelho na planilha. Nunca pedir para cadastrar de novo.
+      const sync = res.details?.sheetSync;
+      flash.value =
+        sync === 'synced'
+          ? { texto: 'Produto salvo no banco e na planilha', tipo: 'success' }
+          : sync === 'failed'
+            ? { texto: 'Produto salvo no banco. Sincronização com a planilha pendente', tipo: 'warning' }
+            : { texto: 'Produto salvo no banco', tipo: 'success' };
+    }
     await navigateTo('/');
   } catch (e: unknown) {
     const err = e as { data?: { message?: string; details?: { code?: string } } };
