@@ -19,3 +19,8 @@ dist/
 .DS_Store
 _t.png
 .cj
+
+# credenciais de conta de serviço do Google (NUNCA commitar)
+*service-account*.json
+gcp-*.json
+google-credentials*.json
