@@ -7,7 +7,7 @@ import { ProductRepository } from '@/modules/product/product.repository';
 import { ProductSheetRepository } from './product-sheet.repository';
 import { SHEETS_GATEWAY } from './google-sheets.di';
 import {
-  a1, indexToCol,
+  a1, colToIndex, indexToCol,
   type SheetsGateway, type SheetMeta, type ValueRange,
 } from './google-sheets.client';
 import { mapProductToCells, INPUT_COLUMNS, type CellMap } from './product-sheet.mapper';
@@ -60,6 +60,12 @@ export interface SheetsHealth {
 /** Primeira linha de produto da aba (linha 5 = cabeçalhos). */
 export const FIRST_DATA_ROW = 11;
 const HEADER_ROW = 5;
+/** Linha-modelo validada que contém o conjunto completo de fórmulas. */
+const FORMULA_TEMPLATE_ROW = 12;
+const REQUIRED_FORMULA_COLUMNS = [
+  'H', 'P', 'U', 'AD', 'AF', 'AH', 'AK', 'AO', 'AP',
+  'AR', 'AT', 'AV', 'AX', 'AY', 'BI', 'BJ', 'BR',
+] as const;
 
 /** Cabeçalhos obrigatórios: se não baterem, a planilha mudou e NÃO gravamos nada. */
 const REQUIRED_HEADERS = [
@@ -330,11 +336,16 @@ export class ProductSheetService {
       // 3) registrar a linha só depois que a planilha aceitou a reserva
       await this.syncRepo.setRowNumber(product.id, linha).catch(() => {});
 
-      // 4) formato, validações e fórmulas da linha-modelo
-      await this.copiarModelo(aba, linha);
+      // 4) formato e validações da linha anterior. As fórmulas são tratadas
+      // separadamente abaixo, pois a linha anterior pode estar incompleta.
+      await this.copiarEstrutura(aba, linha);
     }
 
-    // 5) por fim, as células de entrada
+    // 5) garante as fórmulas também em retries de uma linha já reservada. Isso
+    // repara sincronizações interrompidas sem criar outra linha.
+    await this.garantirFormulas(aba, linha);
+
+    // 6) por fim, as células de entrada
     await this.gravarCelulas(product, linha);
     return linha;
   }
@@ -368,10 +379,9 @@ export class ProductSheetService {
    *    a documentação do Sheets define PASTE_FORMAT como "paste the format only,
    *    EXCLUDING data validation". Sem esta segunda requisição a linha nova
    *    nasceria sem as listas suspensas;
-   *  - fórmulas (PASTE_FORMULA) só nas colunas que de fato têm fórmula.
-   * Nenhum valor manual e nenhum ID da linha-modelo é copiado.
+   * Nenhum valor manual, fórmula ou ID da linha anterior é copiado aqui.
    */
-  private async copiarModelo(aba: SheetMeta, linha: number): Promise<void> {
+  private async copiarEstrutura(aba: SheetMeta, linha: number): Promise<void> {
     const requests: unknown[] = [];
 
     const modelo = linha - 1;
@@ -379,14 +389,6 @@ export class ProductSheetService {
       // primeira linha de dados: não há de onde copiar; a aba já traz o formato
       return;
     }
-
-    const ultimaColuna = indexToCol(Math.max(0, aba.columnCount - 1));
-    const [modeloRow] = await this.sheets.batchGetValues(
-      this.spreadsheetId,
-      [a1(this.sheetName, `A${modelo}:${ultimaColuna}${modelo}`)],
-      'FORMULA',
-    );
-    const celulasModelo = modeloRow?.[0] ?? [];
 
     const origem = (c0: number, c1: number) => ({
       sheetId: aba.sheetId,
@@ -425,31 +427,101 @@ export class ProductSheetService {
       },
     });
 
-    // fórmulas: só nos trechos contíguos que realmente têm fórmula na linha-modelo
-    for (const [c0, c1] of this.trechosDeFormula(celulasModelo)) {
-      requests.push({
-        copyPaste: {
-          source: origem(c0, c1),
-          destination: destino(c0, c1),
-          pasteType: 'PASTE_FORMULA',
-        },
-      });
-    }
-
     await this.sheets.batchUpdate(this.spreadsheetId, requests);
   }
 
-  /** Índices [início, fim) das sequências de células que contêm fórmula. */
-  private trechosDeFormula(linha: string[]): Array<[number, number]> {
-    const trechos: Array<[number, number]> = [];
-    let inicio = -1;
-    for (let i = 0; i <= linha.length; i++) {
-      const ehFormula = typeof linha[i] === 'string' && linha[i]!.startsWith('=');
-      if (ehFormula && inicio === -1) inicio = i;
-      if (!ehFormula && inicio !== -1) {
-        trechos.push([inicio, i]);
-        inicio = -1;
+  /**
+   * Copia somente as fórmulas que faltam, usando uma linha conhecida por conter
+   * o modelo completo. A linha imediatamente anterior não é uma fonte segura:
+   * ela pode ter sido incluída manualmente e estar parcialmente preenchida.
+   */
+  private async garantirFormulas(aba: SheetMeta, linha: number): Promise<void> {
+    if (linha === FIRST_DATA_ROW || linha === FORMULA_TEMPLATE_ROW) return;
+
+    const ultimaColuna = indexToCol(Math.max(0, aba.columnCount - 1));
+    const [modeloRange, destinoRange] = await this.sheets.batchGetValues(
+      this.spreadsheetId,
+      [
+        a1(this.sheetName, `A${FORMULA_TEMPLATE_ROW}:${ultimaColuna}${FORMULA_TEMPLATE_ROW}`),
+        a1(this.sheetName, `A${linha}:${ultimaColuna}${linha}`),
+      ],
+      'FORMULA',
+    );
+    const modelo = modeloRange?.[0] ?? [];
+    const destinoAtual = destinoRange?.[0] ?? [];
+
+    const formulaAusenteNoModelo = REQUIRED_FORMULA_COLUMNS.find((coluna) => {
+      const valor = modelo[colToIndex(coluna)];
+      return typeof valor !== 'string' || !valor.startsWith('=');
+    });
+    if (formulaAusenteNoModelo) {
+      throw new Error(
+        `Linha-modelo ${FORMULA_TEMPLATE_ROW} incompleta: fórmula ausente na coluna ${formulaAusenteNoModelo}. Nada foi gravado nas células do produto.`,
+      );
+    }
+
+    const faltantes = REQUIRED_FORMULA_COLUMNS
+      .map(colToIndex)
+      .filter((coluna) => {
+        const valor = destinoAtual[coluna];
+        return typeof valor !== 'string' || !valor.startsWith('=');
+      });
+
+    const origem = (c0: number, c1: number) => ({
+      sheetId: aba.sheetId,
+      startRowIndex: FORMULA_TEMPLATE_ROW - 1,
+      endRowIndex: FORMULA_TEMPLATE_ROW,
+      startColumnIndex: c0,
+      endColumnIndex: c1,
+    });
+    const destino = (c0: number, c1: number) => ({
+      sheetId: aba.sheetId,
+      startRowIndex: linha - 1,
+      endRowIndex: linha,
+      startColumnIndex: c0,
+      endColumnIndex: c1,
+    });
+
+    const requests = this.trechosContiguos(faltantes).map(([c0, c1]) => ({
+      copyPaste: {
+        source: origem(c0, c1),
+        destination: destino(c0, c1),
+        pasteType: 'PASTE_FORMULA',
+      },
+    }));
+    await this.sheets.batchUpdate(this.spreadsheetId, requests);
+
+    // A fórmula histórica de AP fixa $BB$11:$BH$11 e, por isso, consulta os
+    // dias do primeiro produto. Para linhas sincronizadas pelo sistema, a faixa
+    // deve ser a da própria linha.
+    const [apRange] = await this.sheets.batchGetValues(
+      this.spreadsheetId,
+      [a1(this.sheetName, `AP${linha}`)],
+      'FORMULA',
+    );
+    const formulaAp = apRange?.[0]?.[0] ?? '';
+    if (formulaAp.startsWith('=')) {
+      const corrigida = formulaAp.replace(
+        /\$BB\$11:\$BH\$11/g,
+        () => `$BB$${linha}:$BH$${linha}`,
+      );
+      if (corrigida !== formulaAp) {
+        await this.sheets.batchUpdateValues(
+          this.spreadsheetId,
+          [{ range: a1(this.sheetName, `AP${linha}`), values: [[corrigida]] }],
+          'USER_ENTERED',
+        );
       }
+    }
+  }
+
+  /** Índices [início, fim) das sequências de células que contêm fórmula. */
+  private trechosContiguos(colunas: number[]): Array<[number, number]> {
+    const trechos: Array<[number, number]> = [];
+    for (const coluna of colunas) {
+      const ultimo = trechos[trechos.length - 1];
+      if (ultimo && ultimo[1] === coluna) ultimo[1] = coluna + 1;
+      else trechos.push([coluna, coluna + 1]);
     }
     return trechos;
   }

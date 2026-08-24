@@ -85,7 +85,9 @@ beforeAll(async () => {
 
   repo = new ProductRepository();
   syncRepo = new ProductSheetRepository();
-  sheets = new FakeSheetsGateway().comCabecalhos();
+  // A planilha real mantém a linha 12 como modelo completo de fórmulas mesmo
+  // quando E/CP estão vazios. O fake reproduz esse contrato sem ocupar a linha.
+  sheets = new FakeSheetsGateway().comCabecalhos().comLinhaModelo(12);
   sheetService = new ProductSheetService(repo, syncRepo, sheets);
   service = new ProductService(repo, sheetService);
 

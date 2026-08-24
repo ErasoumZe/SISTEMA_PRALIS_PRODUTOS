@@ -277,7 +277,7 @@ describe('ProductSheetService — criação de linha nova', () => {
     expect(sheets.linhasAcrescentadas()).toBe(0);
   });
 
-  it('copia formatação e fórmulas da linha anterior, sem copiar valores nem o ID do modelo', async () => {
+  it('copia estrutura da linha anterior e fórmulas da linha-modelo validada', async () => {
     const sheets = planilha();
     const { repo: syncRepo } = fakeSyncRepo();
     const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
@@ -299,6 +299,23 @@ describe('ProductSheetService — criação de linha nova', () => {
     expect(sheets.get('E13')).not.toBe('FARINHA DE TRIGO ALVEAR');
   });
 
+  it('não perde fórmulas quando a linha imediatamente anterior está incompleta', async () => {
+    const sheets = planilha()
+      // linha manual incompleta, igual ao caso encontrado na homologação
+      .set('E13', 'PRODUTO MANUAL')
+      .set('CP13', 'cccc3333')
+      .set('H13', '=E13&" "&F13&" "&G13');
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.syncProduct(ID);
+
+    expect(res.rowNumber).toBe(14);
+    expect(sheets.get('AO14')).toBe('=ROUND(AJ14*AL14,2)');
+    expect(sheets.get('AY14')).toBe('=(AZ14*AO14)+AO14');
+    expect(sheets.get('AP14')).toContain('$BB$14:$BH$14');
+  });
+
   it('nunca escreve nas colunas calculadas', async () => {
     const sheets = planilha();
     const { repo: syncRepo } = fakeSyncRepo();
@@ -306,11 +323,17 @@ describe('ProductSheetService — criação de linha nova', () => {
 
     await service.syncProduct(ID);
 
-    const calculadas = ['H', 'P', 'U', 'AD', 'AF', 'AH', 'AK', 'AO', 'AP', 'AR', 'AT', 'AV', 'AX', 'AY', 'BI', 'BJ', 'BR'];
+    const calculadas = ['H', 'P', 'U', 'AD', 'AF', 'AH', 'AK', 'AO', 'AR', 'AT', 'AV', 'AX', 'AY', 'BI', 'BJ', 'BR'];
     const colunasEscritas = sheets.writes.map((w) => /^([A-Z]+)/.exec(w.range)![1]!);
     for (const col of calculadas) {
       expect(colunasEscritas, `coluna calculada ${col} não pode ser escrita`).not.toContain(col);
     }
+
+    // AP é a única exceção: a fórmula histórica da planilha precisa ter a
+    // faixa absoluta dos dias corrigida para a própria linha do produto.
+    const escritaAp = sheets.writes.find((w) => w.range === 'AP13');
+    expect(escritaAp).toMatchObject({ option: 'USER_ENTERED' });
+    expect(String(escritaAp?.value)).toContain('$BB$13:$BH$13');
   });
 
   it('usa a linha 11 quando a aba não tem nenhum produto ainda', async () => {
@@ -342,6 +365,22 @@ describe('ProductSheetService — idempotência', () => {
     // no reenvio não há preparação de linha nova (nada de copyPaste)
     expect(sheets.structuralRequests.length).toBe(estruturaisDepoisDaPrimeira);
     expect(rows.get(ID)).toMatchObject({ status: 'synced', rowNumber: 13, attempts: 2 });
+  });
+
+  it('reenvio repara fórmulas ausentes na linha reservada sem duplicá-la', async () => {
+    const sheets = planilha()
+      .set('E13', 'CADASTRO INTERROMPIDO')
+      .set('CP13', ID)
+      .set('H13', '=E13&" "&F13&" "&G13');
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.syncProduct(ID);
+
+    expect(res.rowNumber).toBe(13);
+    expect(sheets.get('CP14')).toBe('');
+    expect(sheets.get('AO13')).toBe('=ROUND(AJ13*AL13,2)');
+    expect(sheets.get('AP13')).toContain('$BB$13:$BH$13');
   });
 
   it('atualiza a linha encontrada por CP, mesmo se o row_number salvo estiver errado', async () => {

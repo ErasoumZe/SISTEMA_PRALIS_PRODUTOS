@@ -56,11 +56,33 @@ export class FakeSheetsGateway implements SheetsGateway {
     return this.set('E5', 'NOME').set('AC5', 'CODIGO INT.').set('CP5', 'ID');
   }
 
-  /** Linha de produto já existente (nome + id + uma fórmula em H). */
+  /** Linha de produto já existente com o conjunto de fórmulas do modelo real. */
   comProduto(row: number, nome: string, id: string): this {
     this.set(`E${row}`, nome).set(`CP${row}`, id);
+    return this.comLinhaModelo(row);
+  }
+
+  /** Conjunto completo de fórmulas, sem ocupar E/CP da linha. */
+  comLinhaModelo(row: number): this {
     this.set(`H${row}`, `=E${row}&" "&F${row}&" "&G${row}`);
+    this.set(`P${row}`, `=N${row}&" "&H${row}`);
+    this.set(`U${row}`, `=IF(S${row}="SIM";H${row};"")`);
+    this.set(`AD${row}`, `=IF(AB${row}<>"";P${row};"")`);
+    this.set(`AF${row}`, `=AE${row}`);
+    this.set(`AH${row}`, `=AG${row}`);
+    this.set(`AK${row}`, `=IFERROR(R${row};"")`);
     this.set(`AO${row}`, `=ROUND(AJ${row}*AL${row},2)`);
+    this.set(`AP${row}`, `=IFERROR(HLOOKUP(BI${row};$BB$11:$BH$11;1;0);AO${row})`);
+    this.set(`AR${row}`, `=IFERROR(AQ${row};"")`);
+    this.set(`AT${row}`, `=IFERROR(AS${row};"")`);
+    this.set(`AV${row}`, `=AO${row}`);
+    this.set(`AX${row}`, `=IFERROR(AW${row}/AO${row};0)`);
+    this.set(`AY${row}`, `=(AZ${row}*AO${row})+AO${row}`);
+    this.set(`BI${row}`, '=TODAY()');
+    this.set(`BJ${row}`, '=NOW()');
+    this.set(`BK${row}`, `=IF(BL${row}="";"";"DE")`);
+    this.set(`BM${row}`, `=IF(BO${row}="";"";"ATÉ")`);
+    this.set(`BR${row}`, `=IF(H${row}="";"";"SIM")`);
     return this;
   }
 
