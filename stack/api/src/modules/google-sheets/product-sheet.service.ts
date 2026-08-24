@@ -1,6 +1,6 @@
 import { inject, injectable } from 'tsyringe';
 import type { ProductSchemas } from '@pralis/shared';
-import { env } from '@/config/env';
+import { env, destinoSheetsFaltando, credenciaisSheetsFaltando } from '@/config/env';
 import { AppError } from '@/config/api.replies';
 import type { Tx } from '@/db/databases';
 import { ProductRepository } from '@/modules/product/product.repository';
@@ -25,8 +25,13 @@ import { mapProductToCells, INPUT_COLUMNS, type CellMap } from './product-sheet.
 
 type Product = ProductSchemas.ProductEntity;
 
-/** Resultado de uma tentativa de sincronização (o que a API devolve para a tela). */
-export type SheetSyncOutcome = 'synced' | 'failed' | 'disabled' | 'skipped';
+/**
+ * Resultado de uma tentativa de sincronização (o que a API devolve para a tela).
+ * `misconfigured`: ligada, mas sem destino explícito — recusa antes de tocar no
+ * Google. Nunca é o mesmo que `disabled`, para o erro de configuração não passar
+ * despercebido como se fosse uma escolha.
+ */
+export type SheetSyncOutcome = 'synced' | 'failed' | 'disabled' | 'skipped' | 'misconfigured';
 
 export interface SyncResult {
   outcome: SheetSyncOutcome;
@@ -37,6 +42,9 @@ export interface SyncResult {
 
 export interface SheetsHealth {
   enabled: boolean;
+  /** Nomes das variáveis ausentes — nunca os valores. */
+  configFaltando: string[];
+  configOk: boolean;
   spreadsheetId: string;
   sheetName: string;
   auth: boolean;
@@ -110,8 +118,19 @@ export class ProductSheetService {
     return env.GOOGLE_SHEETS_BASE_TAB;
   }
 
+  /** Ligada por configuração (pode estar ligada e mal configurada). */
   get enabled(): boolean {
     return env.GOOGLE_SHEETS_ENABLED;
+  }
+
+  /** Variáveis de destino que faltam. Vazio = pode escrever. */
+  get destinoFaltando(): string[] {
+    return destinoSheetsFaltando();
+  }
+
+  /** Ligada E com destino explícito: só assim a escrita é permitida. */
+  get operacional(): boolean {
+    return this.enabled && this.destinoFaltando.length === 0;
   }
 
   /**
@@ -132,6 +151,16 @@ export class ProductSheetService {
   async syncProduct(productId: string): Promise<SyncResult> {
     if (!this.enabled) {
       return { outcome: 'disabled', rowNumber: null, message: 'Integração com a planilha desligada (GOOGLE_SHEETS_ENABLED=false).' };
+    }
+    // Ligada sem destino explícito: recusa ANTES de qualquer chamada ao Google.
+    const faltando = this.destinoFaltando;
+    if (faltando.length > 0) {
+      return {
+        outcome: 'misconfigured',
+        rowNumber: null,
+        message: `Integração ligada, mas sem destino configurado: ${faltando.join(', ')}. Nada foi escrito.`,
+        error: `configuração incompleta: ${faltando.join(', ')}`,
+      };
     }
 
     const product = await this.products.findById(productId);
@@ -169,10 +198,14 @@ export class ProductSheetService {
     });
   }
 
-  /** Checagem SOMENTE LEITURA: autenticação, acesso, aba e cabeçalhos. */
+  /** Checagem SOMENTE LEITURA: configuração, autenticação, acesso, aba e cabeçalhos. */
   async health(): Promise<SheetsHealth> {
+    // nomes de variáveis, nunca valores
+    const configFaltando = [...this.destinoFaltando, ...credenciaisSheetsFaltando()];
     const base: SheetsHealth = {
       enabled: this.enabled,
+      configFaltando,
+      configOk: configFaltando.length === 0,
       spreadsheetId: this.spreadsheetId,
       sheetName: this.sheetName,
       auth: false,
@@ -184,6 +217,9 @@ export class ProductSheetService {
       ok: false,
     };
     if (!this.enabled) return { ...base, erro: 'GOOGLE_SHEETS_ENABLED=false' };
+    if (configFaltando.length > 0) {
+      return { ...base, erro: `Configuração incompleta: ${configFaltando.join(', ')}` };
+    }
 
     try {
       const abas = await this.sheets.getSheets(this.spreadsheetId);
@@ -275,12 +311,30 @@ export class ProductSheetService {
     const linha = linhaExistente ?? this.primeiraLinhaLivre(colunaNomes, colunaIds);
 
     if (linhaExistente === null) {
-      // reserva a linha ANTES de escrever: se a escrita falhar no meio, o retry
-      // volta na mesma linha em vez de consumir outra.
+      // A ordem aqui é o contrato desta função e não pode ser trocada:
+      //
+      // 1) GARANTIR CAPACIDADE. Escrever em linha que não existe na grade é erro
+      //    de range no Sheets. Tem de vir antes de qualquer valor.
+      await this.garantirCapacidade(aba, linha);
+
+      // 2) RESERVAR gravando só o UUID em CP. A partir daí a linha é
+      //    inequivocamente deste produto: `primeiraLinhaLivre` exige E e CP
+      //    vazios, então nenhum outro cadastro a toma, e um retry a reencontra
+      //    pelo próprio CP mesmo se o resto falhar no meio.
+      await this.sheets.batchUpdateValues(
+        this.spreadsheetId,
+        [{ range: a1(this.sheetName, `CP${linha}`), values: [[product.id]] }],
+        'RAW',
+      );
+
+      // 3) registrar a linha só depois que a planilha aceitou a reserva
       await this.syncRepo.setRowNumber(product.id, linha).catch(() => {});
-      await this.prepararLinhaNova(aba, linha);
+
+      // 4) formato, validações e fórmulas da linha-modelo
+      await this.copiarModelo(aba, linha);
     }
 
+    // 5) por fim, as células de entrada
     await this.gravarCelulas(product, linha);
     return linha;
   }
@@ -295,26 +349,34 @@ export class ProductSheetService {
   }
 
   /**
-   * Prepara a linha nova copiando da linha ANTERIOR apenas:
-   *  - formatação + validação de dados (PASTE_FORMAT) da linha inteira;
-   *  - fórmulas (PASTE_FORMULA) somente nas colunas que de fato têm fórmula.
+   * ETAPA 1: garante que a linha EXISTE fisicamente na grade, acrescentando
+   * exatamente as linhas que faltam — nunca uma a mais. Nenhum valor pode ser
+   * escrito antes disto: `values.update` fora da grade é erro de range.
+   */
+  private async garantirCapacidade(aba: SheetMeta, linha: number): Promise<void> {
+    if (aba.rowCount >= linha) return; // já cabe
+    await this.sheets.batchUpdate(this.spreadsheetId, [
+      { appendDimension: { sheetId: aba.sheetId, dimension: 'ROWS', length: linha - aba.rowCount } },
+    ]);
+    aba.rowCount = linha;
+  }
+
+  /**
+   * ETAPA 4: copia da linha ANTERIOR apenas:
+   *  - formatação (PASTE_FORMAT);
+   *  - validação de dados (PASTE_DATA_VALIDATION) — requisição SEPARADA, porque
+   *    a documentação do Sheets define PASTE_FORMAT como "paste the format only,
+   *    EXCLUDING data validation". Sem esta segunda requisição a linha nova
+   *    nasceria sem as listas suspensas;
+   *  - fórmulas (PASTE_FORMULA) só nas colunas que de fato têm fórmula.
    * Nenhum valor manual e nenhum ID da linha-modelo é copiado.
    */
-  private async prepararLinhaNova(aba: SheetMeta, linha: number): Promise<void> {
+  private async copiarModelo(aba: SheetMeta, linha: number): Promise<void> {
     const requests: unknown[] = [];
-
-    // a grade precisa ter a linha
-    if (aba.rowCount < linha) {
-      requests.push({
-        appendDimension: { sheetId: aba.sheetId, dimension: 'ROWS', length: linha - aba.rowCount + 1 },
-      });
-      aba.rowCount = linha + 1;
-    }
 
     const modelo = linha - 1;
     if (modelo < FIRST_DATA_ROW) {
       // primeira linha de dados: não há de onde copiar; a aba já traz o formato
-      if (requests.length) await this.sheets.batchUpdate(this.spreadsheetId, requests);
       return;
     }
 
@@ -341,12 +403,25 @@ export class ProductSheetService {
       endColumnIndex: c1,
     });
 
-    // formatação + validações da linha inteira
+    // formatação da linha inteira...
     requests.push({
       copyPaste: {
         source: origem(0, aba.columnCount),
         destination: destino(0, aba.columnCount),
         pasteType: 'PASTE_FORMAT',
+      },
+    });
+
+    // ...e as validações de dados, em requisição SEPARADA e OBRIGATÓRIA.
+    // A documentação oficial define PASTE_FORMAT como "Paste the format only,
+    // excluding data validation" — ou seja, ele NÃO traz as listas suspensas.
+    // Sem esta segunda requisição, a linha nova nasceria sem os dropdowns de
+    // grupo, setor, marca e % de desconto.
+    requests.push({
+      copyPaste: {
+        source: origem(0, aba.columnCount),
+        destination: destino(0, aba.columnCount),
+        pasteType: 'PASTE_DATA_VALIDATION',
       },
     });
 

@@ -60,6 +60,28 @@ const entered = (v: string | null | undefined): SheetCell => {
 export const simNao = (v: boolean): string => (v ? 'SIM' : 'NÃO');
 
 /**
+ * Rótulos dos dias, na ordem das colunas BB..BH (= ordem do array `dias` do banco).
+ *
+ * A coluna AP (V. VENDA FINAL) decide se a promoção vale hoje com
+ * `HLOOKUP(<rótulo do dia de hoje>, $BB$11:$BH$11, 1, 0)`, e o rótulo vem da
+ * tabela de apoio `(TNPLIHORA - EXP.) DATASNUMEROS!AH11:AI17`
+ * (1=DOM, 2=SEG, ... 7=SAB). Ou seja: a célula tem de conter o PRÓPRIO rótulo
+ * do dia quando ativo e ficar VAZIA quando inativo — "SIM"/"NÃO" nunca casaria
+ * no HLOOKUP e a promoção jamais seria aplicada.
+ */
+export const DIA_LABELS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB', 'DOM'] as const;
+
+/**
+ * Desconto promocional para a coluna AZ, em fração NEGATIVA.
+ *
+ * A coluna AY calcula `(AZ*AO)+AO`, ou seja `AO*(1+AZ)`: 20% de desconto só
+ * resulta em 0,8×AO se AZ for -0,20. A validação de dados da coluna (intervalo
+ * nomeado PORCENTAGEMDESCONTO) aceita apenas 0 e valores negativos.
+ * No banco o desconto é guardado como fração positiva, então normalizamos aqui.
+ */
+export const descontoParaAZ = (pct: number): number => (pct === 0 ? 0 : -Math.abs(pct));
+
+/**
  * Quantidade no padrão da coluna F (texto pt-BR, 3 casas): 25 -> "25,000".
  * Sem separador de milhar — o importador remove pontos, então "1234,500" volta
  * a ser lido como 1234,5 sem ambiguidade.
@@ -87,9 +109,9 @@ export const DIAS_COLS = ['BB', 'BC', 'BD', 'BE', 'BF', 'BG', 'BH'] as const;
 /** Todas as colunas de entrada controladas por este mapper. */
 export const INPUT_COLUMNS: readonly string[] = [
   'C', 'D', 'E', 'F', 'G', 'J', 'K', 'L', 'M', 'N', 'O',
-  'R', 'T', 'V', 'W', 'X', 'Y', 'Z',
-  'AC', 'AE', 'AG', 'AI', 'AJ', 'AL', 'AM', 'AN', 'AQ', 'AS',
-  'AW', 'AZ', 'BA', ...DIAS_COLS, 'BL', 'BO',
+  'Q', 'R', 'S', 'T', 'V', 'W', 'X', 'Y', 'Z',
+  'AB', 'AC', 'AE', 'AG', 'AI', 'AJ', 'AL', 'AM', 'AN', 'AQ', 'AS',
+  'AU', 'AW', 'AZ', 'BA', ...DIAS_COLS, 'BK', 'BL', 'BM', 'BO', 'BP',
   'BS', 'BT', 'BU', 'BV', 'BW', 'BX', 'CA', 'CB', 'CD', 'CE',
   'CN', 'CO', 'CP',
 ];
@@ -121,7 +143,11 @@ export function mapProductToCells(product: Product, opts: MapperOptions): CellMa
     O: text(product.medidaCompra),
 
     // ---- grupo: revenda (R) x transformação (T) — exclusivos ----
+    // Q e S são os flags que a planilha usa junto com R/T. São sempre
+    // complementares: a coluna U só monta o texto "DENTRO DA EMB..." se S=SIM.
+    Q: { kind: 'text', value: simNao(revenda) },
     R: revenda ? text(product.grupo) : EMPTY,
+    S: { kind: 'text', value: simNao(!revenda) },
     T: revenda ? EMPTY : text(product.grupo),
 
     // ---- transformação ----
@@ -132,6 +158,9 @@ export function mapProductToCells(product: Product, opts: MapperOptions): CellMa
     Z: tr ? text(tr.refReceituario) : EMPTY,
 
     // ---- cadastro / estoque / preço ----
+    // AB espelha o status: a coluna AD (`IF(AB<>"";P;"")`) só mostra a descrição
+    // quando AB está preenchida. Nas 150 linhas existentes AB == C sempre.
+    AB: { kind: 'text', value: product.status === 'inativo' ? 'INATIVO' : 'ATIVO' },
     AC: text(product.codigoInterno), // TEXTO: preserva "00001"
     AE: number(product.estoqueMin),
     AG: number(product.estoqueMax),
@@ -144,11 +173,20 @@ export function mapProductToCells(product: Product, opts: MapperOptions): CellMa
     AS: text(product.localVenda2),
 
     // ---- promoção ----
+    AU: { kind: 'text', value: simNao(!!promo) },
     AW: promo && promo.tipo === 'valor' ? number(promo.valor) : EMPTY,
-    AZ: promo && promo.tipo === 'desconto' ? number(promo.descontoPct) : EMPTY,
-    BA: promo ? entered(promo.descontoAte) : EMPTY,
+    AZ:
+      promo && promo.tipo === 'desconto' && promo.descontoPct != null
+        ? { kind: 'number', value: descontoParaAZ(promo.descontoPct) } // fração NEGATIVA
+        : EMPTY,
+    // BA aceita só os rótulos da lista DESCONTOATE ("ATÉ 5%" … "ATÉ 50%") — é
+    // texto, apesar do formato de percentual da coluna. Nenhuma fórmula a usa.
+    BA: promo ? text(promo.descontoAte) : EMPTY,
+    BK: { kind: 'text', value: 'DE:' },   // rótulo fixo antes da hora inicial
     BL: promo ? entered(promo.horaInicio) : EMPTY,
+    BM: { kind: 'text', value: 'ATÉ:' },  // rótulo fixo antes da hora final
     BO: promo ? entered(promo.horaFim) : EMPTY,
+    BP: { kind: 'text', value: 'NÃO REVISADO' },
 
     // ---- fiscal ----
     BS: number(fiscal?.reducaoIcms ?? null),
@@ -168,9 +206,11 @@ export function mapProductToCells(product: Product, opts: MapperOptions): CellMa
     CP: { kind: 'text', value: product.id }, // chave de idempotência
   };
 
-  // dias da promoção: SIM/NÃO quando existe promoção; célula vazia quando não existe
+  // dias da promoção: o RÓTULO do dia quando ativo, célula vazia quando inativo
+  // (é o que o HLOOKUP da coluna AP procura — ver DIA_LABELS).
   DIAS_COLS.forEach((col, i) => {
-    cells[col] = promo ? { kind: 'text', value: simNao(promo.dias?.[i] ?? false) } : EMPTY;
+    const ativo = !!promo && (promo.dias?.[i] ?? false);
+    cells[col] = ativo ? { kind: 'text', value: DIA_LABELS[i]! } : EMPTY;
   });
 
   return cells;

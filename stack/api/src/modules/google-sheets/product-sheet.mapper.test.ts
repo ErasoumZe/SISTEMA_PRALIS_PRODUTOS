@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { ProductSchemas } from '@pralis/shared';
 import {
-  mapProductToCells, INPUT_COLUMNS, DIAS_COLS,
-  simNao, formatQuantidade, barcodeCell,
+  mapProductToCells, INPUT_COLUMNS, DIAS_COLS, DIA_LABELS,
+  simNao, formatQuantidade, barcodeCell, descontoParaAZ,
   type SheetCell,
 } from './product-sheet.mapper';
 
@@ -214,7 +214,7 @@ describe('mapper: fiscal', () => {
 describe('mapper: promoção', () => {
   const dias = [true, true, true, true, true, false, false];
 
-  it('promoção por DESCONTO grava AZ (fração) e deixa AW vazio', () => {
+  it('promoção por DESCONTO grava AZ como fração NEGATIVA e deixa AW vazio', () => {
     const c = mapProductToCells(
       produto({
         promocoes: [{
@@ -225,9 +225,36 @@ describe('mapper: promoção', () => {
       OPTS,
     );
     expect(vazia(c.AW)).toBe(true);
-    expect(c.AZ).toEqual({ kind: 'number', value: 0.2 });
+    // AY = (AZ*AO)+AO -> só resulta em 0,8×AO se AZ for -0,20
+    expect(c.AZ).toEqual({ kind: 'number', value: -0.2 });
     expect(c.BL).toEqual({ kind: 'entered', value: '12:00' });
     expect(c.BO).toEqual({ kind: 'entered', value: '15:00' });
+  });
+
+  it('o desconto gravado reproduz o preço promocional da fórmula AY', () => {
+    const precoNormal = 10; // AO
+    for (const pct of [0.05, 0.1, 0.2, 0.35, 0.5]) {
+      const c = mapProductToCells(
+        produto({
+          promocoes: [{
+            tipo: 'desconto', valor: null, descontoPct: pct,
+            horaInicio: null, horaFim: null, dias, descontoAte: null,
+          }],
+        }),
+        OPTS,
+      );
+      const az = (c.AZ as { value: number }).value;
+      const ay = az * precoNormal + precoNormal; // fórmula real da coluna AY
+      expect(ay).toBeCloseTo(precoNormal * (1 - pct), 10);
+      expect(az).toBeLessThan(0);
+    }
+  });
+
+  it('descontoParaAZ normaliza o sinal e preserva o zero', () => {
+    expect(descontoParaAZ(0.2)).toBe(-0.2);
+    expect(descontoParaAZ(-0.2)).toBe(-0.2); // já negativo continua negativo
+    expect(descontoParaAZ(0)).toBe(0); // e não -0
+    expect(Object.is(descontoParaAZ(0), -0)).toBe(false);
   });
 
   it('promoção por VALOR grava AW e deixa AZ vazio', () => {
@@ -244,7 +271,7 @@ describe('mapper: promoção', () => {
     expect(vazia(c.AZ)).toBe(true);
   });
 
-  it('dias vão em BB:BH na ordem SEG..DOM como SIM/NÃO', () => {
+  it('dia ATIVO grava o RÓTULO do dia; dia inativo fica VAZIO (nunca SIM/NÃO)', () => {
     const c = mapProductToCells(
       produto({
         promocoes: [{
@@ -257,14 +284,184 @@ describe('mapper: promoção', () => {
       OPTS,
     );
     expect(DIAS_COLS.map((col) => valor(c[col]))).toEqual([
-      'SIM', 'NÃO', 'NÃO', 'NÃO', 'NÃO', 'NÃO', 'SIM',
+      'SEG', null, null, null, null, null, 'DOM',
     ]);
+    // o HLOOKUP da coluna AP procura o rótulo do dia; SIM/NÃO nunca casaria
+    for (const col of DIAS_COLS) {
+      expect(['SIM', 'NÃO']).not.toContain(valor(c[col]));
+    }
+  });
+
+  it('cobre os SETE dias, um a um, na coluna certa', () => {
+    expect(DIAS_COLS).toEqual(['BB', 'BC', 'BD', 'BE', 'BF', 'BG', 'BH']);
+    expect(DIA_LABELS).toEqual(['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB', 'DOM']);
+
+    DIA_LABELS.forEach((label, i) => {
+      const dias = [false, false, false, false, false, false, false];
+      dias[i] = true;
+      const c = mapProductToCells(
+        produto({
+          promocoes: [{
+            tipo: 'desconto', valor: null, descontoPct: 0.1,
+            horaInicio: null, horaFim: null, dias, descontoAte: null,
+          }],
+        }),
+        OPTS,
+      );
+      // só a coluna do dia ativo tem valor, e o valor é o próprio rótulo
+      DIAS_COLS.forEach((col, j) => {
+        if (i === j) expect(valor(c[col]), `${col} deveria ser ${label}`).toBe(label);
+        else expect(vazia(c[col]), `${col} deveria estar vazia`).toBe(true);
+      });
+    });
+  });
+
+  it('todos os sete dias ativos preenchem BB:BH inteiro', () => {
+    const c = mapProductToCells(
+      produto({
+        promocoes: [{
+          tipo: 'desconto', valor: null, descontoPct: 0.1,
+          horaInicio: null, horaFim: null,
+          dias: [true, true, true, true, true, true, true],
+          descontoAte: null,
+        }],
+      }),
+      OPTS,
+    );
+    expect(DIAS_COLS.map((col) => valor(c[col]))).toEqual([...DIA_LABELS]);
   });
 
   it('sem promoção, o bloco inteiro (AW, AZ, BA, BB:BH, BL, BO) fica vazio', () => {
     const c = mapProductToCells(produto({ promocoes: [] }), OPTS);
     for (const col of ['AW', 'AZ', 'BA', ...DIAS_COLS, 'BL', 'BO']) {
       expect(vazia(c[col]), `coluna ${col} deveria estar vazia`).toBe(true);
+    }
+    expect(valor(c.AU)).toBe('NÃO'); // flag da promoção acompanha
+  });
+
+  it('AU sinaliza SIM quando existe promoção', () => {
+    const c = mapProductToCells(
+      produto({
+        promocoes: [{
+          tipo: 'valor', valor: 3, descontoPct: null,
+          horaInicio: null, horaFim: null, dias, descontoAte: null,
+        }],
+      }),
+      OPTS,
+    );
+    expect(valor(c.AU)).toBe('SIM');
+  });
+
+  it('usa a PRIMEIRA promoção quando o produto tem mais de uma', () => {
+    // a planilha tem um único bloco de promoção por linha
+    const c = mapProductToCells(
+      produto({
+        promocoes: [
+          {
+            tipo: 'valor', valor: 4.99, descontoPct: null,
+            horaInicio: '08:00', horaFim: '10:00',
+            dias: [true, false, false, false, false, false, false],
+            descontoAte: null,
+          },
+          {
+            tipo: 'desconto', valor: null, descontoPct: 0.5,
+            horaInicio: '20:00', horaFim: '22:00',
+            dias: [false, false, false, false, false, false, true],
+            descontoAte: 'ATÉ 50%',
+          },
+        ],
+      }),
+      OPTS,
+    );
+    expect(c.AW).toEqual({ kind: 'number', value: 4.99 }); // da primeira
+    expect(vazia(c.AZ)).toBe(true); // a segunda foi ignorada
+    expect(valor(c.BL)).toBe('08:00');
+    expect(valor(c.BB)).toBe('SEG');
+    expect(vazia(c.BH)).toBe(true);
+    expect(vazia(c.BA)).toBe(true);
+  });
+
+  it('BA vai como TEXTO, no rótulo aceito pela validação da coluna', () => {
+    const c = mapProductToCells(
+      produto({
+        promocoes: [{
+          tipo: 'desconto', valor: null, descontoPct: 0.2,
+          horaInicio: null, horaFim: null, dias, descontoAte: 'ATÉ 20%',
+        }],
+      }),
+      OPTS,
+    );
+    // a lista DESCONTOATE aceita "ATÉ 5%".."ATÉ 50%" — é rótulo, não número
+    expect(c.BA).toEqual({ kind: 'text', value: 'ATÉ 20%' });
+  });
+});
+
+describe('mapper: colunas operacionais da planilha', () => {
+  it('revenda marca Q=SIM e S=NÃO', () => {
+    const c = mapProductToCells(produto({ tipo: 'revenda' }), OPTS);
+    expect(valor(c.Q)).toBe('SIM');
+    expect(valor(c.S)).toBe('NÃO');
+  });
+
+  it('transformação marca Q=NÃO e S=SIM (a coluna U depende de S)', () => {
+    const c = mapProductToCells(
+      produto({
+        tipo: 'transformacao',
+        transformacao: {
+          precisao: 'EXATOS', qtd: 1000, unidade: 'G',
+          produtoReceituario: null, refReceituario: null,
+        },
+      }),
+      OPTS,
+    );
+    expect(valor(c.Q)).toBe('NÃO');
+    expect(valor(c.S)).toBe('SIM');
+  });
+
+  it('Q e S são SEMPRE complementares — nunca combinação incoerente', () => {
+    for (const tipo of ['revenda', 'transformacao'] as const) {
+      const c = mapProductToCells(
+        produto({
+          tipo,
+          transformacao: tipo === 'transformacao'
+            ? { precisao: 'EXATOS', qtd: 1, unidade: 'G', produtoReceituario: null, refReceituario: null }
+            : null,
+        }),
+        OPTS,
+      );
+      const q = valor(c.Q);
+      const s = valor(c.S);
+      expect([q, s]).not.toEqual(['SIM', 'SIM']);
+      expect([q, s]).not.toEqual(['NÃO', 'NÃO']);
+      expect(q === 'SIM' ? s : q).toBe('NÃO');
+    }
+  });
+
+  it('AB espelha o status (a coluna AD só mostra a descrição se AB estiver preenchida)', () => {
+    expect(valor(mapProductToCells(produto({ status: 'ativo' }), OPTS).AB)).toBe('ATIVO');
+    expect(valor(mapProductToCells(produto({ status: 'inativo' }), OPTS).AB)).toBe('INATIVO');
+    // AB acompanha C
+    const c = mapProductToCells(produto({ status: 'inativo' }), OPTS);
+    expect(valor(c.AB)).toBe(valor(c.C));
+  });
+
+  it('rótulos fixos: BK, BM e BP', () => {
+    const c = mapProductToCells(produto(), OPTS);
+    expect(valor(c.BK)).toBe('DE:');
+    expect(valor(c.BM)).toBe('ATÉ:');
+    expect(valor(c.BP)).toBe('NÃO REVISADO');
+  });
+
+  it('as colunas operacionais nunca ficam vazias, mesmo no produto mínimo', () => {
+    const c = mapProductToCells(
+      produto({
+        marca: null, grupo: null, codigoBarras: null, promocoes: [],
+        custo: null, margemPontual: null, fiscal: null,
+      }),
+      OPTS,
+    );
+    for (const col of ['Q', 'S', 'AB', 'AU', 'BK', 'BM', 'BP']) {
+      expect(vazia(c[col]), `coluna ${col} não deveria estar vazia`).toBe(false);
     }
   });
 });

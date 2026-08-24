@@ -16,7 +16,7 @@ export async function productSheetRoutes(app: FastifyInstance) {
 
   const syncReply = apiResponseSchema(
     z.object({
-      status: z.enum(['synced', 'failed', 'disabled', 'skipped']),
+      status: z.enum(['synced', 'failed', 'disabled', 'skipped', 'misconfigured']),
       rowNumber: z.number().nullable(),
       error: z.string().nullable(),
     }),
@@ -25,6 +25,8 @@ export async function productSheetRoutes(app: FastifyInstance) {
   const healthReply = apiResponseSchema(
     z.object({
       enabled: z.boolean(),
+      configFaltando: z.array(z.string()),
+      configOk: z.boolean(),
       spreadsheetId: z.string(),
       sheetName: z.string(),
       auth: z.boolean(),

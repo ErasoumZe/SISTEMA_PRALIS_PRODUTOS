@@ -240,7 +240,7 @@ async function salvar(forcar = false) {
       flash.value =
         sync === 'synced'
           ? { texto: 'Produto salvo no banco e na planilha', tipo: 'success' }
-          : sync === 'failed'
+          : sync === 'failed' || sync === 'misconfigured'
             ? { texto: 'Produto salvo no banco. Sincronização com a planilha pendente', tipo: 'warning' }
             : { texto: 'Produto salvo no banco', tipo: 'success' };
     }

@@ -33,7 +33,13 @@ let syncRepo: ProductSheetRepository;
 let sheetService: ProductSheetService;
 let service: ProductService;
 let sheets: FakeSheetsGateway;
-let env: { GOOGLE_SHEETS_ENABLED: boolean; GOOGLE_SHEETS_BASE_TAB: string };
+let env: {
+  GOOGLE_SHEETS_ENABLED: boolean;
+  GOOGLE_SHEETS_BASE_TAB: string;
+  GOOGLE_SHEETS_SPREADSHEET_ID: string;
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: string;
+  GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: string;
+};
 let sqlTag: typeof import('drizzle-orm')['sql'];
 
 const adminId = uuidv7();
@@ -95,6 +101,12 @@ afterAll(async () => {
 
 beforeEach(() => {
   env.GOOGLE_SHEETS_ENABLED = false;
+  // ambiente "bem configurado" de mentira — o gateway é falso, nada sai daqui.
+  // O destino é explícito porque o código não tem mais ID padrão: sem ele a
+  // sincronização é recusada antes de qualquer escrita.
+  env.GOOGLE_SHEETS_SPREADSHEET_ID = 'id-de-teste-nao-oficial';
+  env.GOOGLE_SERVICE_ACCOUNT_EMAIL = 'teste@exemplo.iam.gserviceaccount.com';
+  env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n';
   sheets.falharEscrita = null;
   sheets.falharTudo = null;
 });
@@ -197,21 +209,24 @@ describe('espelhamento com Google mockado (Postgres real)', () => {
 
     const p = await service.create(admin, mkPayload('SYNC RETRY C'));
     expect(p.sheetSync).toBe('failed');
-    const linhaReservada = Number((await sheetRow(p.id))!.row_number);
-    expect(linhaReservada).toBeGreaterThanOrEqual(11);
+    // a falha derrubou já a reserva do UUID em CP: nada foi escrito na planilha
+    // e o banco NÃO guarda linha que a planilha não confirmou
+    expect(await sheetRow(p.id)).toMatchObject({ status: 'failed', row_number: null });
 
     sheets.falharEscrita = null;
     const primeiro = await sheetService.syncProduct(p.id);
-    expect(primeiro).toMatchObject({ outcome: 'synced', rowNumber: linhaReservada });
+    expect(primeiro.outcome).toBe('synced');
+    const linha = primeiro.rowNumber!;
+    expect(linha).toBeGreaterThanOrEqual(11);
 
     // e reprocessar um registro JÁ synced continua idempotente
     const segundo = await sheetService.syncProduct(p.id);
-    expect(segundo).toMatchObject({ outcome: 'synced', rowNumber: linhaReservada });
-    expect(sheets.get(`CP${linhaReservada}`)).toBe(p.id);
-    expect(sheets.get(`E${linhaReservada + 1}`)).toBe('');
+    expect(segundo).toMatchObject({ outcome: 'synced', rowNumber: linha });
+    expect(sheets.get(`CP${linha}`)).toBe(p.id);
+    expect(sheets.get(`E${linha + 1}`)).toBe(''); // não consumiu a linha seguinte
 
     const row = await sheetRow(p.id);
-    expect(row).toMatchObject({ status: 'synced', row_number: linhaReservada, last_error: null });
+    expect(row).toMatchObject({ status: 'synced', row_number: linha, last_error: null });
     expect(Number(row!.attempts)).toBe(3); // 1 falha + 2 sucessos
   });
 
@@ -226,6 +241,33 @@ describe('espelhamento com Google mockado (Postgres real)', () => {
 
     expect(res.outcome).toBe('synced');
     expect(await sheetRow(p.id)).toMatchObject({ status: 'synced', row_number: res.rowNumber });
+  });
+
+  it('promoção chega à planilha com desconto NEGATIVO e dias por rótulo', async () => {
+    env.GOOGLE_SHEETS_ENABLED = true;
+    const payload = mkPayload('SYNC PROMO E');
+    payload.promocoes = [{
+      tipo: 'desconto', valor: null, descontoPct: 0.2,
+      horaInicio: '12:00', horaFim: '15:00',
+      dias: [true, false, false, false, false, false, true], // SEG e DOM
+      descontoAte: 'ATÉ 20%',
+    }];
+
+    const p = await service.create(admin, payload);
+    expect(p.sheetSync).toBe('synced');
+
+    const linha = Number((await sheetRow(p.id))!.row_number);
+    expect(sheets.get(`AZ${linha}`)).toBe('-0.2'); // AY = (AZ*AO)+AO
+    expect(sheets.get(`AU${linha}`)).toBe('SIM');
+    expect(sheets.get(`BA${linha}`)).toBe('ATÉ 20%');
+    expect(sheets.get(`BB${linha}`)).toBe('SEG');
+    expect(sheets.get(`BH${linha}`)).toBe('DOM');
+    expect(sheets.get(`BC${linha}`)).toBe(''); // TER inativo fica vazio
+    // colunas operacionais preenchidas
+    expect(sheets.get(`Q${linha}`)).toBe('SIM');
+    expect(sheets.get(`S${linha}`)).toBe('NÃO');
+    expect(sheets.get(`AB${linha}`)).toBe('ATIVO');
+    expect(sheets.get(`BP${linha}`)).toBe('NÃO REVISADO');
   });
 
   it('health não escreve nada na planilha', async () => {

@@ -24,3 +24,6 @@ _t.png
 *service-account*.json
 gcp-*.json
 google-credentials*.json
+credentials*.json
+*.pem
+*.key
