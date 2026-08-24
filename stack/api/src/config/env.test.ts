@@ -32,6 +32,11 @@ describe('normalizePrivateKey', () => {
     expect(normalizePrivateKey(PEM_REAL)).toBe(PEM_REAL);
   });
 
+  it('reconstrói o PEM quando o painel troca todas as quebras por espaços', () => {
+    const achatada = `-----BEGIN PRIVATE KEY----- ${MIOLO} -----END PRIVATE KEY-----`;
+    expect(normalizePrivateKey(achatada)).toBe(PEM_REAL);
+  });
+
   it('é idempotente (normalizar duas vezes não muda nada)', () => {
     const umaVez = normalizePrivateKey(`-----BEGIN PRIVATE KEY-----\\n${MIOLO}\\n-----END PRIVATE KEY-----`);
     expect(normalizePrivateKey(umaVez)).toBe(umaVez);
@@ -78,6 +83,9 @@ describe('normalizePrivateKey', () => {
 
     const normalizada = normalizePrivateKey(comoVemDoPainel);
     expect(() => createPrivateKey(normalizada)).not.toThrow();
+
+    const achatada = pem.replace(/\r?\n/g, ' ').trim();
+    expect(() => createPrivateKey(normalizePrivateKey(achatada))).not.toThrow();
   });
 });
 

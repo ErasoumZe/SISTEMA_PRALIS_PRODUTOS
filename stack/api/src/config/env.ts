@@ -36,6 +36,21 @@ export const normalizePrivateKey = (raw: string): string => {
     .split('\r\n').join('\n') // CRLF real
     .split('\r').join('\n') // CR real
     .trim();
+
+  // Alguns painéis, inclusive a configuração atual do Coolify, achatam o PEM
+  // trocando TODAS as quebras por espaços: "-----BEGIN...----- MIIE... -----END".
+  // Reconstrói o envelope e o corpo base64 em linhas de 64 caracteres. Isso
+  // também canonicaliza com segurança as formas com \n literal e quebra real.
+  const partesPem = comQuebras.match(
+    /^-----BEGIN ([A-Z0-9 ]+)-----\s*([A-Za-z0-9+/=\s]+?)\s*-----END \1-----$/,
+  );
+  if (partesPem) {
+    const [, tipo, corpoComEspacos] = partesPem;
+    const corpo = corpoComEspacos!.replace(/\s+/g, '');
+    const linhas = corpo.match(/.{1,64}/g) ?? [];
+    return `-----BEGIN ${tipo}-----\n${linhas.join('\n')}\n-----END ${tipo}-----\n`;
+  }
+
   return `${comQuebras}\n`;
 };
 
