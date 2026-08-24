@@ -76,6 +76,7 @@ describe('mapper: colunas do cadastro geral', () => {
     expect(valor(c.M)).toBe('C/');
     expect(valor(c.N)).toBe(20);
     expect(valor(c.O)).toBe('UN');
+    expect(valor(c.P)).toBe('1 CX C/ (SNICKERS 45 G)');
     expect(valor(c.AC)).toBe('00007');
     expect(valor(c.AE)).toBe(20);
     expect(valor(c.AG)).toBe(100);

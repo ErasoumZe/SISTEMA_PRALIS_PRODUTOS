@@ -91,9 +91,11 @@ beforeAll(async () => {
   sheets = new FakeSheetsGateway().comCabecalhos().comLinhaModelo(12);
   sheetService = new ProductSheetService(repo, syncRepo, sheets);
   const taxRules = {
-    requireForGroup: async (grupo: string) => ({
+    classify: async (grupo: string) => ({
       grupo, cstPisCofins: '6', tributacaoSimples: 'ALÍQUOTA ZERO',
       aliquotaSimples: 7.4, icmsRe: 0, baseFiscal: 'Cesta básica',
+      ncm: null, codigoFiscal: null, produtoFiscal: null, cstReforma: null,
+      cClassTrib: null, aliquotaIbs: null, aliquotaCbs: null, origem: 'grupo' as const,
     }),
   } as TaxRuleService;
   service = new ProductService(repo, sheetService, taxRules);

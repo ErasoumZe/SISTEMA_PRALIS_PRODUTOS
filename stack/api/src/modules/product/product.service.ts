@@ -5,7 +5,7 @@ import { ProductRepository } from './product.repository';
 import { ProductSheetService, type SheetSyncOutcome } from '@/modules/google-sheets/product-sheet.service';
 import { AppError } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
-import { TaxRuleService, type GroupTaxRule } from '@/modules/apoio/tax-rule.service';
+import { TaxRuleService, type FiscalClassification } from '@/modules/apoio/tax-rule.service';
 
 const rand4 = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', 4);
 const genCodigo = () => `PR-${rand4()}-${rand4()}`;
@@ -23,7 +23,7 @@ export class ProductService {
 
   private withAutomaticTax<T extends ProductRequests.CreateProductRequest | ProductRequests.UpdateProductRequest>(
     payload: T,
-    rule: GroupTaxRule,
+    rule: FiscalClassification,
   ): T {
     const fiscal = payload.fiscal ?? {
       ncm: null, cest: null, categoria: null, cstPisCofins: null,
@@ -35,11 +35,19 @@ export class ProductService {
       grupo: rule.grupo,
       fiscal: {
         ...fiscal,
+        ncm: rule.ncm ?? fiscal.ncm,
         cstPisCofins: rule.cstPisCofins,
         tributacaoSimples: rule.tributacaoSimples,
         aliquotaSimples: rule.aliquotaSimples,
         icmsRe: rule.icmsRe,
         baseFiscal: rule.baseFiscal,
+        codigoFiscal: rule.codigoFiscal,
+        produtoFiscal: rule.produtoFiscal,
+        cstReforma: rule.cstReforma,
+        cClassTrib: rule.cClassTrib,
+        aliquotaIbs: rule.aliquotaIbs,
+        aliquotaCbs: rule.aliquotaCbs,
+        origemFiscal: rule.origem,
       },
     } as T;
   }
@@ -60,7 +68,10 @@ export class ProductService {
     if (!payload.grupo?.trim()) {
       throw new AppError('Selecione o grupo de mercadorias para aplicar a regra fiscal.', 422, 'GROUP_REQUIRED');
     }
-    const payloadComImposto = this.withAutomaticTax(payload, await this.taxRules.requireForGroup(payload.grupo));
+    const payloadComImposto = this.withAutomaticTax(
+      payload,
+      await this.taxRules.classify(payload.grupo, payload.codigoBarras ?? undefined),
+    );
 
     if (!payloadComImposto.forcar) {
       const dup = await this.repo.findDuplicate(alvo, payloadComImposto.nome, payloadComImposto.codigoBarras ?? null);
@@ -118,14 +129,18 @@ export class ProductService {
     }
     let payloadFinal = payload;
     const grupoEfetivo = payload.grupo ?? p.grupo;
-    if (payload.grupo !== undefined || payload.fiscal !== undefined) {
+    if (payload.grupo !== undefined || payload.codigoBarras !== undefined || payload.fiscal !== undefined) {
       if (!grupoEfetivo?.trim()) {
         throw new AppError('Selecione o grupo de mercadorias para aplicar a regra fiscal.', 422, 'GROUP_REQUIRED');
       }
       // Alterar somente o grupo não pode apagar NCM/CEST e demais dados
       // específicos já existentes no produto.
       const comFiscalAnterior = payload.fiscal === undefined ? { ...payload, fiscal: p.fiscal } : payload;
-      payloadFinal = this.withAutomaticTax(comFiscalAnterior, await this.taxRules.requireForGroup(grupoEfetivo));
+      const codigoBarrasEfetivo = payload.codigoBarras ?? p.codigoBarras ?? undefined;
+      payloadFinal = this.withAutomaticTax(
+        comFiscalAnterior,
+        await this.taxRules.classify(grupoEfetivo, codigoBarrasEfetivo),
+      );
     }
     const updated = await this.repo.update(id, payloadFinal);
     if (!updated) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');

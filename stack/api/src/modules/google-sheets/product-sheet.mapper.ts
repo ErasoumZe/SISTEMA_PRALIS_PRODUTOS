@@ -1,4 +1,4 @@
-import type { ProductSchemas } from '@pralis/shared';
+import { ProductRules, type ProductSchemas } from '@pralis/shared';
 
 /**
  * Mapeamento INVERSO do importador (`src/db/gen-base-json.ts`): produto do
@@ -119,7 +119,7 @@ export const DIAS_COLS = ['BB', 'BC', 'BD', 'BE', 'BF', 'BG', 'BH'] as const;
 
 /** Todas as colunas de entrada controladas por este mapper. */
 export const INPUT_COLUMNS: readonly string[] = [
-  'C', 'D', 'E', 'F', 'G', 'J', 'K', 'L', 'M', 'N', 'O',
+  'C', 'D', 'E', 'F', 'G', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
   'Q', 'R', 'S', 'T', 'V', 'W', 'X', 'Y', 'Z',
   'AB', 'AC', 'AE', 'AG', 'AI', 'AJ', 'AL', 'AM', 'AN', 'AQ', 'AS',
   'AU', 'AW', 'AZ', 'BA', ...DIAS_COLS, 'BK', 'BL', 'BM', 'BO', 'BP',
@@ -159,6 +159,12 @@ export function mapProductToCells(product: Product, opts: MapperOptions): CellMa
     M: text(product.cDe),
     N: number(product.qtCad),
     O: text(product.medidaCompra),
+    // A fórmula histórica desta coluna depende de células auxiliares que
+    // estão inconsistentes na planilha oficial. Geramos o valor no backend.
+    P: text(ProductRules.montarComoSeCompra(
+      product.embalagem ?? '', product.cDe, product.qtCad,
+      ProductRules.montarDescricao(product.nome, product.quantidade, product.medidaBase),
+    )),
 
     // ---- grupo: revenda (R) x transformação (T) — exclusivos ----
     // Q e S são os flags que a planilha usa junto com R/T. São sempre

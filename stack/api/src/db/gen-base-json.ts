@@ -59,6 +59,13 @@ function buildFiscal(get: (col: string) => unknown): ProductRequests.CreateProdu
     aliquotaSimples: null,
     icmsRe: null,
     baseFiscal: null,
+    codigoFiscal: null,
+    produtoFiscal: null,
+    cstReforma: null,
+    cClassTrib: null,
+    aliquotaIbs: null,
+    aliquotaCbs: null,
+    origemFiscal: null,
   };
   const hasAny = Object.values(f).some((v) => v !== null);
   return hasAny ? f : null;

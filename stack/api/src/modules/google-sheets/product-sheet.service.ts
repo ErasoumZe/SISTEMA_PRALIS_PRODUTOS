@@ -66,7 +66,7 @@ const HEADER_ROW = 5;
 /** Linha-modelo validada que contém o conjunto completo de fórmulas. */
 const FORMULA_TEMPLATE_ROW = 12;
 const REQUIRED_FORMULA_COLUMNS = [
-  'H', 'P', 'U', 'AD', 'AF', 'AH', 'AK', 'AO', 'AP',
+  'H', 'U', 'AD', 'AF', 'AH', 'AK', 'AO', 'AP',
   'AR', 'AT', 'AV', 'AX', 'AY', 'BI', 'BJ', 'BR',
 ] as const;
 

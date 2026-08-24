@@ -14,6 +14,17 @@ const ruleSchema = z.object({
   baseFiscal: z.string(),
 });
 
+const classificationSchema = ruleSchema.extend({
+  ncm: z.string().nullable(),
+  codigoFiscal: z.string().nullable(),
+  produtoFiscal: z.string().nullable(),
+  cstReforma: z.string().nullable(),
+  cClassTrib: z.string().nullable(),
+  aliquotaIbs: z.number().nullable(),
+  aliquotaCbs: z.number().nullable(),
+  origem: z.enum(['produto', 'plu_balanca', 'grupo']),
+});
+
 export async function apoioRoutes(app: FastifyInstance) {
   const service = container.resolve(TaxRuleService);
   app.addHook('onRequest', authMiddleware);
@@ -24,4 +35,15 @@ export async function apoioRoutes(app: FastifyInstance) {
       tags: ['APOIO'],
     },
   }, async (_request, reply) => reply.send(buildResponse(await service.list(), 'Regras fiscais por grupo')));
+  app.get('/apoio/classificacao-fiscal', {
+    schema: {
+      querystring: z.object({ grupo: z.string().min(1), codigoBarras: z.string().optional() }),
+      response: { 200: apiResponseSchema(classificationSchema) },
+      summary: 'Classificação fiscal automática por grupo e código de barras',
+      tags: ['APOIO'],
+    },
+  }, async (request, reply) => {
+    const query = request.query as { grupo: string; codigoBarras?: string };
+    return reply.send(buildResponse(await service.classify(query.grupo, query.codigoBarras), 'Classificação fiscal'));
+  });
 }

@@ -11,6 +11,16 @@ export interface GroupTaxRule {
   icmsRe: number;
   baseFiscal: string;
 }
+export interface FiscalClassification extends GroupTaxRule {
+  ncm: string | null;
+  codigoFiscal: string | null;
+  produtoFiscal: string | null;
+  cstReforma: string | null;
+  cClassTrib: string | null;
+  aliquotaIbs: number | null;
+  aliquotaCbs: number | null;
+  origem: 'produto' | 'plu_balanca' | 'grupo';
+}
 
 /** Estado do espelhamento do produto na planilha (etapa 1: só a BASE). */
 export type SheetSyncStatus = 'synced' | 'failed' | 'disabled' | 'skipped' | 'misconfigured';
@@ -62,6 +72,11 @@ export function useApi() {
 
     listGroupTaxRules: () =>
       unwrap($fetch<{ data: GroupTaxRule[] }>('/apoio/grupos-fiscais', { ...base })),
+
+    classifyFiscal: (grupo: string, codigoBarras?: string) =>
+      unwrap($fetch<{ data: FiscalClassification }>('/apoio/classificacao-fiscal', {
+        ...base, query: { grupo, ...(codigoBarras ? { codigoBarras } : {}) },
+      })),
 
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),

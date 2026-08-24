@@ -36,6 +36,13 @@
       "when": 1787593168280,
       "tag": "0004_elite_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787600034131,
+      "tag": "0005_last_joseph",
+      "breakpoints": true
     }
   ]
 }

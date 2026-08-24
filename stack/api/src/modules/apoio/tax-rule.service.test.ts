@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { env } from '@/config/env';
 import type { SheetsGateway } from '@/modules/google-sheets/google-sheets.client';
-import { normalizeGroup, parseSheetPercent, TaxRuleService } from './tax-rule.service';
+import { barcodeCandidates, normalizeGroup, parseSheetPercent, TaxRuleService } from './tax-rule.service';
 
 const previous = {
   id: env.GOOGLE_SHEETS_SPREADSHEET_ID,
@@ -51,6 +51,27 @@ describe('TaxRuleService', () => {
 
     await expect(service.requireForGroup('GRUPO INEXISTENTE')).rejects.toMatchObject({
       statusCode: 422, code: 'TAX_RULE_NOT_FOUND',
+    });
+  });
+
+  it('classifica EAN de balança pelo PLU e completa NCM e reforma tributária', async () => {
+    expect(barcodeCandidates('2128050024901')).toEqual(['2128050024901', '12805']);
+    const gateway = {
+      batchGetValues: async () => [
+        [['MER FAB. PRÓPRIA - CONFEITARIA', '1', 'TRIBUTADO INTEGRAL', '11,28%', '3,69%', 'Regra geral']],
+        [['12805', '19059090', '1', '3,69%', 'BOLO PRALIS LIMAO']],
+        [['19059090', 'Produtos de padaria', '000', '000001', '0,10%', '0,90%']],
+        [['1', 'TRIBUTADO INTEGRAL', '11,28%']],
+      ],
+    } as unknown as SheetsGateway;
+
+    const classification = await new TaxRuleService(gateway)
+      .classify('MER FAB. PRÓPRIA - CONFEITARIA', '2128050024901');
+
+    expect(classification).toMatchObject({
+      origem: 'plu_balanca', codigoFiscal: '12805', ncm: '19059090',
+      cstPisCofins: '1', cstReforma: '000', cClassTrib: '000001',
+      aliquotaIbs: 0.1, aliquotaCbs: 0.9,
     });
   });
 });

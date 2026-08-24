@@ -49,6 +49,13 @@ export const fiscalSchema = z.object({
   aliquotaSimples: z.number().nullable().default(null),
   icmsRe: z.number().nullable().default(null),
   baseFiscal: z.string().nullable().default(null),
+  codigoFiscal: z.string().nullable().default(null),
+  produtoFiscal: z.string().nullable().default(null),
+  cstReforma: z.string().nullable().default(null),
+  cClassTrib: z.string().nullable().default(null),
+  aliquotaIbs: z.number().nullable().default(null),
+  aliquotaCbs: z.number().nullable().default(null),
+  origemFiscal: z.enum(['produto', 'plu_balanca', 'grupo']).nullable().default(null),
 });
 
 // ---- Campos editáveis do produto (identidade + comercial) ----

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ProductRules } from '@pralis/shared';
 import type { ProductRequests } from '@pralis/shared';
-import type { GroupTaxRule } from '~/composables/useApi';
+import type { FiscalClassification, GroupTaxRule } from '~/composables/useApi';
 
 const props = defineProps<{ productId?: string }>();
 const api = useApi();
@@ -34,12 +34,49 @@ const form = reactive({
   ncm: '', cest: '', categoria: '', cstPisCofins: '',
   aliquotaCheia: 0, aliquotaFcp: 0, aliquotaPis: 0, aliquotaCofins: 0, reducaoIcms: 0, icms: 0,
   tributacaoSimples: '', aliquotaSimples: 0, icmsRe: 0, baseFiscal: '',
+  codigoFiscal: '', produtoFiscal: '', cstReforma: '', cClassTrib: '',
+  aliquotaIbs: 0, aliquotaCbs: 0, origemFiscal: '' as '' | 'produto' | 'plu_balanca' | 'grupo',
 });
 
 const groupTaxRules = ref<GroupTaxRule[]>([]);
 const loadingGroups = ref(false);
 const selectedTaxRule = computed(() => groupTaxRules.value.find((r) => r.grupo === form.grupo) ?? null);
+const fiscalClassification = ref<FiscalClassification | null>(null);
+const loadingFiscal = ref(false);
+const automaticFiscal = computed(() => fiscalClassification.value ?? selectedTaxRule.value);
 const groupItems = computed(() => groupTaxRules.value.map((r) => r.grupo));
+
+let classificationRequest = 0;
+watch([() => form.grupo, () => form.codigoBarras], async ([grupo, codigoBarras]) => {
+  const request = ++classificationRequest;
+  fiscalClassification.value = null;
+  if (!grupo) return;
+  loadingFiscal.value = true;
+  try {
+    const classification = await api.classifyFiscal(grupo, codigoBarras || undefined);
+    if (request !== classificationRequest) return;
+    fiscalClassification.value = classification;
+    if (classification.ncm) form.ncm = classification.ncm;
+    Object.assign(form, {
+      cstPisCofins: classification.cstPisCofins,
+      tributacaoSimples: classification.tributacaoSimples,
+      aliquotaSimples: classification.aliquotaSimples,
+      icmsRe: classification.icmsRe,
+      baseFiscal: classification.baseFiscal,
+      codigoFiscal: classification.codigoFiscal ?? '',
+      produtoFiscal: classification.produtoFiscal ?? '',
+      cstReforma: classification.cstReforma ?? '',
+      cClassTrib: classification.cClassTrib ?? '',
+      aliquotaIbs: classification.aliquotaIbs ?? 0,
+      aliquotaCbs: classification.aliquotaCbs ?? 0,
+      origemFiscal: classification.origem,
+    });
+  } catch {
+    if (request === classificationRequest) fiscalClassification.value = null;
+  } finally {
+    if (request === classificationRequest) loadingFiscal.value = false;
+  }
+});
 
 const DIAS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB', 'DOM'];
 
@@ -150,7 +187,7 @@ const dicas: Record<string, string> = {
 const ajuda = (campo: string) => (form.habilitarAjuda ? dicas[campo] : undefined);
 
 function buildFiscal() {
-  const automatic = selectedTaxRule.value;
+  const automatic = automaticFiscal.value;
   const has =
     form.ncm || form.cest || form.categoria || form.cstPisCofins ||
     form.aliquotaCheia || form.aliquotaFcp || form.aliquotaPis ||
@@ -171,6 +208,13 @@ function buildFiscal() {
     aliquotaSimples: automatic?.aliquotaSimples ?? (Number(form.aliquotaSimples) || null),
     icmsRe: automatic?.icmsRe ?? (Number(form.icmsRe) || null),
     baseFiscal: automatic?.baseFiscal ?? (form.baseFiscal || null),
+    codigoFiscal: fiscalClassification.value?.codigoFiscal ?? (form.codigoFiscal || null),
+    produtoFiscal: fiscalClassification.value?.produtoFiscal ?? (form.produtoFiscal || null),
+    cstReforma: fiscalClassification.value?.cstReforma ?? (form.cstReforma || null),
+    cClassTrib: fiscalClassification.value?.cClassTrib ?? (form.cClassTrib || null),
+    aliquotaIbs: fiscalClassification.value?.aliquotaIbs ?? (Number(form.aliquotaIbs) || null),
+    aliquotaCbs: fiscalClassification.value?.aliquotaCbs ?? (Number(form.aliquotaCbs) || null),
+    origemFiscal: fiscalClassification.value?.origem ?? (form.origemFiscal || null),
   };
 }
 
@@ -305,6 +349,10 @@ onMounted(async () => {
       reducaoIcms: p.fiscal.reducaoIcms ?? 0, icms: p.fiscal.icms ?? 0,
       tributacaoSimples: p.fiscal.tributacaoSimples ?? '', aliquotaSimples: p.fiscal.aliquotaSimples ?? 0,
       icmsRe: p.fiscal.icmsRe ?? 0, baseFiscal: p.fiscal.baseFiscal ?? '',
+      codigoFiscal: p.fiscal.codigoFiscal ?? '', produtoFiscal: p.fiscal.produtoFiscal ?? '',
+      cstReforma: p.fiscal.cstReforma ?? '', cClassTrib: p.fiscal.cClassTrib ?? '',
+      aliquotaIbs: p.fiscal.aliquotaIbs ?? 0, aliquotaCbs: p.fiscal.aliquotaCbs ?? 0,
+      origemFiscal: p.fiscal.origemFiscal ?? '',
     });
     const promo = p.promocoes?.[0];
     if (promo) Object.assign(form, {
@@ -515,24 +563,25 @@ onMounted(async () => {
               no-data-text="Nenhum grupo fiscal disponível"
             />
           </v-col>
-          <v-col v-if="selectedTaxRule" cols="12">
+          <v-col v-if="automaticFiscal" cols="12">
             <v-alert type="info" variant="tonal" density="compact" class="mb-2">
-              Regra automática: {{ selectedTaxRule.tributacaoSimples }} · CST {{ selectedTaxRule.cstPisCofins }} ·
-              Simples {{ selectedTaxRule.aliquotaSimples.toFixed(2).replace('.', ',') }}% ·
-              ICMS RE {{ selectedTaxRule.icmsRe.toFixed(2).replace('.', ',') }}%
-              <div v-if="selectedTaxRule.baseFiscal" class="text-caption mt-1">{{ selectedTaxRule.baseFiscal }}</div>
+              Regra automática: {{ automaticFiscal.tributacaoSimples }} · CST {{ automaticFiscal.cstPisCofins }} ·
+              Simples {{ automaticFiscal.aliquotaSimples.toFixed(2).replace('.', ',') }}% ·
+              ICMS RE {{ automaticFiscal.icmsRe.toFixed(2).replace('.', ',') }}%
+              <div v-if="automaticFiscal.baseFiscal" class="text-caption mt-1">{{ automaticFiscal.baseFiscal }}</div>
+              <div v-if="fiscalClassification" class="text-caption mt-1">
+                Fonte: {{ fiscalClassification.origem === 'plu_balanca' ? 'PLU do código de balança' : fiscalClassification.origem }}
+              </div>
             </v-alert>
           </v-col>
-          <v-col cols="12" sm="6"><v-text-field v-model="form.ncm" label="NCM" variant="outlined" density="comfortable" :hint="ajuda('ncm')" /></v-col>
+          <v-col cols="12" sm="6"><v-text-field v-model="form.ncm" label="NCM (automático quando encontrado)" variant="outlined" density="comfortable" :loading="loadingFiscal" :readonly="!!fiscalClassification?.ncm" :bg-color="fiscalClassification?.ncm ? 'grey-lighten-4' : undefined" :hint="ajuda('ncm')" /></v-col>
           <v-col cols="12" sm="6"><v-text-field v-model="form.cest" label="Código CEST" variant="outlined" density="comfortable" :hint="ajuda('cest')" /></v-col>
           <v-col cols="12" sm="6"><v-text-field v-model="form.categoria" label="Categoria" variant="outlined" density="comfortable" :hint="ajuda('categoria')" /></v-col>
-          <v-col cols="12" sm="6"><v-text-field :model-value="selectedTaxRule?.cstPisCofins ?? form.cstPisCofins" label="CST PIS/COFINS (automático)" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaCheia" type="number" label="Alíquota cheia %" variant="outlined" density="comfortable" :hint="ajuda('aliquotaCheia')" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaFcp" type="number" label="Alíquota FCP %" variant="outlined" density="comfortable" :hint="ajuda('aliquotaFcp')" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.icms" type="number" label="ICMS %" variant="outlined" density="comfortable" :hint="ajuda('icms')" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaPis" type="number" label="Alíquota PIS %" variant="outlined" density="comfortable" :hint="ajuda('aliquotaPis')" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.aliquotaCofins" type="number" label="Alíquota COFINS %" variant="outlined" density="comfortable" :hint="ajuda('aliquotaCofins')" /></v-col>
-          <v-col cols="6" sm="4"><v-text-field v-model.number="form.reducaoIcms" type="number" label="Redução ICMS %" variant="outlined" density="comfortable" :hint="ajuda('reducaoIcms')" /></v-col>
+          <v-col cols="12" sm="6"><v-text-field :model-value="automaticFiscal?.cstPisCofins ?? form.cstPisCofins" label="CST PIS/COFINS (automático)" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" /></v-col>
+          <v-col cols="6" sm="4"><v-text-field :model-value="form.cstReforma || '—'" label="CST reforma" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" /></v-col>
+          <v-col cols="6" sm="4"><v-text-field :model-value="form.cClassTrib || '—'" label="cClassTrib" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" /></v-col>
+          <v-col cols="6" sm="4"><v-text-field :model-value="form.aliquotaIbs" label="IBS %" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" /></v-col>
+          <v-col cols="6" sm="4"><v-text-field :model-value="form.aliquotaCbs" label="CBS %" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" /></v-col>
         </v-row>
       </v-card-text>
     </v-card>

@@ -337,18 +337,19 @@ describe('ProductSheetService — criação de linha nova', () => {
     expect(sheets.get('AP14')).toContain('$BB$14:$BH$14');
   });
 
-  it('nunca escreve nas colunas calculadas', async () => {
+  it('nunca escreve nas colunas calculadas; P é entrada gerada pelo backend', async () => {
     const sheets = planilha();
     const { repo: syncRepo } = fakeSyncRepo();
     const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
 
     await service.syncProduct(ID);
 
-    const calculadas = ['H', 'P', 'U', 'AD', 'AF', 'AH', 'AK', 'AO', 'AR', 'AT', 'AV', 'AX', 'AY', 'BI', 'BJ', 'BR'];
+    const calculadas = ['H', 'U', 'AD', 'AF', 'AH', 'AK', 'AO', 'AR', 'AT', 'AV', 'AX', 'AY', 'BI', 'BJ', 'BR'];
     const colunasEscritas = sheets.writes.map((w) => /^([A-Z]+)/.exec(w.range)![1]!);
     for (const col of calculadas) {
       expect(colunasEscritas, `coluna calculada ${col} não pode ser escrita`).not.toContain(col);
     }
+    expect(sheets.get('P13')).toBe('1 UN DE1 (PAO FRANCES 50 G)');
 
     // AP é a única exceção: a fórmula histórica da planilha precisa ter a
     // faixa absoluta dos dias corrigida para a própria linha do produto.
