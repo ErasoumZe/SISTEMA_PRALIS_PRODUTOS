@@ -31,3 +31,11 @@ Cadastro Pralis (PostgreSQL)
 ```
 
 O PostgreSQL permanece como fonte de verdade. A planilha não deve virar ponte para o CREARE.
+
+## Utilitário
+
+Use [`pausa-segura.md`](pausa-segura.md) quando precisar interromper o trabalho no meio de qualquer fase. Ele registra o estado real e prepara uma retomada sem descartar nem publicar alterações.
+
+## Próximo passo do estado atual
+
+Use [`inicio-sheets-creare.md`](inicio-sheets-creare.md) para fechar os bloqueadores que ainda estão nos `Changes`, preparar a homologação da nova planilha e documentar a base da integração independente com o CREARE.
