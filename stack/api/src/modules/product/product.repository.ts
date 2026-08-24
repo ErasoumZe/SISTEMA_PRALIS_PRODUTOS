@@ -85,6 +85,8 @@ function mapFiscal(r: typeof productFiscal.$inferSelect): ProductEntity['fiscal'
     aliquotaCheia: num(r.aliquotaCheia), aliquotaFcp: num(r.aliquotaFcp),
     aliquotaPis: num(r.aliquotaPis), aliquotaCofins: num(r.aliquotaCofins),
     reducaoIcms: num(r.reducaoIcms), icms: num(r.icms),
+    tributacaoSimples: r.tributacaoSimples, aliquotaSimples: num(r.aliquotaSimples),
+    icmsRe: num(r.icmsRe), baseFiscal: r.baseFiscal,
   };
 }
 
@@ -298,6 +300,8 @@ export class ProductRepository {
           aliquotaCheia: toDb(f.aliquotaCheia), aliquotaFcp: toDb(f.aliquotaFcp),
           aliquotaPis: toDb(f.aliquotaPis), aliquotaCofins: toDb(f.aliquotaCofins),
           reducaoIcms: toDb(f.reducaoIcms), icms: toDb(f.icms),
+          tributacaoSimples: f.tributacaoSimples, aliquotaSimples: toDb(f.aliquotaSimples),
+          icmsRe: toDb(f.icmsRe), baseFiscal: f.baseFiscal,
         });
       }
     }

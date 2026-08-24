@@ -38,7 +38,18 @@ export type CellMap = Record<string, SheetCell>;
 export interface MapperOptions {
   /** Conteúdo da coluna D (LOJAS) — vem de GOOGLE_SHEETS_DEFAULT_LOJAS. */
   defaultLojas: string;
+  footerColumns?: SheetFooterColumns;
 }
+
+export interface SheetFooterColumns {
+  help?: string | null;
+  photo: string;
+  id: string;
+}
+
+export const DEFAULT_FOOTER_COLUMNS: SheetFooterColumns = {
+  help: 'CN', photo: 'CO', id: 'CP',
+};
 
 // ---- helpers ----
 const EMPTY: SheetCell = { kind: 'empty' };
@@ -113,7 +124,13 @@ export const INPUT_COLUMNS: readonly string[] = [
   'AB', 'AC', 'AE', 'AG', 'AI', 'AJ', 'AL', 'AM', 'AN', 'AQ', 'AS',
   'AU', 'AW', 'AZ', 'BA', ...DIAS_COLS, 'BK', 'BL', 'BM', 'BO', 'BP',
   'BS', 'BT', 'BU', 'BV', 'BW', 'BX', 'CA', 'CB', 'CD', 'CE',
-  'CN', 'CO', 'CP',
+];
+
+export const inputColumnsFor = (footer: SheetFooterColumns): string[] => [
+  ...INPUT_COLUMNS,
+  ...(footer.help ? [footer.help] : []),
+  footer.photo,
+  footer.id,
 ];
 
 /**
@@ -125,6 +142,7 @@ export function mapProductToCells(product: Product, opts: MapperOptions): CellMa
   const revenda = product.tipo === 'revenda';
   const tr = product.transformacao;
   const fiscal = product.fiscal;
+  const footer = opts.footerColumns ?? DEFAULT_FOOTER_COLUMNS;
   // A planilha tem UM bloco de promoção por linha; usamos a primeira do produto.
   const promo = product.promocoes?.[0] ?? null;
 
@@ -200,11 +218,13 @@ export function mapProductToCells(product: Product, opts: MapperOptions): CellMa
     CD: number(fiscal?.icms ?? null),
     CE: text(fiscal?.cest ?? null), // TEXTO: CEST com zero à esquerda
 
-    // ---- rodapé ----
-    CN: { kind: 'text', value: simNao(product.habilitarAjuda) },
-    CO: text(product.fotoUrl),
-    CP: { kind: 'text', value: product.id }, // chave de idempotência
   };
+
+  // O rodapé varia entre versões da planilha. Na homologação é CN/CO/CP;
+  // na oficial atual FOTO/ID estão em FO/FP e não há HABILITAR AJUDA.
+  if (footer.help) cells[footer.help] = { kind: 'text', value: simNao(product.habilitarAjuda) };
+  cells[footer.photo] = text(product.fotoUrl);
+  cells[footer.id] = { kind: 'text', value: product.id }; // chave de idempotência
 
   // dias da promoção: o RÓTULO do dia quando ativo, célula vazia quando inativo
   // (é o que o HLOOKUP da coluna AP procura — ver DIA_LABELS).

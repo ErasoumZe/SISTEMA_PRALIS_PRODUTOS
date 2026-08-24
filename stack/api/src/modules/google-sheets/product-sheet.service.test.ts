@@ -134,6 +134,27 @@ afterEach(() => {
 });
 
 describe('ProductSheetService — criação de linha nova', () => {
+  it('localiza ID e FOTO pelos cabeçalhos na estrutura da planilha oficial', async () => {
+    const sheets = new FakeSheetsGateway({ columnCount: 179 })
+      .comCabecalhosOficiais()
+      .set('E11', 'TESTE')
+      .set('FP11', 'aaaa1111')
+      .set('E12', 'FARINHA DE TRIGO ALVEAR')
+      .set('FP12', 'bbbb2222')
+      .comLinhaModelo(12);
+    const { repo: syncRepo } = fakeSyncRepo();
+    const p = produto({ fotoUrl: 'https://exemplo.test/foto.jpg' });
+    const service = new ProductSheetService(fakeProductRepo(p), syncRepo, sheets);
+
+    const res = await service.syncProduct(ID);
+
+    expect(res).toMatchObject({ outcome: 'synced', rowNumber: 13 });
+    expect(sheets.get('FP13')).toBe(ID);
+    expect(sheets.get('FO13')).toBe('https://exemplo.test/foto.jpg');
+    expect(sheets.get('CP13')).toBe('');
+    expect(sheets.get('CN13')).toBe('');
+  });
+
   it('grava na primeira linha vazia, põe o UUID em CP e persiste o row_number', async () => {
     const sheets = planilha();
     const { rows, repo: syncRepo } = fakeSyncRepo();
@@ -666,6 +687,20 @@ describe('ProductSheetService — integração desligada / fora de escopo', () =
 });
 
 describe('ProductSheetService — health (somente leitura)', () => {
+  it('reconhece os cabeçalhos móveis da planilha oficial', async () => {
+    const sheets = new FakeSheetsGateway({ columnCount: 179 }).comCabecalhosOficiais();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(), syncRepo, sheets);
+
+    const health = await service.health();
+
+    expect(health.ok).toBe(true);
+    expect(health.cabecalhos).toEqual(expect.arrayContaining([
+      expect.objectContaining({ coluna: 'FP', esperado: 'ID', ok: true }),
+      expect.objectContaining({ coluna: 'FO', esperado: 'FOTO', ok: true }),
+    ]));
+  });
+
   it('confirma autenticação, acesso, aba e cabeçalhos sem escrever nada', async () => {
     const sheets = planilha();
     const { repo: syncRepo } = fakeSyncRepo();
@@ -682,7 +717,7 @@ describe('ProductSheetService — health (somente leitura)', () => {
       cabecalhosOk: true,
       ok: true,
     });
-    expect(health.cabecalhos.map((c) => c.coluna)).toEqual(['E', 'AC', 'CP']);
+    expect(health.cabecalhos.map((c) => c.coluna)).toEqual(['E', 'AC', 'CP', 'CO']);
     expect(sheets.writes).toHaveLength(0);
     expect(sheets.structuralRequests).toHaveLength(0);
   });
@@ -696,7 +731,9 @@ describe('ProductSheetService — health (somente leitura)', () => {
 
     expect(health.ok).toBe(false);
     expect(health.cabecalhosOk).toBe(false);
-    expect(health.cabecalhos.find((c) => c.coluna === 'CP')).toMatchObject({ encontrado: 'CODIGO', ok: false });
+    expect(health.cabecalhos.find((c) => c.esperado === 'ID')).toMatchObject({
+      coluna: '?', encontrado: '', ok: false,
+    });
     expect(sheets.writes).toHaveLength(0);
   });
 

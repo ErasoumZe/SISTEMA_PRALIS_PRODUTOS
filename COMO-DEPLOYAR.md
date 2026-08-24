@@ -23,6 +23,7 @@ Os artefatos já estão prontos:
    | `API_URL` | URL pública da API (ex.: `https://api-produtos.cicluzieai.com.br`) |
    | `JWT_SECRET` `COOKIE_SECRET` | **gere segredos fortes** (ex.: `openssl rand -hex 32`) |
    | `CLOUDINARY_CLOUD_NAME` `CLOUDINARY_API_KEY` `CLOUDINARY_API_SECRET` | do dashboard do Cloudinary |
+   | `GOOGLE_SHEETS_FISCAL_TAB` | `(TNP) FISCAL - DE PARA PRODUTOS` |
 
 4. **Domínios (no Coolify):** atribua um domínio a **cada serviço exposto**:
    - serviço **`pwa`** → o domínio do front (= `APP_URL`)

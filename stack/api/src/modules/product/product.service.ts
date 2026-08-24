@@ -5,6 +5,7 @@ import { ProductRepository } from './product.repository';
 import { ProductSheetService, type SheetSyncOutcome } from '@/modules/google-sheets/product-sheet.service';
 import { AppError } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
+import { TaxRuleService, type GroupTaxRule } from '@/modules/apoio/tax-rule.service';
 
 const rand4 = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', 4);
 const genCodigo = () => `PR-${rand4()}-${rand4()}`;
@@ -17,7 +18,31 @@ export class ProductService {
   constructor(
     @inject(ProductRepository) private repo: ProductRepository,
     @inject(ProductSheetService) private sheets: ProductSheetService,
+    @inject(TaxRuleService) private taxRules: TaxRuleService,
   ) {}
+
+  private withAutomaticTax<T extends ProductRequests.CreateProductRequest | ProductRequests.UpdateProductRequest>(
+    payload: T,
+    rule: GroupTaxRule,
+  ): T {
+    const fiscal = payload.fiscal ?? {
+      ncm: null, cest: null, categoria: null, cstPisCofins: null,
+      aliquotaCheia: null, aliquotaFcp: null, aliquotaPis: null,
+      aliquotaCofins: null, reducaoIcms: null, icms: null,
+    };
+    return {
+      ...payload,
+      grupo: rule.grupo,
+      fiscal: {
+        ...fiscal,
+        cstPisCofins: rule.cstPisCofins,
+        tributacaoSimples: rule.tributacaoSimples,
+        aliquotaSimples: rule.aliquotaSimples,
+        icmsRe: rule.icmsRe,
+        baseFiscal: rule.baseFiscal,
+      },
+    } as T;
+  }
 
   private async novoCodigo(): Promise<string> {
     let codigo = genCodigo();
@@ -32,9 +57,13 @@ export class ProductService {
       throw new AppError('Apenas o administrador cadastra produtos novos (na base geral).', 403, 'ONLY_ADMIN_CREATE');
     }
     const alvo = 'BASE' as const;
+    if (!payload.grupo?.trim()) {
+      throw new AppError('Selecione o grupo de mercadorias para aplicar a regra fiscal.', 422, 'GROUP_REQUIRED');
+    }
+    const payloadComImposto = this.withAutomaticTax(payload, await this.taxRules.requireForGroup(payload.grupo));
 
-    if (!payload.forcar) {
-      const dup = await this.repo.findDuplicate(alvo, payload.nome, payload.codigoBarras ?? null);
+    if (!payloadComImposto.forcar) {
+      const dup = await this.repo.findDuplicate(alvo, payloadComImposto.nome, payloadComImposto.codigoBarras ?? null);
       if (dup) {
         throw new AppError(
           `Produto "${dup.nome}" já cadastrado${dup.createdByName ? ` por ${dup.createdByName}` : ''}.`,
@@ -48,7 +77,7 @@ export class ProductService {
 
     // produto + registro `pending` de espelhamento na MESMA transação
     const created = await this.repo.create(
-      payload,
+      payloadComImposto,
       { loja: alvo, codigo, codigoInterno, createdByUserId: user.id, createdByName: user.name },
       (productId, tx) => this.sheets.registerPending(productId, tx),
     );
@@ -87,8 +116,23 @@ export class ProductService {
     if (user.role !== 'admin' && p.loja !== user.loja) {
       throw new AppError('Você só pode editar produtos da sua loja.', 403, 'FORBIDDEN');
     }
-    const updated = await this.repo.update(id, payload);
+    let payloadFinal = payload;
+    const grupoEfetivo = payload.grupo ?? p.grupo;
+    if (payload.grupo !== undefined || payload.fiscal !== undefined) {
+      if (!grupoEfetivo?.trim()) {
+        throw new AppError('Selecione o grupo de mercadorias para aplicar a regra fiscal.', 422, 'GROUP_REQUIRED');
+      }
+      // Alterar somente o grupo não pode apagar NCM/CEST e demais dados
+      // específicos já existentes no produto.
+      const comFiscalAnterior = payload.fiscal === undefined ? { ...payload, fiscal: p.fiscal } : payload;
+      payloadFinal = this.withAutomaticTax(comFiscalAnterior, await this.taxRules.requireForGroup(grupoEfetivo));
+    }
+    const updated = await this.repo.update(id, payloadFinal);
     if (!updated) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
+    if (updated.loja === 'BASE') {
+      await this.sheets.registerPending(updated.id);
+      await this.sheets.syncProduct(updated.id).catch(() => undefined);
+    }
     return updated;
   }
 

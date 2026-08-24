@@ -10,14 +10,17 @@ import {
   a1, colToIndex, indexToCol,
   type SheetsGateway, type SheetMeta, type ValueRange,
 } from './google-sheets.client';
-import { mapProductToCells, INPUT_COLUMNS, type CellMap } from './product-sheet.mapper';
+import {
+  mapProductToCells, inputColumnsFor,
+  type CellMap, type SheetFooterColumns,
+} from './product-sheet.mapper';
 
 /**
  * ETAPA 1: espelha na planilha o produto criado na BASE.
  *
  * Princípios (não negociáveis):
  *  - o Postgres é a fonte principal; falha no Google NUNCA desfaz o cadastro;
- *  - a linha é localizada pelo UUID na coluna CP (idempotência), nunca só pelo
+ *  - a linha é localizada pelo UUID na coluna cujo cabeçalho é ID (idempotência), nunca só pelo
  *    row_number salvo — a planilha é editada por gente;
  *  - fórmulas/formatação/validações vêm da linha-modelo por copyPaste; depois
  *    escrevemos SOMENTE as colunas de entrada.
@@ -68,11 +71,15 @@ const REQUIRED_FORMULA_COLUMNS = [
 ] as const;
 
 /** Cabeçalhos obrigatórios: se não baterem, a planilha mudou e NÃO gravamos nada. */
-const REQUIRED_HEADERS = [
+const REQUIRED_FIXED_HEADERS = [
   { coluna: 'E', esperado: 'NOME' },
   { coluna: 'AC', esperado: 'CODIGO INT.' },
-  { coluna: 'CP', esperado: 'ID' },
 ] as const;
+
+interface SheetLayout {
+  footer: SheetFooterColumns;
+  cabecalhos: SheetsHealth['cabecalhos'];
+}
 
 /** Compara cabeçalho ignorando acento, caixa, espaço extra e ponto final. */
 export const normalizeHeader = (v: string): string =>
@@ -109,6 +116,7 @@ export class ProductSheetService {
 
   /** sheetId real por título — resolvido uma vez por processo. */
   private sheetCache: SheetMeta | null = null;
+  private layoutCache: SheetLayout | null = null;
 
   constructor(
     @inject(ProductRepository) private products: ProductRepository,
@@ -143,7 +151,7 @@ export class ProductSheetService {
    * Registra o produto como `pending` DENTRO da transação de criação.
    * Só produtos da BASE são espelhados nesta etapa.
    */
-  async registerPending(productId: string, tx: Tx): Promise<void> {
+  async registerPending(productId: string, tx?: Tx): Promise<void> {
     await this.syncRepo.ensurePending(
       { productId, spreadsheetId: this.spreadsheetId, sheetName: this.sheetName },
       tx,
@@ -240,7 +248,7 @@ export class ProductSheetService {
       base.abaEncontrada = true;
       base.sheetId = aba.sheetId;
 
-      const cabecalhos = await this.lerCabecalhos();
+      const cabecalhos = (await this.resolverLayout(aba)).cabecalhos;
       base.cabecalhos = cabecalhos;
       base.cabecalhosOk = cabecalhos.every((c) => c.ok);
       base.ok = base.cabecalhosOk;
@@ -269,48 +277,62 @@ export class ProductSheetService {
     return aba;
   }
 
-  private async lerCabecalhos() {
-    const ranges = REQUIRED_HEADERS.map((h) => a1(this.sheetName, `${h.coluna}${HEADER_ROW}`));
-    const lidos = await this.sheets.batchGetValues(this.spreadsheetId, ranges, 'FORMATTED_VALUE');
-    return REQUIRED_HEADERS.map((h, i) => {
-      const encontrado = lidos[i]?.[0]?.[0] ?? '';
-      return {
+  private async resolverLayout(aba: SheetMeta): Promise<SheetLayout> {
+    if (this.layoutCache) return this.layoutCache;
+    const ultimaColuna = indexToCol(Math.max(0, aba.columnCount - 1));
+    const [range] = await this.sheets.batchGetValues(
+      this.spreadsheetId,
+      [a1(this.sheetName, `A${HEADER_ROW}:${ultimaColuna}${HEADER_ROW}`)],
+      'FORMATTED_VALUE',
+    );
+    const headers = range?.[0] ?? [];
+    const encontrado = (coluna: string) => headers[colToIndex(coluna)] ?? '';
+    const localizar = (nome: string): string | null => {
+      const alvo = normalizeHeader(nome);
+      const i = headers.findIndex((h) => normalizeHeader(h) === alvo);
+      return i >= 0 ? indexToCol(i) : null;
+    };
+    const id = localizar('ID');
+    const photo = localizar('FOTO');
+    const help = localizar('HABILITAR AJUDA');
+    const cabecalhos: SheetsHealth['cabecalhos'] = [
+      ...REQUIRED_FIXED_HEADERS.map((h) => ({
         coluna: h.coluna,
         esperado: h.esperado,
-        encontrado,
-        ok: normalizeHeader(encontrado) === normalizeHeader(h.esperado),
-      };
-    });
+        encontrado: encontrado(h.coluna),
+        ok: normalizeHeader(encontrado(h.coluna)) === normalizeHeader(h.esperado),
+      })),
+      { coluna: id ?? '?', esperado: 'ID', encontrado: id ? encontrado(id) : '', ok: !!id },
+      { coluna: photo ?? '?', esperado: 'FOTO', encontrado: photo ? encontrado(photo) : '', ok: !!photo },
+    ];
+    const layout = { footer: { id: id ?? '', photo: photo ?? '', help }, cabecalhos };
+    // Um layout inválido não é cacheado: o health consegue explicar o problema
+    // e uma correção feita na planilha passa a valer sem reiniciar a API.
+    if (cabecalhos.every((h) => h.ok)) this.layoutCache = layout;
+    return layout;
   }
 
   /** Grava o produto e devolve a linha usada. Lança em qualquer erro do Google. */
   private async escrever(product: Product): Promise<number> {
     const aba = await this.resolverAba();
-
-    // 1 round-trip: cabeçalhos + coluna de IDs + coluna de nomes
-    const ranges = [
-      ...REQUIRED_HEADERS.map((h) => a1(this.sheetName, `${h.coluna}${HEADER_ROW}`)),
-      a1(this.sheetName, `CP${FIRST_DATA_ROW}:CP`),
-      a1(this.sheetName, `E${FIRST_DATA_ROW}:E`),
-    ];
-    const lido = await this.sheets.batchGetValues(this.spreadsheetId, ranges, 'FORMATTED_VALUE');
-
-    // cabeçalhos: se mudaram, aborta ANTES de escrever qualquer coisa
-    const cabecalhos = REQUIRED_HEADERS.map((h, i) => ({
-      ...h,
-      encontrado: lido[i]?.[0]?.[0] ?? '',
-    }));
-    const divergente = cabecalhos.find((c) => normalizeHeader(c.encontrado) !== normalizeHeader(c.esperado));
+    const layout = await this.resolverLayout(aba);
+    const divergente = layout.cabecalhos.find((h) => !h.ok);
     if (divergente) {
       throw new Error(
-        `Cabeçalho inesperado na linha ${HEADER_ROW}: coluna ${divergente.coluna} deveria ser "${divergente.esperado}" e está "${divergente.encontrado}".`,
+        `Cabeçalho inesperado ou ausente na linha ${HEADER_ROW}: esperado "${divergente.esperado}".`,
       );
     }
 
-    const colunaIds = (lido[REQUIRED_HEADERS.length] ?? []).map((r) => (r?.[0] ?? '').trim());
-    const colunaNomes = (lido[REQUIRED_HEADERS.length + 1] ?? []).map((r) => (r?.[0] ?? '').trim());
+    // 1 round-trip: coluna de IDs localizada pelo cabeçalho + nomes
+    const ranges = [
+      a1(this.sheetName, `${layout.footer.id}${FIRST_DATA_ROW}:${layout.footer.id}`),
+      a1(this.sheetName, `E${FIRST_DATA_ROW}:E`),
+    ];
+    const lido = await this.sheets.batchGetValues(this.spreadsheetId, ranges, 'FORMATTED_VALUE');
+    const colunaIds = (lido[0] ?? []).map((r) => (r?.[0] ?? '').trim());
+    const colunaNomes = (lido[1] ?? []).map((r) => (r?.[0] ?? '').trim());
 
-    // 2) idempotência: a linha já existe? (busca pelo UUID em CP, nunca só pelo row_number)
+    // 2) idempotência: a linha já existe? (busca pelo UUID na coluna ID, nunca só pelo row_number)
     const existente = colunaIds.indexOf(product.id);
     const linhaExistente = existente >= 0 ? FIRST_DATA_ROW + existente : null;
 
@@ -323,13 +345,13 @@ export class ProductSheetService {
       //    de range no Sheets. Tem de vir antes de qualquer valor.
       await this.garantirCapacidade(aba, linha);
 
-      // 2) RESERVAR gravando só o UUID em CP. A partir daí a linha é
-      //    inequivocamente deste produto: `primeiraLinhaLivre` exige E e CP
+      // 2) RESERVAR gravando só o UUID na coluna ID. A partir daí a linha é
+      //    inequivocamente deste produto: `primeiraLinhaLivre` exige nome e ID
       //    vazios, então nenhum outro cadastro a toma, e um retry a reencontra
-      //    pelo próprio CP mesmo se o resto falhar no meio.
+      //    pelo próprio ID mesmo se o resto falhar no meio.
       await this.sheets.batchUpdateValues(
         this.spreadsheetId,
-        [{ range: a1(this.sheetName, `CP${linha}`), values: [[product.id]] }],
+        [{ range: a1(this.sheetName, `${layout.footer.id}${linha}`), values: [[product.id]] }],
         'RAW',
       );
 
@@ -346,11 +368,11 @@ export class ProductSheetService {
     await this.garantirFormulas(aba, linha);
 
     // 6) por fim, as células de entrada
-    await this.gravarCelulas(product, linha);
+    await this.gravarCelulas(product, linha, layout.footer);
     return linha;
   }
 
-  /** Primeira linha com NOME (E) e ID (CP) vazios, a partir da linha 11. */
+  /** Primeira linha com NOME e ID vazios, a partir da linha 11. */
   private primeiraLinhaLivre(nomes: string[], ids: string[]): number {
     const total = Math.max(nomes.length, ids.length);
     for (let i = 0; i < total; i++) {
@@ -532,15 +554,16 @@ export class ProductSheetService {
    * Dois lotes: RAW (texto literal, preserva zero à esquerda) e USER_ENTERED
    * (números, hora e percentual que a planilha precisa interpretar).
    */
-  private async gravarCelulas(product: Product, linha: number): Promise<void> {
+  private async gravarCelulas(product: Product, linha: number, footer: SheetFooterColumns): Promise<void> {
     const cells: CellMap = mapProductToCells(product, {
       defaultLojas: env.GOOGLE_SHEETS_DEFAULT_LOJAS,
+      footerColumns: footer,
     });
 
     const raw: ValueRange[] = [];
     const userEntered: ValueRange[] = [];
 
-    for (const col of INPUT_COLUMNS) {
+    for (const col of inputColumnsFor(footer)) {
       const cell = cells[col];
       if (!cell) continue;
       const range = a1(this.sheetName, `${col}${linha}`);

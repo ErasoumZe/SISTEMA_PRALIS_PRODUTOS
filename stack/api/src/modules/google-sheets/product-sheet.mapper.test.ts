@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { ProductSchemas } from '@pralis/shared';
 import {
-  mapProductToCells, INPUT_COLUMNS, DIAS_COLS, DIA_LABELS,
+  mapProductToCells, inputColumnsFor, DEFAULT_FOOTER_COLUMNS, DIAS_COLS, DIA_LABELS,
   simNao, formatQuantidade, barcodeCell, descontoParaAZ,
   type SheetCell,
 } from './product-sheet.mapper';
@@ -56,11 +56,11 @@ const vazia = (c: SheetCell | undefined) => !!c && c.kind === 'empty';
 describe('mapper: colunas do cadastro geral', () => {
   it('mapeia todas as colunas de entrada (nenhuma coluna some do mapa)', () => {
     const cells = mapProductToCells(produto(), OPTS);
-    for (const col of INPUT_COLUMNS) {
+    for (const col of inputColumnsFor(DEFAULT_FOOTER_COLUMNS)) {
       expect(cells[col], `coluna ${col} ausente no mapa`).toBeDefined();
     }
     // e não escreve NADA fora das colunas de entrada (as calculadas ficam intactas)
-    expect(Object.keys(cells).sort()).toEqual([...INPUT_COLUMNS].sort());
+    expect(Object.keys(cells).sort()).toEqual(inputColumnsFor(DEFAULT_FOOTER_COLUMNS).sort());
   });
 
   it('mapeia identidade, embalagem e preço nas colunas certas', () => {

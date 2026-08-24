@@ -53,7 +53,22 @@ export class FakeSheetsGateway implements SheetsGateway {
 
   /** Cabeçalhos válidos da linha 5. */
   comCabecalhos(): this {
-    return this.set('E5', 'NOME').set('AC5', 'CODIGO INT.').set('CP5', 'ID');
+    return this
+      .set('E5', 'NOME')
+      .set('AC5', 'CODIGO INT.')
+      .set('CN5', 'HABILITAR AJUDA')
+      .set('CO5', 'FOTO')
+      .set('CP5', 'ID');
+  }
+
+  /** Cabeçalhos da planilha oficial (179 colunas, até FW em 24/08/2026). */
+  comCabecalhosOficiais(): this {
+    return this
+      .set('E5', 'NOME')
+      .set('AC5', 'CODIGO INT.')
+      .set('CP5', 'COMPRA ICMS-ST - VALOR')
+      .set('FO5', 'FOTO')
+      .set('FP5', 'ID');
   }
 
   /** Linha de produto já existente com o conjunto de fórmulas do modelo real. */

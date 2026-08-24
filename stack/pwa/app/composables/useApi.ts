@@ -3,6 +3,14 @@ import type { ProductSchemas, ProductRequests, AdminSchemas } from '@pralis/shar
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
 type AdminUser = AdminSchemas.AdminUser;
+export interface GroupTaxRule {
+  grupo: string;
+  cstPisCofins: string;
+  tributacaoSimples: string;
+  aliquotaSimples: number;
+  icmsRe: number;
+  baseFiscal: string;
+}
 
 /** Estado do espelhamento do produto na planilha (etapa 1: só a BASE). */
 export type SheetSyncStatus = 'synced' | 'failed' | 'disabled' | 'skipped' | 'misconfigured';
@@ -51,6 +59,9 @@ export function useApi() {
       fd.append('file', file);
       return $fetch<{ data: { url: string } }>('/files', { ...base, method: 'POST', body: fd }).then((r) => r.data.url);
     },
+
+    listGroupTaxRules: () =>
+      unwrap($fetch<{ data: GroupTaxRule[] }>('/apoio/grupos-fiscais', { ...base })),
 
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),
