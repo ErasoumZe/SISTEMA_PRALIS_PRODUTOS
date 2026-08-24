@@ -5,7 +5,7 @@ type Dashboard = AdminSchemas.Dashboard;
 type AdminUser = AdminSchemas.AdminUser;
 
 /** Estado do espelhamento do produto na planilha (etapa 1: só a BASE). */
-export type SheetSyncStatus = 'synced' | 'failed' | 'disabled' | 'skipped';
+export type SheetSyncStatus = 'synced' | 'failed' | 'disabled' | 'skipped' | 'misconfigured';
 
 /**
  * Cliente da API (envelope { message, data, details }). Tipado pelos schemas do @pralis/shared.

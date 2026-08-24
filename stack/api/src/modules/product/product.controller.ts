@@ -19,10 +19,12 @@ export class ProductController {
   async create(request: FastifyRequest<{ Body: ProductRequests.CreateProductRequest }>, reply: FastifyReply) {
     const { sheetSync, ...product } = await this.service.create(requireUser(request), request.body);
     // O produto está salvo nos três casos; a mensagem só informa o estado do espelho.
+    // `misconfigured` conta como pendente: a sincronização não aconteceu e
+    // precisa acontecer depois — não é uma escolha, é configuração faltando.
     const message =
       sheetSync === 'synced'
         ? 'Produto salvo no banco e na planilha'
-        : sheetSync === 'failed'
+        : sheetSync === 'failed' || sheetSync === 'misconfigured'
           ? 'Produto salvo no banco. Sincronização com a planilha pendente'
           : 'Produto criado com sucesso';
     return reply.status(201).send(buildResponse(product, message, { sheetSync }));

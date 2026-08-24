@@ -18,6 +18,13 @@ export class FakeSheetsGateway implements SheetsGateway {
   readonly meta: SheetMeta;
   readonly writes: Array<{ range: string; value: unknown; option: ValueInputOption }> = [];
   readonly structuralRequests: unknown[] = [];
+  /**
+   * Log ORDENADO de tudo que saiu para o Sheets, na sequência real:
+   * `appendDimension:+N`, `paste:PASTE_FORMAT`, `write:CP161`, ...
+   * É o que permite provar que nenhum valor foi escrito antes da expansão
+   * da grade.
+   */
+  readonly operacoes: string[] = [];
   /** Quando setado, toda chamada de escrita falha (simula queda do Google). */
   falharEscrita: Error | null = null;
   /** Quando setado, toda chamada falha (simula credencial inválida / rede). */
@@ -49,12 +56,65 @@ export class FakeSheetsGateway implements SheetsGateway {
     return this.set('E5', 'NOME').set('AC5', 'CODIGO INT.').set('CP5', 'ID');
   }
 
-  /** Linha de produto já existente (nome + id + uma fórmula em H). */
+  /** Linha de produto já existente com o conjunto de fórmulas do modelo real. */
   comProduto(row: number, nome: string, id: string): this {
     this.set(`E${row}`, nome).set(`CP${row}`, id);
+    return this.comLinhaModelo(row);
+  }
+
+  /** Conjunto completo de fórmulas, sem ocupar E/CP da linha. */
+  comLinhaModelo(row: number): this {
     this.set(`H${row}`, `=E${row}&" "&F${row}&" "&G${row}`);
+    this.set(`P${row}`, `=N${row}&" "&H${row}`);
+    this.set(`U${row}`, `=IF(S${row}="SIM";H${row};"")`);
+    this.set(`AD${row}`, `=IF(AB${row}<>"";P${row};"")`);
+    this.set(`AF${row}`, `=AE${row}`);
+    this.set(`AH${row}`, `=AG${row}`);
+    this.set(`AK${row}`, `=IFERROR(R${row};"")`);
     this.set(`AO${row}`, `=ROUND(AJ${row}*AL${row},2)`);
+    this.set(`AP${row}`, `=IFERROR(HLOOKUP(BI${row};$BB$11:$BH$11;1;0);AO${row})`);
+    this.set(`AR${row}`, `=IFERROR(AQ${row};"")`);
+    this.set(`AT${row}`, `=IFERROR(AS${row};"")`);
+    this.set(`AV${row}`, `=AO${row}`);
+    this.set(`AX${row}`, `=IFERROR(AW${row}/AO${row};0)`);
+    this.set(`AY${row}`, `=(AZ${row}*AO${row})+AO${row}`);
+    this.set(`BI${row}`, '=TODAY()');
+    this.set(`BJ${row}`, '=NOW()');
+    this.set(`BK${row}`, `=IF(BL${row}="";"";"DE")`);
+    this.set(`BM${row}`, `=IF(BO${row}="";"";"ATÉ")`);
+    this.set(`BR${row}`, `=IF(H${row}="";"";"SIM")`);
     return this;
+  }
+
+  /**
+   * Tipos de colagem aplicados a uma linha (`PASTE_FORMAT`, `PASTE_FORMULA`,
+   * `PASTE_DATA_VALIDATION`). Permite ao teste detectar a AUSÊNCIA de uma
+   * requisição — por exemplo, uma linha nova criada sem validação de dados.
+   */
+  pasteTypes(row: number): string[] {
+    const tipos = new Set<string>();
+    for (const req of this.structuralRequests) {
+      const cp = (req as { copyPaste?: Record<string, unknown> }).copyPaste;
+      if (!cp) continue;
+      const dst = cp.destination as { startRowIndex?: number } | undefined;
+      if ((dst?.startRowIndex ?? -1) + 1 === row) tipos.add(String(cp.pasteType));
+    }
+    return [...tipos];
+  }
+
+  /** A linha nova recebeu formatação E validação de dados da linha-modelo? */
+  temValidacaoDeDados(row: number): boolean {
+    return this.pasteTypes(row).includes('PASTE_DATA_VALIDATION');
+  }
+
+  /** Linhas acrescentadas à grade por appendDimension (para conferir off-by-one). */
+  linhasAcrescentadas(): number {
+    let total = 0;
+    for (const req of this.structuralRequests) {
+      const ad = (req as { appendDimension?: { length?: number } }).appendDimension;
+      if (ad?.length) total += ad.length;
+    }
+    return total;
   }
 
   /** Conteúdo da linha inteira (para inspecionar o resultado do teste). */
@@ -95,6 +155,14 @@ export class FakeSheetsGateway implements SheetsGateway {
     for (const d of data) {
       const cell = this.semAba(d.range);
       const value = d.values?.[0]?.[0];
+      // escrever fora da grade é erro de range no Sheets — o fake reproduz isso
+      const linha = Number(/(\d+)$/.exec(cell)?.[1] ?? 0);
+      if (linha > this.meta.rowCount) {
+        throw new Error(
+          `Range ("${cell}") exceeds grid limits. Max rows: ${this.meta.rowCount}`,
+        );
+      }
+      this.operacoes.push(`write:${cell}`);
       this.writes.push({ range: cell, value, option: valueInputOption });
       this.cells.set(cell, value == null ? '' : String(value));
     }
@@ -106,6 +174,13 @@ export class FakeSheetsGateway implements SheetsGateway {
     if (this.falharEscrita) throw this.falharEscrita;
     for (const req of requests) {
       this.structuralRequests.push(req);
+      const ad = (req as { appendDimension?: { length?: number } }).appendDimension;
+      if (ad?.length) {
+        this.operacoes.push(`appendDimension:+${ad.length}`);
+        this.meta.rowCount += ad.length; // a grade realmente cresce
+      }
+      const cp = (req as { copyPaste?: { pasteType?: string } }).copyPaste;
+      if (cp?.pasteType) this.operacoes.push(`paste:${cp.pasteType}`);
       this.aplicarCopyPaste(req);
     }
   }

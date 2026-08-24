@@ -1,13 +1,13 @@
 import { inject, injectable } from 'tsyringe';
 import type { ProductSchemas } from '@pralis/shared';
-import { env } from '@/config/env';
+import { env, destinoSheetsFaltando, credenciaisSheetsFaltando } from '@/config/env';
 import { AppError } from '@/config/api.replies';
 import type { Tx } from '@/db/databases';
 import { ProductRepository } from '@/modules/product/product.repository';
 import { ProductSheetRepository } from './product-sheet.repository';
 import { SHEETS_GATEWAY } from './google-sheets.di';
 import {
-  a1, indexToCol,
+  a1, colToIndex, indexToCol,
   type SheetsGateway, type SheetMeta, type ValueRange,
 } from './google-sheets.client';
 import { mapProductToCells, INPUT_COLUMNS, type CellMap } from './product-sheet.mapper';
@@ -25,8 +25,13 @@ import { mapProductToCells, INPUT_COLUMNS, type CellMap } from './product-sheet.
 
 type Product = ProductSchemas.ProductEntity;
 
-/** Resultado de uma tentativa de sincronização (o que a API devolve para a tela). */
-export type SheetSyncOutcome = 'synced' | 'failed' | 'disabled' | 'skipped';
+/**
+ * Resultado de uma tentativa de sincronização (o que a API devolve para a tela).
+ * `misconfigured`: ligada, mas sem destino explícito — recusa antes de tocar no
+ * Google. Nunca é o mesmo que `disabled`, para o erro de configuração não passar
+ * despercebido como se fosse uma escolha.
+ */
+export type SheetSyncOutcome = 'synced' | 'failed' | 'disabled' | 'skipped' | 'misconfigured';
 
 export interface SyncResult {
   outcome: SheetSyncOutcome;
@@ -37,6 +42,9 @@ export interface SyncResult {
 
 export interface SheetsHealth {
   enabled: boolean;
+  /** Nomes das variáveis ausentes — nunca os valores. */
+  configFaltando: string[];
+  configOk: boolean;
   spreadsheetId: string;
   sheetName: string;
   auth: boolean;
@@ -52,6 +60,12 @@ export interface SheetsHealth {
 /** Primeira linha de produto da aba (linha 5 = cabeçalhos). */
 export const FIRST_DATA_ROW = 11;
 const HEADER_ROW = 5;
+/** Linha-modelo validada que contém o conjunto completo de fórmulas. */
+const FORMULA_TEMPLATE_ROW = 12;
+const REQUIRED_FORMULA_COLUMNS = [
+  'H', 'P', 'U', 'AD', 'AF', 'AH', 'AK', 'AO', 'AP',
+  'AR', 'AT', 'AV', 'AX', 'AY', 'BI', 'BJ', 'BR',
+] as const;
 
 /** Cabeçalhos obrigatórios: se não baterem, a planilha mudou e NÃO gravamos nada. */
 const REQUIRED_HEADERS = [
@@ -110,8 +124,19 @@ export class ProductSheetService {
     return env.GOOGLE_SHEETS_BASE_TAB;
   }
 
+  /** Ligada por configuração (pode estar ligada e mal configurada). */
   get enabled(): boolean {
     return env.GOOGLE_SHEETS_ENABLED;
+  }
+
+  /** Variáveis de destino que faltam. Vazio = pode escrever. */
+  get destinoFaltando(): string[] {
+    return destinoSheetsFaltando();
+  }
+
+  /** Ligada E com destino explícito: só assim a escrita é permitida. */
+  get operacional(): boolean {
+    return this.enabled && this.destinoFaltando.length === 0;
   }
 
   /**
@@ -132,6 +157,16 @@ export class ProductSheetService {
   async syncProduct(productId: string): Promise<SyncResult> {
     if (!this.enabled) {
       return { outcome: 'disabled', rowNumber: null, message: 'Integração com a planilha desligada (GOOGLE_SHEETS_ENABLED=false).' };
+    }
+    // Ligada sem destino explícito: recusa ANTES de qualquer chamada ao Google.
+    const faltando = this.destinoFaltando;
+    if (faltando.length > 0) {
+      return {
+        outcome: 'misconfigured',
+        rowNumber: null,
+        message: `Integração ligada, mas sem destino configurado: ${faltando.join(', ')}. Nada foi escrito.`,
+        error: `configuração incompleta: ${faltando.join(', ')}`,
+      };
     }
 
     const product = await this.products.findById(productId);
@@ -169,10 +204,14 @@ export class ProductSheetService {
     });
   }
 
-  /** Checagem SOMENTE LEITURA: autenticação, acesso, aba e cabeçalhos. */
+  /** Checagem SOMENTE LEITURA: configuração, autenticação, acesso, aba e cabeçalhos. */
   async health(): Promise<SheetsHealth> {
+    // nomes de variáveis, nunca valores
+    const configFaltando = [...this.destinoFaltando, ...credenciaisSheetsFaltando()];
     const base: SheetsHealth = {
       enabled: this.enabled,
+      configFaltando,
+      configOk: configFaltando.length === 0,
       spreadsheetId: this.spreadsheetId,
       sheetName: this.sheetName,
       auth: false,
@@ -184,6 +223,9 @@ export class ProductSheetService {
       ok: false,
     };
     if (!this.enabled) return { ...base, erro: 'GOOGLE_SHEETS_ENABLED=false' };
+    if (configFaltando.length > 0) {
+      return { ...base, erro: `Configuração incompleta: ${configFaltando.join(', ')}` };
+    }
 
     try {
       const abas = await this.sheets.getSheets(this.spreadsheetId);
@@ -275,12 +317,35 @@ export class ProductSheetService {
     const linha = linhaExistente ?? this.primeiraLinhaLivre(colunaNomes, colunaIds);
 
     if (linhaExistente === null) {
-      // reserva a linha ANTES de escrever: se a escrita falhar no meio, o retry
-      // volta na mesma linha em vez de consumir outra.
+      // A ordem aqui é o contrato desta função e não pode ser trocada:
+      //
+      // 1) GARANTIR CAPACIDADE. Escrever em linha que não existe na grade é erro
+      //    de range no Sheets. Tem de vir antes de qualquer valor.
+      await this.garantirCapacidade(aba, linha);
+
+      // 2) RESERVAR gravando só o UUID em CP. A partir daí a linha é
+      //    inequivocamente deste produto: `primeiraLinhaLivre` exige E e CP
+      //    vazios, então nenhum outro cadastro a toma, e um retry a reencontra
+      //    pelo próprio CP mesmo se o resto falhar no meio.
+      await this.sheets.batchUpdateValues(
+        this.spreadsheetId,
+        [{ range: a1(this.sheetName, `CP${linha}`), values: [[product.id]] }],
+        'RAW',
+      );
+
+      // 3) registrar a linha só depois que a planilha aceitou a reserva
       await this.syncRepo.setRowNumber(product.id, linha).catch(() => {});
-      await this.prepararLinhaNova(aba, linha);
+
+      // 4) formato e validações da linha anterior. As fórmulas são tratadas
+      // separadamente abaixo, pois a linha anterior pode estar incompleta.
+      await this.copiarEstrutura(aba, linha);
     }
 
+    // 5) garante as fórmulas também em retries de uma linha já reservada. Isso
+    // repara sincronizações interrompidas sem criar outra linha.
+    await this.garantirFormulas(aba, linha);
+
+    // 6) por fim, as células de entrada
     await this.gravarCelulas(product, linha);
     return linha;
   }
@@ -295,36 +360,35 @@ export class ProductSheetService {
   }
 
   /**
-   * Prepara a linha nova copiando da linha ANTERIOR apenas:
-   *  - formatação + validação de dados (PASTE_FORMAT) da linha inteira;
-   *  - fórmulas (PASTE_FORMULA) somente nas colunas que de fato têm fórmula.
-   * Nenhum valor manual e nenhum ID da linha-modelo é copiado.
+   * ETAPA 1: garante que a linha EXISTE fisicamente na grade, acrescentando
+   * exatamente as linhas que faltam — nunca uma a mais. Nenhum valor pode ser
+   * escrito antes disto: `values.update` fora da grade é erro de range.
    */
-  private async prepararLinhaNova(aba: SheetMeta, linha: number): Promise<void> {
-    const requests: unknown[] = [];
+  private async garantirCapacidade(aba: SheetMeta, linha: number): Promise<void> {
+    if (aba.rowCount >= linha) return; // já cabe
+    await this.sheets.batchUpdate(this.spreadsheetId, [
+      { appendDimension: { sheetId: aba.sheetId, dimension: 'ROWS', length: linha - aba.rowCount } },
+    ]);
+    aba.rowCount = linha;
+  }
 
-    // a grade precisa ter a linha
-    if (aba.rowCount < linha) {
-      requests.push({
-        appendDimension: { sheetId: aba.sheetId, dimension: 'ROWS', length: linha - aba.rowCount + 1 },
-      });
-      aba.rowCount = linha + 1;
-    }
+  /**
+   * ETAPA 4: copia da linha ANTERIOR apenas:
+   *  - formatação (PASTE_FORMAT);
+   *  - validação de dados (PASTE_DATA_VALIDATION) — requisição SEPARADA, porque
+   *    a documentação do Sheets define PASTE_FORMAT como "paste the format only,
+   *    EXCLUDING data validation". Sem esta segunda requisição a linha nova
+   *    nasceria sem as listas suspensas;
+   * Nenhum valor manual, fórmula ou ID da linha anterior é copiado aqui.
+   */
+  private async copiarEstrutura(aba: SheetMeta, linha: number): Promise<void> {
+    const requests: unknown[] = [];
 
     const modelo = linha - 1;
     if (modelo < FIRST_DATA_ROW) {
       // primeira linha de dados: não há de onde copiar; a aba já traz o formato
-      if (requests.length) await this.sheets.batchUpdate(this.spreadsheetId, requests);
       return;
     }
-
-    const ultimaColuna = indexToCol(Math.max(0, aba.columnCount - 1));
-    const [modeloRow] = await this.sheets.batchGetValues(
-      this.spreadsheetId,
-      [a1(this.sheetName, `A${modelo}:${ultimaColuna}${modelo}`)],
-      'FORMULA',
-    );
-    const celulasModelo = modeloRow?.[0] ?? [];
 
     const origem = (c0: number, c1: number) => ({
       sheetId: aba.sheetId,
@@ -341,7 +405,7 @@ export class ProductSheetService {
       endColumnIndex: c1,
     });
 
-    // formatação + validações da linha inteira
+    // formatação da linha inteira...
     requests.push({
       copyPaste: {
         source: origem(0, aba.columnCount),
@@ -350,31 +414,114 @@ export class ProductSheetService {
       },
     });
 
-    // fórmulas: só nos trechos contíguos que realmente têm fórmula na linha-modelo
-    for (const [c0, c1] of this.trechosDeFormula(celulasModelo)) {
-      requests.push({
-        copyPaste: {
-          source: origem(c0, c1),
-          destination: destino(c0, c1),
-          pasteType: 'PASTE_FORMULA',
-        },
-      });
-    }
+    // ...e as validações de dados, em requisição SEPARADA e OBRIGATÓRIA.
+    // A documentação oficial define PASTE_FORMAT como "Paste the format only,
+    // excluding data validation" — ou seja, ele NÃO traz as listas suspensas.
+    // Sem esta segunda requisição, a linha nova nasceria sem os dropdowns de
+    // grupo, setor, marca e % de desconto.
+    requests.push({
+      copyPaste: {
+        source: origem(0, aba.columnCount),
+        destination: destino(0, aba.columnCount),
+        pasteType: 'PASTE_DATA_VALIDATION',
+      },
+    });
 
     await this.sheets.batchUpdate(this.spreadsheetId, requests);
   }
 
-  /** Índices [início, fim) das sequências de células que contêm fórmula. */
-  private trechosDeFormula(linha: string[]): Array<[number, number]> {
-    const trechos: Array<[number, number]> = [];
-    let inicio = -1;
-    for (let i = 0; i <= linha.length; i++) {
-      const ehFormula = typeof linha[i] === 'string' && linha[i]!.startsWith('=');
-      if (ehFormula && inicio === -1) inicio = i;
-      if (!ehFormula && inicio !== -1) {
-        trechos.push([inicio, i]);
-        inicio = -1;
+  /**
+   * Copia somente as fórmulas que faltam, usando uma linha conhecida por conter
+   * o modelo completo. A linha imediatamente anterior não é uma fonte segura:
+   * ela pode ter sido incluída manualmente e estar parcialmente preenchida.
+   */
+  private async garantirFormulas(aba: SheetMeta, linha: number): Promise<void> {
+    if (linha === FIRST_DATA_ROW || linha === FORMULA_TEMPLATE_ROW) return;
+
+    const ultimaColuna = indexToCol(Math.max(0, aba.columnCount - 1));
+    const [modeloRange, destinoRange] = await this.sheets.batchGetValues(
+      this.spreadsheetId,
+      [
+        a1(this.sheetName, `A${FORMULA_TEMPLATE_ROW}:${ultimaColuna}${FORMULA_TEMPLATE_ROW}`),
+        a1(this.sheetName, `A${linha}:${ultimaColuna}${linha}`),
+      ],
+      'FORMULA',
+    );
+    const modelo = modeloRange?.[0] ?? [];
+    const destinoAtual = destinoRange?.[0] ?? [];
+
+    const formulaAusenteNoModelo = REQUIRED_FORMULA_COLUMNS.find((coluna) => {
+      const valor = modelo[colToIndex(coluna)];
+      return typeof valor !== 'string' || !valor.startsWith('=');
+    });
+    if (formulaAusenteNoModelo) {
+      throw new Error(
+        `Linha-modelo ${FORMULA_TEMPLATE_ROW} incompleta: fórmula ausente na coluna ${formulaAusenteNoModelo}. Nada foi gravado nas células do produto.`,
+      );
+    }
+
+    const faltantes = REQUIRED_FORMULA_COLUMNS
+      .map(colToIndex)
+      .filter((coluna) => {
+        const valor = destinoAtual[coluna];
+        return typeof valor !== 'string' || !valor.startsWith('=');
+      });
+
+    const origem = (c0: number, c1: number) => ({
+      sheetId: aba.sheetId,
+      startRowIndex: FORMULA_TEMPLATE_ROW - 1,
+      endRowIndex: FORMULA_TEMPLATE_ROW,
+      startColumnIndex: c0,
+      endColumnIndex: c1,
+    });
+    const destino = (c0: number, c1: number) => ({
+      sheetId: aba.sheetId,
+      startRowIndex: linha - 1,
+      endRowIndex: linha,
+      startColumnIndex: c0,
+      endColumnIndex: c1,
+    });
+
+    const requests = this.trechosContiguos(faltantes).map(([c0, c1]) => ({
+      copyPaste: {
+        source: origem(c0, c1),
+        destination: destino(c0, c1),
+        pasteType: 'PASTE_FORMULA',
+      },
+    }));
+    await this.sheets.batchUpdate(this.spreadsheetId, requests);
+
+    // A fórmula histórica de AP fixa $BB$11:$BH$11 e, por isso, consulta os
+    // dias do primeiro produto. Para linhas sincronizadas pelo sistema, a faixa
+    // deve ser a da própria linha.
+    const [apRange] = await this.sheets.batchGetValues(
+      this.spreadsheetId,
+      [a1(this.sheetName, `AP${linha}`)],
+      'FORMULA',
+    );
+    const formulaAp = apRange?.[0]?.[0] ?? '';
+    if (formulaAp.startsWith('=')) {
+      const corrigida = formulaAp.replace(
+        /\$BB\$11:\$BH\$11/g,
+        () => `$BB$${linha}:$BH$${linha}`,
+      );
+      if (corrigida !== formulaAp) {
+        await this.sheets.batchUpdateValues(
+          this.spreadsheetId,
+          [{ range: a1(this.sheetName, `AP${linha}`), values: [[corrigida]] }],
+          'USER_ENTERED',
+        );
       }
+    }
+  }
+
+  /** Índices [início, fim) das sequências de células que contêm fórmula. */
+  private trechosContiguos(colunas: number[]): Array<[number, number]> {
+    const trechos: Array<[number, number]> = [];
+    for (const coluna of colunas) {
+      const ultimo = trechos[trechos.length - 1];
+      if (ultimo && ultimo[1] === coluna) ultimo[1] = coluna + 1;
+      else trechos.push([coluna, coluna + 1]);
     }
     return trechos;
   }

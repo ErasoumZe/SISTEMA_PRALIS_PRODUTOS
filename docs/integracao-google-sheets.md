@@ -13,6 +13,49 @@ Quando o admin cadastra um produto novo (sempre na BASE), a API:
    `attempts` sobe, `last_error` guarda a mensagem sanitizada e a tela mostra
    "Produto salvo no banco. Sincronização com a planilha pendente".
 
+### Destino da escrita é sempre explícito
+
+`GOOGLE_SHEETS_SPREADSHEET_ID` **não tem valor padrão no código**. Havia aqui o
+ID da planilha oficial como fallback: bastava ligar `GOOGLE_SHEETS_ENABLED` sem
+informar o ID para a API começar a escrever em produção. Removido.
+
+Com a integração ligada e sem destino configurado, a sincronização é **recusada
+antes de qualquer chamada ao Google** — o resultado é `misconfigured`, distinto
+de `disabled` para que erro de configuração não se disfarce de escolha. O
+`GET /admin/sheets/health` aponta exatamente **quais variáveis** faltam (nomes,
+nunca valores).
+
+### Ordem de criação da linha (contrato)
+
+Ao criar uma linha nova, a sequência é fixa e cada passo depende do anterior:
+
+1. **Garantir capacidade** — `appendDimension` com exatamente as linhas que
+   faltam. Escrever valor em linha que não existe na grade é erro de range no
+   Sheets, então nada pode vir antes disto.
+2. **Reservar** — grava só o UUID em CP.
+3. **Registrar** o `row_number` no banco, já com a reserva aceita.
+4. **Copiar o modelo** — formatação, validações e fórmulas da linha anterior.
+5. **Gravar** as células de entrada.
+
+Sobre o passo 4: são **duas requisições separadas e ambas obrigatórias**.
+A documentação oficial define `PASTE_FORMAT` como *"Paste the format only,
+**excluding** data validation"* — ele não traz as listas suspensas. Por isso
+existe um `PASTE_DATA_VALIDATION` à parte; sem ele a linha nova nasceria sem os
+dropdowns de grupo, setor, marca e % de desconto.
+
+### Como a linha é reservada (garantia real)
+
+Ao criar uma linha nova, a **primeira** escrita na planilha é só o UUID em CP.
+A partir daí a linha é inequivocamente daquele produto: a busca por linha livre
+exige NOME (E) **e** ID (CP) vazios, então nenhum outro cadastro a toma, e uma
+nova tentativa a reencontra pelo próprio CP — mesmo que a formatação ou a
+escrita das demais colunas tenha falhado no meio.
+
+O `row_number` só vai para o banco **depois** que a planilha aceitou a reserva.
+Se a própria reserva falhar, nada foi escrito e o banco não guarda linha nenhuma
+— a tentativa seguinte escolhe uma linha livre do zero. Em nenhum caminho a
+planilha é consultada pelo `row_number` salvo: a busca é sempre pelo UUID.
+
 ## O que esta etapa NÃO faz (fora de escopo)
 
 - não sincroniza as lojas TNP/LI/HORA;
@@ -38,9 +81,10 @@ Quando o admin cadastra um produto novo (sempre na BASE), a API:
 | `stack/api/src/modules/google-sheets/product-sheet.routes.ts` | `POST /admin/products/:id/sync-sheet`, `GET /admin/sheets/health` |
 | `stack/api/src/modules/google-sheets/product-sheet-sync.table.ts` | Tabela Drizzle |
 | `stack/api/src/modules/google-sheets/fake-sheets.gateway.ts` | Planilha falsa em memória (só testes) |
-| `stack/api/src/modules/google-sheets/product-sheet.mapper.test.ts` | 24 testes de mapeamento |
-| `stack/api/src/modules/google-sheets/product-sheet.service.test.ts` | 24 testes com Google mockado |
-| `stack/api/src/modules/google-sheets/product-sheet.integration.test.ts` | 9 testes com Postgres real + Google mockado |
+| `stack/api/src/modules/google-sheets/product-sheet.mapper.test.ts` | 37 testes de mapeamento |
+| `stack/api/src/modules/google-sheets/product-sheet.service.test.ts` | 29 testes com Google mockado |
+| `stack/api/src/modules/google-sheets/product-sheet.integration.test.ts` | 10 testes com Postgres real + Google mockado |
+| `stack/api/src/config/env.test.ts` | 9 testes da normalização da chave privada |
 | `stack/api/vitest.config.ts` | Runner dos testes unitários (`npm test`) |
 | `stack/pwa/app/composables/useFlash.ts` | Aviso que sobrevive à navegação |
 
@@ -97,7 +141,7 @@ Já declaradas em `docker-compose.coolify.yaml` (serviço `api`). No painel:
 | Variável | Valor |
 |---|---|
 | `GOOGLE_SHEETS_ENABLED` | `false` no primeiro deploy; `true` só depois do health OK |
-| `GOOGLE_SHEETS_SPREADSHEET_ID` | `1C0FsFMZelHN1Il3xmoI7E5EStgr_8MpgYz0aJ-X2y2w` |
+| `GOOGLE_SHEETS_SPREADSHEET_ID` | **obrigatória, sem padrão no código.** Homologação: ID da cópia. Produção: ID da oficial, só na etapa aprovada |
 | `GOOGLE_SHEETS_BASE_TAB` | `(BASE) CADASTRO PRODUTOS` |
 | `GOOGLE_SHEETS_DEFAULT_LOJAS` | `TNP,LI,HORA` |
 | `GOOGLE_SERVICE_ACCOUNT_EMAIL` | e-mail da conta de serviço (item 5) |
@@ -105,9 +149,10 @@ Já declaradas em `docker-compose.coolify.yaml` (serviço `api`). No painel:
 
 Sobre a chave privada: cole **em uma linha só**, com os `\n` literais, exatamente
 como vem no JSON (`-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n`).
-A API normaliza para quebras reais e também aceita aspas envolventes. Não
-comitar o JSON — o `.gitignore` já bloqueia `*service-account*.json`,
-`gcp-*.json` e `google-credentials*.json`.
+A API converte essas sequências em quebras reais, e também aceita a chave já
+quebrada em várias linhas, com CRLF ou entre aspas — em qualquer um dos formatos
+o resultado é o mesmo PEM. Não comitar o JSON — o `.gitignore` já bloqueia
+`*service-account*.json`, `gcp-*.json` e `google-credentials*.json`.
 
 ---
 
@@ -170,10 +215,17 @@ sobrescrito, exceto a linha de um produto que já tenha o UUID em CP.
 6. Na planilha, ir para a última linha e conferir:
    - E = o nome; CP = o UUID do produto;
    - AC = o código interno (00042, por exemplo);
+   - Q/S = `SIM`/`NÃO` conforme revenda ou transformação; AB = o status;
+     BK = `DE:`, BM = `ATÉ:`, BP = `NÃO REVISADO`;
    - as colunas calculadas (H, P, AD, AO, AP, AV, BR) **têm fórmula** e
      calcularam sozinhas — compare com a linha de cima;
-   - formatação e listas de validação iguais às da linha anterior;
+   - formatação e listas de validação iguais às da linha anterior (clique numa
+     célula de grupo/setor/marca e confirme que a seta da lista aparece);
    - **nenhum** valor da linha-modelo foi copiado (nome, código de barras, ID).
+   Se o produto tiver promoção, conferir também:
+   - AZ **negativo** (`-20,00%` para 20% de desconto) e AY = preço com desconto;
+   - BB:BH com o **rótulo** do dia (`SEG`, `DOM`…) só nos dias ativos, o resto
+     vazio; AU = `SIM`.
 7. **Testar idempotência:** `POST /admin/products/<id>/sync-sheet` no mesmo produto.
    Deve responder `status: "synced"` com o **mesmo** `rowNumber` e **não** criar
    linha nova.
@@ -199,33 +251,66 @@ substituído por `FakeSheetsGateway`.
 
 ## 7. Riscos e decisões pendentes
 
-### Precisam de confirmação sua
+### Resolvidas na fase 01, com evidência na planilha
 
-1. **Colunas auxiliares fora do mapeamento.** A planilha usa colunas que não
-   estavam na especificação e que ficam **em branco** na linha nova:
-   - **Q** ("SIM/NÃO" de venda) e **S** ("SIM/NÃO" de transformação) — são
-     redundantes com R/T, mas a fórmula da coluna U (`DENTRO DA EMB...`) depende
-     de S. Recomendo escrever `Q = SIM / S = NÃO` para revenda e o inverso para
-     transformação. Não fiz porque não estava no mapeamento aprovado.
-   - **AB** (status do cadastro TNP), **AU** (`PROMOÇÃO SIM/NÃO`),
-     **BP** (`NÃO REVISADO`), **BK/BM** (rótulos "DE:"/"ATÉ:").
-2. **Coluna AC (`CODIGO INT.`)** está formatada como `0000` e estava **vazia em
+1. **Colunas auxiliares — agora preenchidas.** Verificadas nas 150 linhas da aba
+   BASE e escritas pelo mapper:
+   - **Q** = `SIM` para revenda / `NÃO` para transformação, e **S** o inverso —
+     sempre complementares (a fórmula da coluna U depende de `S="SIM"`).
+     Observado: 145 linhas `Q=SIM` e 4 `S=SIM`.
+   - **AB** = espelho do status (`ATIVO`/`INATIVO`); a coluna AD
+     (`IF(AB<>"";P;"")`) só mostra a descrição se AB estiver preenchida.
+     Nas 150 linhas AB era igual a C sempre.
+   - **AU** = `SIM`/`NÃO` conforme exista promoção; **BP** = `NÃO REVISADO`;
+     **BK** = `DE:`; **BM** = `ATÉ:`.
+2. **Dias da promoção (BB:BH) — resolvido.** A coluna AP faz
+   `HLOOKUP(<rótulo do dia>; $BB$11:$BH$11; 1; 0)`, e o rótulo vem de
+   `DATASNUMEROS!AH11:AI17` (1=DOM … 7=SAB). Portanto a célula recebe o
+   **próprio rótulo** (`SEG`…`DOM`) quando o dia está ativo e fica **vazia**
+   quando não está. O `SIM`/`NÃO` da versão anterior nunca casaria no HLOOKUP —
+   a promoção jamais seria aplicada.
+3. **Coluna BA (`DESCONTO ATÉ`) — resolvido.** Apesar do formato de percentual,
+   a validação de dados aceita só os rótulos da lista `DESCONTOATE`:
+   `ATÉ 5%`, `ATÉ 10%`, `ATÉ 20%`, `ATÉ 30%`, `ATÉ 40%`, `ATÉ 50%`. É **texto**,
+   gravado com RAW. Nenhuma fórmula usa BA — é informativa.
+4. **Coluna AZ (desconto) — corrigido.** Ver "Correção crítica" abaixo.
+
+### Ainda precisam de confirmação sua
+
+5. **Coluna AC (`CODIGO INT.`)** está formatada como `0000` e estava **vazia em
    todas as 150 linhas** da cópia analisada. Gravo o código como **texto**
    (`"00042"`) para não perder o zero à esquerda nem cair para 4 dígitos. Se o
    ERP/PDV espera número, muda a decisão.
-3. **Coluna BA (`DESCONTO ATÉ`)** tem formato de percentual (`0.00%`), mas no
-   banco `descontoAte` é **texto**. Gravo a string com `USER_ENTERED`: "20%"
-   vira 0,20 corretamente, mas texto livre vira texto na célula de percentual.
-4. **Dias da promoção (BB:BH)** estavam vazios em todas as linhas — não há
-   exemplo do formato real. Adotei `SIM`/`NÃO` (convenção do resto da planilha) e
-   célula **vazia** quando o produto não tem promoção. Confirmar.
-5. **Colunas fiscais (BS, BT, BU, BW, BX, CD)** estão formatadas como **texto** e
+6. **Colunas fiscais (BS, BT, BU, BW, BX, CD)** estão formatadas como **texto** e
    também vazias em toda a base. Gravo o número como está no banco, sem
    converter para fração — é o inverso exato do que o importador leu. Quando a
    primeira linha fiscal real existir, revalidar.
-6. **Foto (CO).** As linhas existentes têm caminho interno do AppSheet
+7. **Foto (CO).** As linhas existentes têm caminho interno do AppSheet
    (`(BASE) CADASTRO PRODUTOS_Images/5c820a5f.FOTO...`); nós gravamos a URL do
    Cloudinary. Conteúdos diferentes na mesma coluna.
+
+### Correção crítica: sinal do desconto (coluna AZ)
+
+A coluna AY calcula `(AZ*AO)+AO`, ou seja `AO*(1+AZ)`. Um desconto de 20% só
+resulta em `0,8×AO` se **AZ for `-0,20`**. A validação de dados confirma: o
+intervalo nomeado `PORCENTAGEMDESCONTO` aceita `0`, `-0,01`, `-0,02` … — apenas
+zero e negativos.
+
+O banco guarda `descontoPct` como fração **positiva** (0,20), então o mapper
+inverte o sinal ao gravar. A versão anterior gravava `+0,20`, o que **aumentava**
+o preço em 20% em vez de reduzir. Corrigido e coberto por teste que reproduz a
+fórmula da planilha.
+
+Para comparação: a coluna AL (margem) usa o intervalo `PORCENTAGEM`, que aceita
+`0`, `0,01`, `0,02` … — **positivos**. Margem positiva, desconto negativo.
+
+### Defeito preexistente na planilha (não corrigido — fora de escopo)
+
+A fórmula da coluna AP referencia `$BB$11:$BH$11` de forma **absoluta**. Ao ser
+copiada para qualquer linha, ela continua olhando os dias da **linha 11**, não os
+da própria linha. Ou seja, a janela de dias da promoção não funciona por produto
+como o resto da fórmula sugere. Não alteramos fórmulas existentes nesta etapa —
+vale reportar a quem mantém a planilha.
 
 ### Riscos técnicos
 

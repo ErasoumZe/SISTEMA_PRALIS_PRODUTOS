@@ -13,12 +13,31 @@ const envBool = (key: string, fallback = false): boolean => {
 };
 
 /**
- * A chave privada da conta de serviço costuma chegar em UMA linha, com "\n" literal
- * (painéis como o Coolify não preservam quebras). Normaliza para quebras reais e
- * remove aspas envolventes se o valor foi colado com elas.
+ * A chave privada da conta de serviço costuma chegar em UMA linha, com a
+ * sequência LITERAL de dois caracteres `\` + `n` no lugar da quebra (painéis
+ * como o Coolify não preservam quebras reais). Converte essas sequências em
+ * quebras de verdade SEM corromper uma chave que já venha quebrada.
+ *
+ * Usa split/join com strings literais de propósito: escapar barra invertida
+ * dentro de regex é justamente onde a versão anterior errou — ela usava `/\n/`,
+ * que casa a quebra REAL e por isso não trocava nada.
+ *
+ * Trata, nesta ordem: aspas envolventes (só quando o par casa), `\r\n` / `\n` /
+ * `\r` literais, CRLF e CR reais; e garante exatamente uma quebra final (PEM).
+ * Valor ausente continua vazio, para o cliente saber que não há credencial.
  */
-export const normalizePrivateKey = (raw: string): string =>
-  raw.trim().replace(/^["']|["']$/g, '').replace(/\r/g, '').replace(/\n/g, '\n');
+export const normalizePrivateKey = (raw: string): string => {
+  const semAspas = raw.trim().replace(/^(["'])([\s\S]*)\1$/, '$2').trim();
+  if (semAspas === '') return '';
+  const comQuebras = semAspas
+    .split('\\r\\n').join('\n') // "\r\n" literais
+    .split('\\n').join('\n') // "\n" literais
+    .split('\\r').join('\n') // "\r" literais
+    .split('\r\n').join('\n') // CRLF real
+    .split('\r').join('\n') // CR real
+    .trim();
+  return `${comQuebras}\n`;
+};
 
 /**
  * Configuração de ambiente. Mantida simples nesta fase.
@@ -43,9 +62,42 @@ export const env = {
 
   // ---- Google Sheets (espelho do cadastro da BASE; Postgres continua a fonte principal) ----
   GOOGLE_SHEETS_ENABLED: envBool('GOOGLE_SHEETS_ENABLED', false),
-  GOOGLE_SHEETS_SPREADSHEET_ID: envVar('GOOGLE_SHEETS_SPREADSHEET_ID', '1C0FsFMZelHN1Il3xmoI7E5EStgr_8MpgYz0aJ-X2y2w'),
+  /**
+   * SEM VALOR PADRÃO, de propósito. Já houve aqui o ID da planilha oficial como
+   * fallback — bastava alguém ligar GOOGLE_SHEETS_ENABLED sem informar o ID para
+   * a API começar a escrever na planilha de produção. O destino da escrita tem
+   * de ser sempre uma decisão explícita de quem configura o ambiente.
+   */
+  GOOGLE_SHEETS_SPREADSHEET_ID: envVar('GOOGLE_SHEETS_SPREADSHEET_ID', ''),
   GOOGLE_SHEETS_BASE_TAB: envVar('GOOGLE_SHEETS_BASE_TAB', '(BASE) CADASTRO PRODUTOS'),
   GOOGLE_SHEETS_DEFAULT_LOJAS: envVar('GOOGLE_SHEETS_DEFAULT_LOJAS', 'TNP,LI,HORA'),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: envVar('GOOGLE_SERVICE_ACCOUNT_EMAIL', ''),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: normalizePrivateKey(envVar('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', '')),
 };
+
+/** Só o que é preciso para saber ONDE escrever. */
+export interface SheetsDestinoConfig {
+  GOOGLE_SHEETS_SPREADSHEET_ID: string;
+  GOOGLE_SHEETS_BASE_TAB: string;
+}
+
+/** Só o que é preciso para saber COMO autenticar. */
+export interface SheetsCredenciaisConfig {
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: string;
+  GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: string;
+}
+
+const vazio = (v: string | undefined): boolean => (v ?? '').trim() === '';
+
+/**
+ * Variáveis de DESTINO ausentes. Enquanto essa lista não estiver vazia a
+ * sincronização é recusada: sem destino explícito, não se escreve em lugar
+ * nenhum. É o que impede a integração de cair de volta em alguma planilha
+ * padrão por acidente.
+ */
+export const destinoSheetsFaltando = (cfg: SheetsDestinoConfig = env): string[] =>
+  (['GOOGLE_SHEETS_SPREADSHEET_ID', 'GOOGLE_SHEETS_BASE_TAB'] as const).filter((k) => vazio(cfg[k]));
+
+/** Credenciais ausentes. Reportadas pelo health; o cliente também se recusa a subir sem elas. */
+export const credenciaisSheetsFaltando = (cfg: SheetsCredenciaisConfig = env): string[] =>
+  (['GOOGLE_SERVICE_ACCOUNT_EMAIL', 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'] as const).filter((k) => vazio(cfg[k]));

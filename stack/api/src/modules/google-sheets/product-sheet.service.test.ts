@@ -109,14 +109,28 @@ function planilha() {
     .comProduto(12, 'FARINHA DE TRIGO ALVEAR', 'bbbb2222');
 }
 
-const enabledOriginal = env.GOOGLE_SHEETS_ENABLED;
+const envOriginal = {
+  enabled: env.GOOGLE_SHEETS_ENABLED,
+  spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+  email: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+  key: env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+};
 
 beforeEach(() => {
+  // ambiente "bem configurado" de mentira: o gateway é falso, então estes
+  // valores nunca saem daqui. O destino é explícito porque o código NÃO tem
+  // mais ID padrão — sem isso a sincronização é recusada.
   env.GOOGLE_SHEETS_ENABLED = true;
+  env.GOOGLE_SHEETS_SPREADSHEET_ID = 'id-de-teste-nao-oficial';
+  env.GOOGLE_SERVICE_ACCOUNT_EMAIL = 'teste@exemplo.iam.gserviceaccount.com';
+  env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n';
 });
 
 afterEach(() => {
-  env.GOOGLE_SHEETS_ENABLED = enabledOriginal;
+  env.GOOGLE_SHEETS_ENABLED = envOriginal.enabled;
+  env.GOOGLE_SHEETS_SPREADSHEET_ID = envOriginal.spreadsheetId;
+  env.GOOGLE_SERVICE_ACCOUNT_EMAIL = envOriginal.email;
+  env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = envOriginal.key;
 });
 
 describe('ProductSheetService — criação de linha nova', () => {
@@ -167,7 +181,103 @@ describe('ProductSheetService — criação de linha nova', () => {
     expect(escritaJ).toMatchObject({ option: 'RAW', value: '07891234000019' });
   });
 
-  it('copia formatação e fórmulas da linha anterior, sem copiar valores nem o ID do modelo', async () => {
+  it('PASTE_FORMAT e PASTE_DATA_VALIDATION são requisições SEPARADAS e ambas obrigatórias', async () => {
+    // A doc oficial define PASTE_FORMAT como "paste the format only, EXCLUDING
+    // data validation". Uma não substitui a outra: a ausência de qualquer uma
+    // deixa a linha nova incompleta.
+    const sheets = planilha();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    await service.syncProduct(ID);
+
+    const tipos = sheets.pasteTypes(13);
+    expect(tipos, 'faltou PASTE_FORMAT (formatação)').toContain('PASTE_FORMAT');
+    expect(tipos, 'faltou PASTE_DATA_VALIDATION (listas suspensas)').toContain('PASTE_DATA_VALIDATION');
+    expect(tipos, 'faltou PASTE_FORMULA (fórmulas)').toContain('PASTE_FORMULA');
+
+    // são requisições distintas, não uma só
+    const colagens = sheets.operacoes.filter((o) => o.startsWith('paste:'));
+    expect(colagens.filter((o) => o === 'paste:PASTE_FORMAT')).toHaveLength(1);
+    expect(colagens.filter((o) => o === 'paste:PASTE_DATA_VALIDATION')).toHaveLength(1);
+  });
+
+  it('copia TAMBÉM a validação de dados da linha-modelo', async () => {
+    const sheets = planilha();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    await service.syncProduct(ID);
+
+    // as listas suspensas (grupo, setor, marca, % desconto) precisam existir na
+    // linha nova — sem esta requisição a linha nasce sem validação
+    expect(sheets.temValidacaoDeDados(13)).toBe(true);
+    expect(sheets.pasteTypes(13).sort()).toEqual(
+      ['PASTE_DATA_VALIDATION', 'PASTE_FORMAT', 'PASTE_FORMULA'],
+    );
+  });
+
+  it('linha = rowCount + 1: expande a grade ANTES de qualquer escrita de valor', async () => {
+    // grade termina exatamente na última linha ocupada — a próxima não existe
+    const sheets = new FakeSheetsGateway({ rowCount: 12 })
+      .comCabecalhos()
+      .comProduto(11, 'TESTE', 'aaaa1111')
+      .comProduto(12, 'FARINHA', 'bbbb2222');
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.syncProduct(ID);
+
+    expect(res.outcome).toBe('synced');
+    expect(res.rowNumber).toBe(13); // = rowCount + 1
+
+    // a expansão tem de ser a PRIMEIRA operação, antes de todo write
+    const primeiraEscrita = sheets.operacoes.findIndex((o) => o.startsWith('write:'));
+    const expansao = sheets.operacoes.indexOf('appendDimension:+1');
+    expect(expansao).toBeGreaterThanOrEqual(0);
+    expect(primeiraEscrita).toBeGreaterThan(expansao);
+
+    // e a ordem completa do contrato: expandir -> reservar CP -> copiar modelo
+    const reservaCP = sheets.operacoes.indexOf('write:CP13');
+    const formato = sheets.operacoes.indexOf('paste:PASTE_FORMAT');
+    expect(expansao).toBeLessThan(reservaCP);
+    expect(reservaCP).toBeLessThan(formato);
+  });
+
+  it('sem expansão, escrever fora da grade seria erro de range (o fake reproduz)', async () => {
+    // prova que o teste acima não é vácuo: o fake recusa write além do rowCount
+    const sheets = new FakeSheetsGateway({ rowCount: 12 }).comCabecalhos();
+    await expect(
+      sheets.batchUpdateValues('x', [{ range: `'aba'!CP13`, values: [['v']] }], 'RAW'),
+    ).rejects.toThrow(/exceeds grid limits/);
+  });
+
+  it('expande a grade na medida EXATA, sem linha sobrando', async () => {
+    // grade termina na linha 12; a linha nova é a 13 -> falta exatamente 1
+    const sheets = new FakeSheetsGateway({ rowCount: 12 })
+      .comCabecalhos()
+      .comProduto(11, 'TESTE', 'aaaa1111')
+      .comProduto(12, 'FARINHA', 'bbbb2222');
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.syncProduct(ID);
+
+    expect(res.rowNumber).toBe(13);
+    expect(sheets.linhasAcrescentadas()).toBe(1);
+  });
+
+  it('não expande a grade quando a linha já cabe', async () => {
+    const sheets = planilha(); // rowCount padrão 9930
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    await service.syncProduct(ID);
+
+    expect(sheets.linhasAcrescentadas()).toBe(0);
+  });
+
+  it('copia estrutura da linha anterior e fórmulas da linha-modelo validada', async () => {
     const sheets = planilha();
     const { repo: syncRepo } = fakeSyncRepo();
     const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
@@ -189,6 +299,23 @@ describe('ProductSheetService — criação de linha nova', () => {
     expect(sheets.get('E13')).not.toBe('FARINHA DE TRIGO ALVEAR');
   });
 
+  it('não perde fórmulas quando a linha imediatamente anterior está incompleta', async () => {
+    const sheets = planilha()
+      // linha manual incompleta, igual ao caso encontrado na homologação
+      .set('E13', 'PRODUTO MANUAL')
+      .set('CP13', 'cccc3333')
+      .set('H13', '=E13&" "&F13&" "&G13');
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.syncProduct(ID);
+
+    expect(res.rowNumber).toBe(14);
+    expect(sheets.get('AO14')).toBe('=ROUND(AJ14*AL14,2)');
+    expect(sheets.get('AY14')).toBe('=(AZ14*AO14)+AO14');
+    expect(sheets.get('AP14')).toContain('$BB$14:$BH$14');
+  });
+
   it('nunca escreve nas colunas calculadas', async () => {
     const sheets = planilha();
     const { repo: syncRepo } = fakeSyncRepo();
@@ -196,11 +323,17 @@ describe('ProductSheetService — criação de linha nova', () => {
 
     await service.syncProduct(ID);
 
-    const calculadas = ['H', 'P', 'U', 'AD', 'AF', 'AH', 'AK', 'AO', 'AP', 'AR', 'AT', 'AV', 'AX', 'AY', 'BI', 'BJ', 'BR'];
+    const calculadas = ['H', 'P', 'U', 'AD', 'AF', 'AH', 'AK', 'AO', 'AR', 'AT', 'AV', 'AX', 'AY', 'BI', 'BJ', 'BR'];
     const colunasEscritas = sheets.writes.map((w) => /^([A-Z]+)/.exec(w.range)![1]!);
     for (const col of calculadas) {
       expect(colunasEscritas, `coluna calculada ${col} não pode ser escrita`).not.toContain(col);
     }
+
+    // AP é a única exceção: a fórmula histórica da planilha precisa ter a
+    // faixa absoluta dos dias corrigida para a própria linha do produto.
+    const escritaAp = sheets.writes.find((w) => w.range === 'AP13');
+    expect(escritaAp).toMatchObject({ option: 'USER_ENTERED' });
+    expect(String(escritaAp?.value)).toContain('$BB$13:$BH$13');
   });
 
   it('usa a linha 11 quando a aba não tem nenhum produto ainda', async () => {
@@ -232,6 +365,22 @@ describe('ProductSheetService — idempotência', () => {
     // no reenvio não há preparação de linha nova (nada de copyPaste)
     expect(sheets.structuralRequests.length).toBe(estruturaisDepoisDaPrimeira);
     expect(rows.get(ID)).toMatchObject({ status: 'synced', rowNumber: 13, attempts: 2 });
+  });
+
+  it('reenvio repara fórmulas ausentes na linha reservada sem duplicá-la', async () => {
+    const sheets = planilha()
+      .set('E13', 'CADASTRO INTERROMPIDO')
+      .set('CP13', ID)
+      .set('H13', '=E13&" "&F13&" "&G13');
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.syncProduct(ID);
+
+    expect(res.rowNumber).toBe(13);
+    expect(sheets.get('CP14')).toBe('');
+    expect(sheets.get('AO13')).toBe('=ROUND(AJ13*AL13,2)');
+    expect(sheets.get('AP13')).toContain('$BB$13:$BH$13');
   });
 
   it('atualiza a linha encontrada por CP, mesmo se o row_number salvo estiver errado', async () => {
@@ -314,6 +463,51 @@ describe('ProductSheetService — falha do Google', () => {
     await expect(service.syncProduct(ID)).resolves.toMatchObject({ outcome: 'failed' });
   });
 
+  it('falha PARCIAL não deixa a linha órfã: o UUID já está em CP e o retry a reencontra', async () => {
+    const sheets = planilha();
+    const { rows, repo: syncRepo } = fakeSyncRepo();
+    // deixa a reserva de CP passar e derruba a partir da preparação da linha
+    let chamadas = 0;
+    const batchUpdateOriginal = sheets.batchUpdate.bind(sheets);
+    sheets.batchUpdate = async (id: string, reqs: unknown[]) => {
+      chamadas++;
+      throw new Error('500 Internal Error na preparação da linha');
+      return batchUpdateOriginal(id, reqs);
+    };
+
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+    const falhou = await service.syncProduct(ID);
+
+    expect(falhou.outcome).toBe('failed');
+    expect(chamadas).toBe(1);
+    // a reserva sobreviveu: a linha 13 é reconhecidamente deste produto
+    expect(sheets.get('CP13')).toBe(ID);
+    expect(sheets.get('E13')).toBe(''); // e nada mais foi escrito
+    expect(rows.get(ID)).toMatchObject({ status: 'failed', rowNumber: 13 });
+  });
+
+  it('linha reservada NÃO é tomada por outro produto', async () => {
+    const sheets = planilha();
+    const { repo: syncRepo } = fakeSyncRepo();
+    // primeiro produto reserva a 13 e falha na preparação
+    sheets.batchUpdate = async () => { throw new Error('503'); };
+    const p1 = produto();
+    const p2 = produto({ id: OUTRO_ID, nome: 'BOLO DE CENOURA' });
+    const service = new ProductSheetService(fakeProductRepo(p1, p2), syncRepo, sheets);
+
+    expect((await service.syncProduct(ID)).outcome).toBe('failed');
+    expect(sheets.get('CP13')).toBe(ID);
+
+    // o segundo produto precisa ir para a 14, não sobrescrever a 13
+    sheets.batchUpdate = async () => {};
+    const r2 = await service.syncProduct(OUTRO_ID);
+
+    expect(r2.rowNumber).toBe(14);
+    expect(sheets.get('CP13')).toBe(ID); // intacta
+    expect(sheets.get('CP14')).toBe(OUTRO_ID);
+    expect(sheets.get('E14')).toBe('BOLO DE CENOURA');
+  });
+
   it('nova tentativa depois da falha muda para synced, na mesma linha', async () => {
     const sheets = planilha();
     sheets.falharEscrita = new Error('503 Service Unavailable');
@@ -322,8 +516,10 @@ describe('ProductSheetService — falha do Google', () => {
 
     const falhou = await service.syncProduct(ID);
     expect(falhou.outcome).toBe('failed');
-    const linhaReservada = rows.get(ID)!.rowNumber;
-    expect(linhaReservada).toBe(13); // reservada antes da escrita
+    // a falha derrubou até a reserva: nada foi escrito e NÃO há linha fantasma
+    // registrada no banco — a planilha é quem manda sobre o que foi reservado
+    expect(rows.get(ID)).toMatchObject({ status: 'failed', rowNumber: null });
+    expect(sheets.get('CP13')).toBe('');
 
     sheets.falharEscrita = null;
     const ok = await service.syncProduct(ID);
@@ -395,6 +591,58 @@ describe('ProductSheetService — integração desligada / fora de escopo', () =
     expect(res.outcome).toBe('disabled');
     expect(sheets.chamadas).toMatchObject({ getSheets: 0, batchGet: 0, batchUpdateValues: 0, batchUpdate: 0 });
     expect(rows.size).toBe(0);
+  });
+
+  it('LIGADA sem spreadsheet ID => recusa e NÃO toca no Google', async () => {
+    env.GOOGLE_SHEETS_SPREADSHEET_ID = ''; // como se a variável não existisse
+    const sheets = planilha();
+    const { rows, repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.syncProduct(ID);
+
+    expect(res.outcome).toBe('misconfigured');
+    expect(res.outcome).not.toBe('disabled'); // erro de config não se disfarça de escolha
+    expect(res.message).toContain('GOOGLE_SHEETS_SPREADSHEET_ID');
+    // nenhuma chamada ao Google, de nenhum tipo
+    expect(sheets.chamadas).toMatchObject({ getSheets: 0, batchGet: 0, batchUpdateValues: 0, batchUpdate: 0 });
+    expect(sheets.writes).toHaveLength(0);
+    expect(rows.size).toBe(0);
+  });
+
+  it('LIGADA sem nome de aba => também recusa', async () => {
+    const tabOriginal = env.GOOGLE_SHEETS_BASE_TAB;
+    env.GOOGLE_SHEETS_BASE_TAB = '';
+    try {
+      const sheets = planilha();
+      const { repo: syncRepo } = fakeSyncRepo();
+      const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+      const res = await service.syncProduct(ID);
+
+      expect(res.outcome).toBe('misconfigured');
+      expect(res.message).toContain('GOOGLE_SHEETS_BASE_TAB');
+      expect(sheets.writes).toHaveLength(0);
+    } finally {
+      env.GOOGLE_SHEETS_BASE_TAB = tabOriginal;
+    }
+  });
+
+  it('health aponta a variável que falta, sem consultar o Google', async () => {
+    env.GOOGLE_SHEETS_SPREADSHEET_ID = '';
+    const sheets = planilha();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(), syncRepo, sheets);
+
+    const health = await service.health();
+
+    expect(health.ok).toBe(false);
+    expect(health.configOk).toBe(false);
+    expect(health.configFaltando).toContain('GOOGLE_SHEETS_SPREADSHEET_ID');
+    expect(health.erro).toContain('Configuração incompleta');
+    expect(sheets.chamadas.getSheets).toBe(0);
+    // reporta NOMES de variáveis, nunca valores
+    expect(health.configFaltando.every((v) => /^[A-Z_]+$/.test(v))).toBe(true);
   });
 
   it('produto de loja (TNP/LI/HORA) é ignorado nesta etapa', async () => {
