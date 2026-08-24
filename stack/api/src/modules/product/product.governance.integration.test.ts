@@ -7,6 +7,7 @@ import type { CurrentUser } from '@/types/fastify-jwt';
 import type { ProductRepository } from './product.repository';
 import type { ProductService } from './product.service';
 import type { ProductRequests } from '@pralis/shared';
+import type { TaxRuleService } from '@/modules/apoio/tax-rule.service';
 
 let container: StartedPostgreSqlContainer;
 let repo: ProductRepository;
@@ -28,7 +29,7 @@ function mkPayload(nome: string): ProductRequests.CreateProductRequest {
   return {
     nome, quantidade: 1, medidaBase: 'UN', codigoBarras: null, marca: 'PRALIS',
     embalagem: 'UN', cDe: 'DE', qtCad: 1, medidaCompra: 'UN',
-    codigoInterno: null, fotoUrl: null, grupo: null, tipo: 'revenda', status: 'ativo',
+    codigoInterno: null, fotoUrl: null, grupo: 'MER FAB. PRÓPRIA - PANIFICAÇÃO', tipo: 'revenda', status: 'ativo',
     habilitarAjuda: false, estoqueMin: 5, estoqueMax: 30, setorEstoque: 'PROD. - CONFEITARIA',
     custo: 8, margemPontual: 0.6, vVendaPontual: null, auto: true, localVenda1: null, localVenda2: null,
     promocoes: [], transformacao: null, fiscal: null,
@@ -52,7 +53,13 @@ beforeAll(async () => {
   repo = new ProductRepository();
   // governança não testa planilha: Google mockado e integração desligada por env
   const sheetService = new ProductSheetService(repo, new ProductSheetRepository(), new FakeSheetsGateway());
-  service = new ProductService(repo, sheetService);
+  const taxRules = {
+    requireForGroup: async (grupo: string) => ({
+      grupo, cstPisCofins: '6', tributacaoSimples: 'ALÍQUOTA ZERO',
+      aliquotaSimples: 7.4, icmsRe: 0, baseFiscal: 'Cesta básica',
+    }),
+  } as TaxRuleService;
+  service = new ProductService(repo, sheetService, taxRules);
   backfill = (await import('@/db/backfill-codigo-interno')).backfillCodigoInterno as typeof backfill;
 
   // cria os usuários referenciados pelos produtos (createdByUserId é FK)
@@ -73,6 +80,10 @@ describe('Governança (autorização) — quem pode criar/editar/excluir', () =>
     const p = await service.create(admin, mkPayload('PRODUTO ADMIN A'));
     expect(p.loja).toBe('BASE');
     expect(p.createdByName).toBe('Rodrigo');
+    expect(p.fiscal).toMatchObject({
+      cstPisCofins: '6', tributacaoSimples: 'ALÍQUOTA ZERO',
+      aliquotaSimples: 7.4, icmsRe: 0, baseFiscal: 'Cesta básica',
+    });
 
     await expect(service.create(jose, mkPayload('PRODUTO DO JOSE'))).rejects.toMatchObject({
       statusCode: 403,

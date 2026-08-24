@@ -43,6 +43,12 @@ export const fiscalSchema = z.object({
   aliquotaCofins: z.number().nullable(),
   reducaoIcms: z.number().nullable(),
   icms: z.number().nullable(),
+  // Snapshot da regra do grupo no momento do cadastro. NCM/CEST continuam
+  // próprios do produto; estes quatro campos vêm do de-para fiscal.
+  tributacaoSimples: z.string().nullable().default(null),
+  aliquotaSimples: z.number().nullable().default(null),
+  icmsRe: z.number().nullable().default(null),
+  baseFiscal: z.string().nullable().default(null),
 });
 
 // ---- Campos editáveis do produto (identidade + comercial) ----

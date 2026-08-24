@@ -69,6 +69,10 @@ export const productFiscal = pgTable('product_fiscal', {
   aliquotaCofins: numeric('aliquota_cofins', { precision: 6, scale: 4 }),
   reducaoIcms: numeric('reducao_icms', { precision: 6, scale: 4 }),
   icms: numeric('icms', { precision: 6, scale: 4 }),
+  tributacaoSimples: text('tributacao_simples'),
+  aliquotaSimples: numeric('aliquota_simples', { precision: 8, scale: 6 }),
+  icmsRe: numeric('icms_re', { precision: 8, scale: 6 }),
+  baseFiscal: text('base_fiscal'),
 });
 
 export const promocoes = pgTable('promocoes', {

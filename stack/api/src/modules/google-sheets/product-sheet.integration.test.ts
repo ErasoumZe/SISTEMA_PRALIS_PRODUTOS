@@ -10,6 +10,7 @@ import type { ProductService } from '@/modules/product/product.service';
 import type { ProductSheetRepository } from './product-sheet.repository';
 import type { ProductSheetService } from './product-sheet.service';
 import { FakeSheetsGateway } from './fake-sheets.gateway';
+import type { TaxRuleService } from '@/modules/apoio/tax-rule.service';
 
 /**
  * Postgres REAL (Testcontainers) + Google MOCKADO. Nenhum teste escreve na
@@ -49,7 +50,7 @@ function mkPayload(nome: string): ProductRequests.CreateProductRequest {
   return {
     nome, quantidade: 1, medidaBase: 'UN', codigoBarras: null, marca: 'PRALIS',
     embalagem: 'UN', cDe: 'DE', qtCad: 1, medidaCompra: 'UN',
-    codigoInterno: null, fotoUrl: null, grupo: null, tipo: 'revenda', status: 'ativo',
+    codigoInterno: null, fotoUrl: null, grupo: 'MER FAB. PRÓPRIA - PANIFICAÇÃO', tipo: 'revenda', status: 'ativo',
     habilitarAjuda: false, estoqueMin: 5, estoqueMax: 30, setorEstoque: 'PROD. - CONFEITARIA',
     custo: 8, margemPontual: 0.6, vVendaPontual: null, auto: true, localVenda1: null, localVenda2: null,
     promocoes: [], transformacao: null, fiscal: null,
@@ -89,7 +90,13 @@ beforeAll(async () => {
   // quando E/CP estão vazios. O fake reproduz esse contrato sem ocupar a linha.
   sheets = new FakeSheetsGateway().comCabecalhos().comLinhaModelo(12);
   sheetService = new ProductSheetService(repo, syncRepo, sheets);
-  service = new ProductService(repo, sheetService);
+  const taxRules = {
+    requireForGroup: async (grupo: string) => ({
+      grupo, cstPisCofins: '6', tributacaoSimples: 'ALÍQUOTA ZERO',
+      aliquotaSimples: 7.4, icmsRe: 0, baseFiscal: 'Cesta básica',
+    }),
+  } as TaxRuleService;
+  service = new ProductService(repo, sheetService, taxRules);
 
   await db.insert(users).values([
     { id: adminId, name: 'Rodrigo', email: 'admin@test.com', passwordHash: 'x', loja: null, role: 'admin' },
