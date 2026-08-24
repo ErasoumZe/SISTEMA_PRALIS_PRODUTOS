@@ -1,6 +1,6 @@
 # Homologação no Google Sheets — Fase 03
 
-## Status: `BLOQUEADO` — destino informado está errado + faltam credenciais
+## Status: HOMOLOGAÇÃO VALIDADA · PRODUÇÃO BLOQUEADA (ver fechamento no fim do documento)
 
 ## ⛔ ACHADO CRÍTICO (24/08): o spreadsheet ID informado NÃO é a planilha de produtos
 
@@ -248,3 +248,139 @@ usa a linha do próprio produto (`BB{n}:BH{n}`) ou a absoluta (`$BB$11:$BH$11`).
 ## 5. Dados de teste remanescentes
 
 **Nenhum.** Nada foi criado em planilha, banco ou serviço externo.
+
+---
+
+# Fechamento da homologação e preflight de produção — 24/08/2026
+
+Branch `fix/sheets-homologacao` · commit da correção final **`3c90d8a`**
+(`fix(sheets): repara formulas usando modelo validado`).
+**Sem push, merge ou deploy.**
+
+## 1. Correção final: linha-modelo e AP
+
+O canário revelou que a linha **161** da cópia de homologação estava incompleta.
+O código antigo copiava as fórmulas da linha imediatamente anterior, então a
+linha 162 — criada pelo sistema — nasceu com **AO, AP e AY vazias**.
+
+Correção em três partes:
+
+1. `copiarEstrutura` trata só **formato e validação de dados**, ainda vindos da
+   linha anterior (as duas colagens seguem separadas e obrigatórias).
+2. `garantirFormulas` usa a **linha 12** como modelo validado e copia apenas as
+   colunas cuja fórmula está **ausente no destino**. Roda também em retry, o que
+   repara linha reservada por sincronização interrompida sem criar outra.
+3. Se a própria linha-modelo estiver incompleta, a operação **falha antes de
+   gravar qualquer célula do produto**, em vez de propagar o defeito.
+
+Além disso, **AP passa a consultar os dias da própria linha**. A fórmula
+histórica fixa `$BB$11:$BH$11`, de modo que todo produto avaliava os dias do
+primeiro. O ajuste vale **apenas para a linha que o sistema criou**; nenhuma
+outra linha é alterada.
+
+## 2. Testes (evidência real desta execução)
+
+| Comando | Diretório | Exit | Resultado |
+|---|---|---|---|
+| `npm test` | `stack/shared` | 0 | 16 |
+| `npm run typecheck` | `stack/api` | 0 | limpo |
+| `npm test` | `stack/api` | 0 | **89** |
+| `npm run test:integration` | `stack/api` | 0 | 17 (Docker ativo) |
+| `npm run build` | `stack/pwa` | 0 | Build complete |
+| `npm ls --all` | raiz | 0 | árvore limpa |
+| `git diff --check` | raiz | 0 | limpo |
+
+Varredura de segredos nos 4 arquivos commitados: as ocorrências de
+`BEGIN PRIVATE KEY` são **fixtures sintéticas** dos testes de sanitização —
+corpos de 8 a 14 caracteres (uma chave real tem ~1700). Nenhum ID de planilha
+em código.
+
+## 3. HOMOLOGAÇÃO — validada
+
+Planilha `HOMOLOGAÇÃO - CENTRAL PRODUTOS (BASE)`, aba `(BASE) CADASTRO PRODUTOS`.
+
+| Item | Valor |
+|---|---|
+| `sheetId` / `rowCount` / `columnCount` | 653117149 / 9930 / 101 |
+| Cabeçalho E5 | `NOME` |
+| Linhas com UUID em CP | 151 |
+| Última linha usada | 162 |
+| Canário | `ZZ HOMOLOG SHEETS 20260824`, linha **162** |
+| UUID | `01a0346f-34fd-7d72-b8a1-a4169c0ad0dd` (uma única ocorrência em CP) |
+| Preço / desconto / promocional | 15,00 · 20% · **12,00** |
+| Validações de dados na linha | 36 |
+
+### Escritas externas realizadas em homologação
+
+1. Linha **162** criada pelo sistema (o canário).
+2. Faixa auxiliar `AH11:AI17` da aba `(TNP/LI/HORA - EXP.) DATAS/NUMEROS - VLD
+   SAIDA` estava **vazia** e foi preenchida com `1..7` / `DOM..SAB`, após
+   conferência contra o XLSX local.
+
+Ambas **apenas na cópia de homologação**. A planilha oficial não foi tocada.
+
+## 4. PRODUÇÃO — preflight somente leitura
+
+| # | Gate | Resultado |
+|---|---|---|
+| 1 | Service account autentica e acessa a oficial | **FALHOU** — `The caller does not have permission` |
+| 2 | Título esperado | não avaliável |
+| 3 | Aba `(BASE) CADASTRO PRODUTOS` | não avaliável |
+| 4 | Cabeçalhos E5/AC5/CP5 | não avaliável |
+| 5 | `sheetId`/`rowCount`/`columnCount` | não avaliável |
+| 6 | Linha 12 com as 17 fórmulas obrigatórias | não avaliável |
+| 7 | Fórmula AP atual da oficial | não avaliável |
+| 8 | `AH11:AI17` com 1=DOM … 7=SAB | não avaliável |
+| 9 | Abas auxiliares e faixas não vazias | não avaliável |
+| 10 | Validações na linha anterior à primeira livre | não avaliável |
+| 11 | Canário de homologação ausente da oficial | não avaliável |
+
+**A credencial não é o problema.** A mesma service account autentica e lê a
+planilha de homologação normalmente (17 abas). A falha é **exclusivamente falta
+de compartilhamento** na oficial.
+
+### Correção mínima (não executada)
+
+A planilha oficial pertence a **`sistemasredepadarialisboa@gmail.com`**, não à
+conta `sistema@cicluz.com.br`. Alguém com permissão de compartilhar precisa
+conceder **Editor** à service account do projeto `pralis-sheets-integracao`.
+Só depois disso os gates 2 a 11 podem ser avaliados.
+
+Nenhuma alteração foi feita na planilha oficial. Nenhum gate foi contornado.
+
+## 5. Estado da tabela auxiliar de dias
+
+| Ambiente | Estado |
+|---|---|
+| Homologação | estava **vazia**; preenchida com 1..7 / DOM..SAB |
+| Produção | **desconhecido** — depende do gate 1 |
+
+Isto é um risco material: se `AH11:AI17` estiver vazia também na oficial, o
+`HLOOKUP` de AP não encontra o rótulo do dia e **a promoção não é aplicada**,
+mesmo com os dias gravados corretamente. Precisa ser verificado antes do canário
+de produção.
+
+## 6. Riscos e rollback
+
+**Riscos**
+
+1. `AH11:AI17` possivelmente vazia na oficial (acima).
+2. AP das linhas **existentes** na oficial segue com `$BB$11:$BH$11`. A correção
+   vale só para linhas novas; as antigas continuam avaliando os dias da linha 11.
+   Corrigir em massa é decisão do dono da planilha.
+3. A linha imediatamente anterior à primeira livre pode estar incompleta na
+   oficial, como a 161 estava em homologação. O formato/validação vêm dela.
+4. Fila de escolha de linha é **em processo** — vale para uma instância da API.
+
+**Rollback operacional**
+
+1. Desligar `GOOGLE_SHEETS_ENABLED`. O cadastro continua funcionando.
+2. Produto permanece no PostgreSQL — é a fonte de verdade.
+3. Registros `pending`/`failed` são preservados para retry posterior.
+4. **Nenhuma linha oficial é apagada automaticamente.**
+
+## 7. Próximos passos — CREARE
+
+Nada implementado nesta execução. A especificação e a lista de descoberta
+obrigatória estão em `docs/plano-pralis-sheets-creare.md`, §8. O CREARE
+permanece um destino **independente**: lê do PostgreSQL, nunca do Sheets.

@@ -38,4 +38,6 @@ Use [`pausa-segura.md`](pausa-segura.md) quando precisar interromper o trabalho 
 
 ## Próximo passo do estado atual
 
-Use [`inicio-sheets-creare.md`](inicio-sheets-creare.md) para fechar os bloqueadores que ainda estão nos `Changes`, preparar a homologação da nova planilha e documentar a base da integração independente com o CREARE.
+Use [`proximos-passos-sheets-producao.md`](proximos-passos-sheets-producao.md) para auditar e commitar a correção descoberta no canário, executar o preflight somente leitura da planilha oficial e preparar o rollout controlado. O prompt exige nova autorização antes de push, deploy ou canário em produção.
+
+O prompt anterior [`inicio-sheets-creare.md`](inicio-sheets-creare.md) permanece como histórico da preparação inicial de Sheets + CREARE.
