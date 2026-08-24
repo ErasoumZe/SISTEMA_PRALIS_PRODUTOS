@@ -158,3 +158,47 @@ describe('Código interno — sequencial, herança e backfill', () => {
     expect(depois?.codigoInterno).toMatch(/^\d{5}$/);
   });
 });
+
+describe('Seed da BASE — código interno na criação', () => {
+  it('produto criado como o seed faz JÁ nasce com código interno', async () => {
+    // Reproduz exatamente a chamada do seed-base.ts. Antes ele omitia
+    // codigoInterno e o produto ficava null até o backfill rodar; nessa janela
+    // o espelho na planilha gravava a coluna CODIGO INT. vazia para sempre.
+    const criado = await repo.create(mkPayload('SEED COM CODIGO'), {
+      loja: 'BASE',
+      codigo: 'PR-SEED-0001',
+      codigoInterno: await repo.proximoCodigoInterno(),
+      createdByUserId: null,
+      createdByName: 'Sistema (planilha base)',
+    });
+
+    expect(criado.codigoInterno).toMatch(/^\d{5}$/);
+    expect(criado.codigoInterno).not.toBeNull();
+
+    // e o próximo produto continua a sequência, sem repetir
+    const seguinte = await repo.create(mkPayload('SEED COM CODIGO 2'), {
+      loja: 'BASE',
+      codigo: 'PR-SEED-0002',
+      codigoInterno: await repo.proximoCodigoInterno(),
+      createdByUserId: null,
+      createdByName: 'Sistema (planilha base)',
+    });
+    expect(Number(seguinte.codigoInterno)).toBe(Number(criado.codigoInterno) + 1);
+  });
+
+  it('o código interno do produto chega na planilha (coluna AC)', async () => {
+    const { mapProductToCells } = await import('@/modules/google-sheets/product-sheet.mapper');
+    const p = await repo.create(mkPayload('SEED NA PLANILHA'), {
+      loja: 'BASE',
+      codigo: 'PR-SEED-0003',
+      codigoInterno: await repo.proximoCodigoInterno(),
+      createdByUserId: null,
+      createdByName: 'Sistema (planilha base)',
+    });
+
+    const cells = mapProductToCells(p, { defaultLojas: 'TNP,LI,HORA' });
+    expect(cells.AC).toEqual({ kind: 'text', value: p.codigoInterno });
+    // era isto que ficava vazio na planilha quando o seed omitia o código
+    expect(cells.AC).not.toEqual({ kind: 'empty' });
+  });
+});

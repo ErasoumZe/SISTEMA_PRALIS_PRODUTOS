@@ -33,9 +33,14 @@ async function main() {
       skipped++;
       continue;
     }
+    // O código interno é atribuído JÁ na criação. Antes o seed deixava null e
+    // só o backfill (passo seguinte do start:prod) preenchia — nessa janela o
+    // produto podia ser espelhado na planilha com a coluna CODIGO INT. vazia,
+    // e o espelho nunca mais era corrigido.
     await repo.create(p, {
       loja: 'BASE',
       codigo: genCodigo(),
+      codigoInterno: await repo.proximoCodigoInterno(),
       createdByUserId: null,
       createdByName: SEED_AUTHOR,
     });
