@@ -91,7 +91,11 @@ export const vendaProdutoInputSchema = z.object({
 
 export const fechamentoCaixaInputSchema = z.object({
   DATA_VENDA: dataBr,
-  PDV: z.string().trim().min(1),
+  // O PDV vem de dispositivo.DESCRICAO no Creare e PODE ser vazio: em 2025 a
+  // TNP registrou 85 dias de fechamento sem dispositivo vinculado, R$ 2,2 mi.
+  // Exigir 1 caractere recusava esses dias inteiros. Quem identifica a linha
+  // e o par (PDV, OPERADOR) — e OPERADOR continua obrigatorio.
+  PDV: z.string().trim(),
   OPERADOR: z.string().trim().min(1),
   PRIMEIRA_VENDA: dataHora,
   ULTIMA_VENDA: dataHora,
