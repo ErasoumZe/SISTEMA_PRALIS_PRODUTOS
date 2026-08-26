@@ -27,6 +27,8 @@ const nav = computed<NavItem[]>(() => {
   const items: NavItem[] = [];
   if (isAdmin.value) items.push({ title: 'Dashboard', icon: 'dashboard', to: '/dashboard', section: 'Geral' });
   items.push({ title: 'Produtos', icon: 'inventory_2', to: '/', section: 'Geral' });
+  // relatório de vendas: TNP e LI. Quem é de outra loja recebe 403 do servidor.
+  items.push({ title: 'Vendas', icon: 'payments', to: '/vendas', section: 'Geral' });
   if (isAdmin.value) items.push({ title: 'Usuários', icon: 'group', to: '/usuarios', section: 'Administração' });
   return items;
 });
@@ -36,6 +38,7 @@ const titulo = computed(() => {
   const map: Record<string, string> = {
     '/': 'Produtos',
     '/dashboard': 'Dashboard',
+    '/vendas': 'Relatório de vendas',
     '/usuarios': 'Usuários',
     '/importar': 'Importar da base',
     '/produtos/novo': 'Novo produto',

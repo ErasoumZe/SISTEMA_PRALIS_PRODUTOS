@@ -1,8 +1,10 @@
-import type { ProductSchemas, ProductRequests, AdminSchemas } from '@pralis/shared';
+import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
 type AdminUser = AdminSchemas.AdminUser;
+export type VendasReport = VendasSchemas.VendasReport;
+export type VendasReportQuery = VendasSchemas.VendasReportQuery;
 export interface GroupTaxRule {
   grupo: string;
   cstPisCofins: string;
@@ -82,6 +84,11 @@ export function useApi() {
       unwrap($fetch<{ data: FiscalClassification }>('/apoio/classificacao-fiscal', {
         ...base, query: { grupo, ...(codigoBarras ? { codigoBarras } : {}) },
       })),
+
+    // ---- vendas ----
+    // O backend decide a loja: admin informa, usuario de loja recebe a dele.
+    vendasReport: (query: VendasReportQuery) =>
+      unwrap($fetch<{ data: VendasReport }>('/vendas/relatorio', { ...base, query })),
 
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),
