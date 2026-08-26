@@ -281,6 +281,40 @@ describe('espelhamento com Google mockado (Postgres real)', () => {
     expect(sheets.get(`BP${linha}`)).toBe('NÃO REVISADO');
   });
 
+  it('EXCLUIR o produto limpa a linha na planilha e libera o espaço', async () => {
+    env.GOOGLE_SHEETS_ENABLED = true;
+    const p = await service.create(admin, mkPayload('SYNC DELETE F'));
+    expect(p.sheetSync).toBe('synced');
+    const linha = Number((await sheetRow(p.id))!.row_number);
+    expect(sheets.get(`E${linha}`)).toBe('SYNC DELETE F');
+
+    await service.delete(admin, p.id);
+
+    // sumiu do banco E da planilha
+    expect(await repo.findById(p.id)).toBeNull();
+    expect(sheets.get(`E${linha}`)).toBe('');
+    expect(sheets.get(`CP${linha}`)).toBe('');
+
+    // e a linha volta a ser usada pelo próximo cadastro
+    const outro = await service.create(admin, mkPayload('SYNC REUSO G'));
+    expect(Number((await sheetRow(outro.id))!.row_number)).toBe(linha);
+    expect(sheets.get(`E${linha}`)).toBe('SYNC REUSO G');
+  });
+
+  it('falha do Google ao excluir ABORTA a exclusão — o produto continua no banco', async () => {
+    env.GOOGLE_SHEETS_ENABLED = true;
+    const p = await service.create(admin, mkPayload('SYNC DELETE FALHA H'));
+    const linha = Number((await sheetRow(p.id))!.row_number);
+
+    sheets.falharEscrita = new Error('403 The caller does not have permission');
+    await expect(service.delete(admin, p.id)).rejects.toMatchObject({ code: 'SHEET_DELETE_FAILED' });
+
+    // nem o banco nem a planilha foram tocados: os dois lados continuam iguais
+    expect(await repo.findById(p.id)).not.toBeNull();
+    expect(sheets.get(`E${linha}`)).toBe('SYNC DELETE FALHA H');
+    expect(sheets.get(`CP${linha}`)).toBe(p.id);
+  });
+
   it('health não escreve nada na planilha', async () => {
     env.GOOGLE_SHEETS_ENABLED = true;
     const escritasAntes = sheets.writes.length;

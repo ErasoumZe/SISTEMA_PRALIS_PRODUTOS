@@ -75,3 +75,54 @@ describe('TaxRuleService', () => {
     });
   });
 });
+
+describe('TaxRuleService — aba fiscal encolhida (faixa de grupos fora da grade)', () => {
+  /** Reproduz o Google: o lote com AB4:AG79 falha; sem ele, as outras 3 vêm. */
+  function gatewayComGrupoForaDaGrade() {
+    const pedidos: string[][] = [];
+    return {
+      pedidos,
+      gateway: {
+        batchGetValues: async (_id: string, ranges: string[]) => {
+          pedidos.push(ranges);
+          if (ranges.some((r) => r.includes('AB4:AG79'))) {
+            throw new Error("Range ('(TNP) FISCAL - DE PARA PRODUTOS'!AB4:AG79) exceeds grid limits. Max columns: 26");
+          }
+          return [
+            [['10010', '17019900', '6', '0', 'PRODUTO X']],
+            [['19059090', 'Outros', '000', '000001', '0,10%', '0,90%']],
+            [['1', 'TRIBUTADO INTEGRAL', '11,28%']],
+          ];
+        },
+      } as unknown as SheetsGateway,
+    };
+  }
+
+  it('não deixa a faixa quebrada derrubar as outras três tabelas', async () => {
+    const { gateway, pedidos } = gatewayComGrupoForaDaGrade();
+    const service = new TaxRuleService(gateway);
+
+    await expect(service.list()).rejects.toMatchObject({ code: 'TAX_RULES_EMPTY' });
+
+    // 1a tentativa com as 4 faixas, 2a só com as 3 que existem
+    expect(pedidos).toHaveLength(2);
+    expect(pedidos[0]).toHaveLength(4);
+    expect(pedidos[1]).toHaveLength(3);
+    expect(pedidos[1]!.some((r) => r.includes('AB4:AG79'))).toBe(false);
+  });
+
+  it('o erro diz exatamente qual faixa restaurar', async () => {
+    const { gateway } = gatewayComGrupoForaDaGrade();
+    const service = new TaxRuleService(gateway);
+
+    await expect(service.list()).rejects.toThrow(/AB4:AG79/);
+    await expect(service.list()).rejects.toThrow(/CST PIS\/COFINS/);
+  });
+
+  it('quando nem as outras faixas leem, reporta a aba inteira como ilegível', async () => {
+    const gateway = { batchGetValues: async () => { throw new Error('403 permission denied'); } } as unknown as SheetsGateway;
+    const service = new TaxRuleService(gateway);
+
+    await expect(service.list()).rejects.toMatchObject({ code: 'TAX_RULES_SOURCE_INVALID' });
+  });
+});

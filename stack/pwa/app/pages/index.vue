@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useDisplay } from 'vuetify';
 import { ProductRules } from '@pralis/shared';
 import type { ProductSchemas } from '@pralis/shared';
 
@@ -12,6 +13,11 @@ const mostrarFlash = computed({
   get: () => !!flash.value,
   set: (v: boolean) => { if (!v) flash.value = null; },
 });
+// A paginação com número fixo de botões estourava a largura no celular e
+// criava rolagem horizontal na lista. O total visível acompanha a tela.
+const { xs, smAndDown } = useDisplay();
+const paginasVisiveis = computed(() => (xs.value ? 3 : smAndDown.value ? 4 : 6));
+
 const products = ref<Product[]>([]);
 const search = ref('');
 const loading = ref(false);
@@ -124,7 +130,18 @@ watch(aba, () => load());
 
 async function remover(p: Product) {
   if (!confirm(`Excluir "${p.nome}"?`)) return;
-  await api.deleteProduct(p.id);
+  try {
+    await api.deleteProduct(p.id);
+  } catch (e) {
+    // A API BLOQUEIA a exclusão quando a linha da planilha não pôde ser
+    // apagada — o produto continua na lista de propósito. Sem esta mensagem o
+    // usuário clicaria em Excluir e nada aconteceria, sem explicação.
+    flash.value = {
+      tipo: 'error',
+      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível excluir o produto.',
+    };
+    return;
+  }
   await load();
 }
 
@@ -155,7 +172,7 @@ function preco(p: Product): string | null {
     <v-snackbar
       v-model="mostrarFlash"
       :color="flash?.tipo ?? 'success'"
-      :timeout="flash?.tipo === 'warning' ? 9000 : 4000"
+      :timeout="flash?.tipo === 'success' ? 4000 : 9000"
       location="top"
     >
       {{ flash?.texto }}
@@ -313,7 +330,7 @@ function preco(p: Product): string | null {
         v-if="totalPaginas > 1"
         v-model="page"
         :length="totalPaginas"
-        :total-visible="6"
+        :total-visible="paginasVisiveis"
         density="comfortable"
         rounded="lg"
         active-color="primary"

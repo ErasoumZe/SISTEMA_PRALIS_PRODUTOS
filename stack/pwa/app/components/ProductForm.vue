@@ -6,6 +6,11 @@ import type { FiscalClassification, GroupTaxRule } from '~/composables/useApi';
 const props = defineProps<{ productId?: string }>();
 const api = useApi();
 const flash = useFlash();
+const { user } = useAuth();
+// O bloco fiscal é derivado do grupo e tem consequência tributária: a API só
+// aceita alteração manual vinda do admin (403 ONLY_ADMIN_FISCAL). A tela deixa
+// os campos em leitura para o colaborador não descobrir isso por erro.
+const isAdmin = computed(() => user.value?.role === 'admin');
 
 const MEDIDAS_BASE = ['UN', 'KG', 'G', 'LT', 'ML'];
 const MEDIDAS_COMPRA = ['UN', 'KG', 'LT'];
@@ -18,12 +23,12 @@ const SETORES = [
 
 const form = reactive({
   nome: '', quantidade: 0, medidaBase: 'KG', fotoUrl: '',
-  marca: '', embalagem: '', cDe: 'DE', qtCad: 1, medidaCompra: '', grupo: '', codigoBarras: '',
+  marca: '', embalagem: '', cDe: 'DE', qtCad: 1, medidaCompra: '', grupo: '', codigoBarras: '', codigoInterno: '',
   status: 'ativo' as 'ativo' | 'inativo', habilitarAjuda: false,
   tipo: 'revenda' as 'revenda' | 'transformacao',
   // comercial (revenda) — a loja vem do usuário logado
   custo: 0, margemPct: 0, auto: true, vVendaPontual: 0,
-  estoqueMin: 0, estoqueMax: 0, setorEstoque: '',
+  estoqueMin: 0, estoqueMax: 0, setorEstoque: '', localVenda1: '', localVenda2: '',
   // transformação
   precisao: 'EXATOS', qtdTransf: 0, unidadeTransf: 'G', produtoReceituario: '', refReceituario: '',
   // promoção (revenda)
@@ -38,13 +43,83 @@ const form = reactive({
   aliquotaIbs: 0, aliquotaCbs: 0, origemFiscal: '' as '' | 'produto' | 'plu_balanca' | 'grupo',
 });
 
+/**
+ * Herança BASE -> loja. A comparação é entre o produto SALVO e o produto da
+ * BASE — é o que o backend usa para decidir se o campo ainda segue a base.
+ * Mesma lista de CAMPOS_HERDADOS do ProductService; promoções ficam de fora
+ * porque são da loja por definição.
+ */
+const CAMPOS_HERANCA: Array<{ campo: string; label: string }> = [
+  { campo: 'nome', label: 'Nome' },
+  { campo: 'quantidade', label: 'Quantidade' },
+  { campo: 'medidaBase', label: 'Medida base' },
+  { campo: 'codigoBarras', label: 'Código de barras' },
+  { campo: 'marca', label: 'Marca' },
+  { campo: 'embalagem', label: 'Embalagem' },
+  { campo: 'cDe', label: 'C/DE' },
+  { campo: 'qtCad', label: 'Qt. cadastro' },
+  { campo: 'medidaCompra', label: 'Medida de compra' },
+  { campo: 'codigoInterno', label: 'Código interno' },
+  { campo: 'fotoUrl', label: 'Foto' },
+  { campo: 'grupo', label: 'Grupo' },
+  { campo: 'tipo', label: 'Tipo' },
+  { campo: 'status', label: 'Status' },
+  { campo: 'habilitarAjuda', label: 'Habilitar ajuda' },
+  { campo: 'estoqueMin', label: 'Estoque mínimo' },
+  { campo: 'estoqueMax', label: 'Estoque máximo' },
+  { campo: 'setorEstoque', label: 'Setor de estoque' },
+  { campo: 'custo', label: 'Custo' },
+  { campo: 'margemPontual', label: 'Margem' },
+  { campo: 'vVendaPontual', label: 'V. venda pontual' },
+  { campo: 'auto', label: 'Cálculo automático' },
+  { campo: 'localVenda1', label: 'Local de venda 1' },
+  { campo: 'localVenda2', label: 'Local de venda 2' },
+];
+
+const mesmoValor = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+const produtoSalvo = ref<Record<string, unknown> | null>(null);
+const produtoBase = ref<Record<string, unknown> | null>(null);
+
+/** Campos em que esta loja tem valor próprio — ou seja, que pararam de seguir a base. */
+const camposEditadosNaLoja = computed(() => {
+  const atual = produtoSalvo.value;
+  const base = produtoBase.value;
+  if (!atual || !base) return [];
+  return CAMPOS_HERANCA.filter((c) => !mesmoValor(atual[c.campo], base[c.campo]));
+});
+
+/** Devolve o formulário aos valores da base. Promoções não são tocadas. */
+function voltarAHerdar() {
+  const base = produtoBase.value as Record<string, any> | null;
+  if (!base) return;
+  Object.assign(form, {
+    nome: base.nome, quantidade: base.quantidade, medidaBase: base.medidaBase,
+    marca: base.marca ?? '', embalagem: base.embalagem ?? '', cDe: base.cDe ?? 'DE',
+    qtCad: base.qtCad, medidaCompra: base.medidaCompra ?? '', grupo: base.grupo ?? '',
+    fotoUrl: base.fotoUrl ?? '', codigoBarras: base.codigoBarras ?? '',
+    status: base.status, habilitarAjuda: base.habilitarAjuda, tipo: base.tipo,
+    custo: base.custo ?? 0, margemPct: base.margemPontual ? base.margemPontual * 100 : 0,
+    auto: base.auto, vVendaPontual: base.vVendaPontual ?? 0,
+    estoqueMin: base.estoqueMin ?? 0, estoqueMax: base.estoqueMax ?? 0,
+    setorEstoque: base.setorEstoque ?? '',
+  });
+}
+
 const groupTaxRules = ref<GroupTaxRule[]>([]);
 const loadingGroups = ref(false);
+const groupRulesError = ref('');
 const selectedTaxRule = computed(() => groupTaxRules.value.find((r) => r.grupo === form.grupo) ?? null);
 const fiscalClassification = ref<FiscalClassification | null>(null);
 const loadingFiscal = ref(false);
 const automaticFiscal = computed(() => fiscalClassification.value ?? selectedTaxRule.value);
-const groupItems = computed(() => groupTaxRules.value.map((r) => r.grupo));
+const groupItems = computed(() => {
+  const items = groupTaxRules.value.map((r) => r.grupo);
+  // Em edição, preserve e exiba o grupo já salvo mesmo quando a fonte externa
+  // de regras estiver indisponível.
+  if (form.grupo && !items.includes(form.grupo)) items.unshift(form.grupo);
+  return items;
+});
 
 let classificationRequest = 0;
 watch([() => form.grupo, () => form.codigoBarras], async ([grupo, codigoBarras]) => {
@@ -244,7 +319,9 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
     cDe: (form.cDe || null) as ProductRequests.CreateProductRequest['cDe'],
     qtCad: Number(form.qtCad) || 1,
     medidaCompra: (form.medidaCompra || null) as ProductRequests.CreateProductRequest['medidaCompra'],
-    codigoInterno: null,
+    // Na criação a API gera o código. Na edição ele precisa voltar
+    // intacto; enviar null apagava silenciosamente o identificador existente.
+    codigoInterno: props.productId ? (form.codigoInterno || null) : null,
     fotoUrl: form.fotoUrl || null,
     grupo: form.grupo || null,
     tipo: form.tipo,
@@ -258,8 +335,10 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
     margemPontual: form.margemPct ? Number(form.margemPct) / 100 : null,
     vVendaPontual: Number(form.vVendaPontual) || null,
     auto: form.auto,
-    localVenda1: null,
-    localVenda2: null,
+    // Ainda não há campos visuais para estes valores, mas uma edição comum
+    // não pode apagar o que já veio da planilha/banco.
+    localVenda1: form.localVenda1 || null,
+    localVenda2: form.localVenda2 || null,
     // promoção continua só para revenda (será movida para a tela do gerente — UX-06)
     promocoes: revenda ? buildPromocoes() : [],
     transformacao: revenda
@@ -280,15 +359,26 @@ const duplicado = ref('');
 
 async function salvar(forcar = false) {
   if (!form.nome.trim()) { erro.value = 'Informe o nome do produto.'; return; }
-  if (!form.grupo) { erro.value = 'Selecione o grupo de mercadorias para aplicar os impostos.'; return; }
+  const grupoOriginal = produtoSalvo.value?.grupo;
+  if (!form.grupo && (!props.productId || grupoOriginal)) {
+    erro.value = 'Selecione o grupo de mercadorias para aplicar os impostos.';
+    return;
+  }
   saving.value = true;
   erro.value = '';
   duplicado.value = '';
   try {
     const payload = buildPayload(forcar);
     if (props.productId) {
-      await api.updateProduct(props.productId, payload);
-      flash.value = { texto: 'Produto atualizado com sucesso', tipo: 'success' };
+      const res = await api.updateProduct(props.productId, payload);
+      // A edição JÁ valeu no banco — a mensagem só informa o estado do espelho.
+      const sync = res.details?.sheetSync;
+      flash.value =
+        sync === 'synced'
+          ? { texto: 'Produto atualizado no banco e na planilha', tipo: 'success' }
+          : sync === 'failed' || sync === 'misconfigured'
+            ? { texto: 'Produto atualizado no banco. Sincronização com a planilha pendente', tipo: 'warning' }
+            : { texto: 'Produto atualizado com sucesso', tipo: 'success' };
     } else {
       const res = await api.createProduct(payload);
       // O produto JÁ está salvo no banco nos três casos — a mensagem só informa
@@ -319,8 +409,10 @@ onMounted(async () => {
   loadingGroups.value = true;
   try {
     groupTaxRules.value = await api.listGroupTaxRules();
-  } catch {
-    erro.value = 'Não foi possível carregar os grupos e as regras fiscais.';
+    groupRulesError.value = '';
+  } catch (e: unknown) {
+    groupRulesError.value = (e as { data?: { message?: string } })?.data?.message
+      || 'Não foi possível carregar os grupos e as regras fiscais.';
   } finally {
     loadingGroups.value = false;
   }
@@ -331,12 +423,14 @@ onMounted(async () => {
       nome: p.nome, quantidade: p.quantidade, medidaBase: p.medidaBase,
       marca: p.marca ?? '', embalagem: p.embalagem ?? '', cDe: p.cDe ?? 'DE',
       qtCad: p.qtCad, medidaCompra: p.medidaCompra ?? '', grupo: p.grupo ?? '', fotoUrl: p.fotoUrl ?? '',
-      codigoBarras: p.codigoBarras ?? '', status: p.status, habilitarAjuda: p.habilitarAjuda, tipo: p.tipo,
+      codigoBarras: p.codigoBarras ?? '', codigoInterno: p.codigoInterno ?? '',
+      status: p.status, habilitarAjuda: p.habilitarAjuda, tipo: p.tipo,
     });
     Object.assign(form, {
       custo: p.custo ?? 0, margemPct: p.margemPontual ? p.margemPontual * 100 : 0,
       auto: p.auto, vVendaPontual: p.vVendaPontual ?? 0,
       estoqueMin: p.estoqueMin ?? 0, estoqueMax: p.estoqueMax ?? 0, setorEstoque: p.setorEstoque ?? '',
+      localVenda1: p.localVenda1 ?? '', localVenda2: p.localVenda2 ?? '',
     });
     if (p.transformacao) Object.assign(form, {
       precisao: p.transformacao.precisao, qtdTransf: p.transformacao.qtd, unidadeTransf: p.transformacao.unidade,
@@ -361,6 +455,15 @@ onMounted(async () => {
       promoHoraInicio: promo.horaInicio ?? '', promoHoraFim: promo.horaFim ?? '',
       promoDias: promo.dias ?? [false, false, false, false, false, false, false],
     });
+    produtoSalvo.value = p as unknown as Record<string, unknown>;
+    if (p.baseProductId) {
+      // o catálogo BASE é legível por qualquer usuário autenticado
+      try {
+        produtoBase.value = (await api.getProduct(p.baseProductId)) as unknown as Record<string, unknown>;
+      } catch {
+        produtoBase.value = null; // sem a base, o selo simplesmente não aparece
+      }
+    }
   } catch {
     erro.value = 'Não foi possível carregar o produto.';
   }
@@ -375,6 +478,40 @@ onMounted(async () => {
     </div>
 
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
+    <v-alert v-if="groupRulesError" type="warning" variant="tonal" class="mb-4">
+      <strong>Regras fiscais indisponíveis.</strong> {{ groupRulesError }}
+      <div class="text-body-2 mt-1">
+        Você pode editar outros dados de um produto existente sem trocar grupo ou código de barras.
+        Novos cadastros e reclassificações continuam bloqueados para evitar imposto incorreto.
+      </div>
+    </v-alert>
+
+    <!-- HERANÇA: o que ainda segue a base e o que esta loja passou a mandar -->
+    <v-card v-if="produtoBase" flat border rounded="lg" class="mb-4">
+      <v-card-text class="d-flex align-center flex-wrap ga-2">
+        <template v-if="camposEditadosNaLoja.length === 0">
+          <span class="text-body-2">
+            Este produto <strong>segue a base</strong> em todos os campos — o que o administrador
+            alterar lá desce para cá automaticamente.
+          </span>
+        </template>
+        <template v-else>
+          <span class="text-body-2">
+            <strong>{{ camposEditadosNaLoja.length }}</strong>
+            campo(s) foram editados nesta loja e <strong>não seguem mais a base</strong>:
+          </span>
+          <v-chip
+            v-for="c in camposEditadosNaLoja"
+            :key="c.campo"
+            size="small"
+            color="warning"
+            variant="tonal"
+          >{{ c.label }}</v-chip>
+          <v-spacer />
+          <v-btn size="small" variant="text" @click="voltarAHerdar">Voltar a herdar da base</v-btn>
+        </template>
+      </v-card-text>
+    </v-card>
 
     <v-alert v-if="duplicado" type="warning" variant="tonal" class="mb-4">
       <div class="d-flex align-center flex-wrap ga-2">
@@ -426,6 +563,16 @@ onMounted(async () => {
               :hint="ajuda('codigoBarras')"
               append-inner-icon="barcode_scanner"
               @click:append-inner="scanOpen = true"
+            />
+          </v-col>
+          <v-col v-if="productId" cols="12" sm="6">
+            <v-text-field
+              v-model="form.codigoInterno"
+              label="Código interno"
+              variant="outlined"
+              density="comfortable"
+              readonly
+              bg-color="grey-lighten-4"
             />
           </v-col>
           <v-col cols="12" sm="6">
@@ -552,6 +699,12 @@ onMounted(async () => {
       <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">FISCAL</v-card-title>
       <v-card-text>
         <v-row dense>
+          <v-col v-if="!isAdmin" cols="12">
+            <v-alert type="info" variant="tonal" density="compact" class="mb-2">
+              Os dados fiscais são definidos pelo administrador e calculados a partir do grupo.
+              Trocar o grupo aqui recalcula os impostos automaticamente.
+            </v-alert>
+          </v-col>
           <v-col cols="12">
             <v-select
               v-model="form.grupo"
@@ -574,9 +727,9 @@ onMounted(async () => {
               </div>
             </v-alert>
           </v-col>
-          <v-col cols="12" sm="6"><v-text-field v-model="form.ncm" label="NCM (automático quando encontrado)" variant="outlined" density="comfortable" :loading="loadingFiscal" :readonly="!!fiscalClassification?.ncm" :bg-color="fiscalClassification?.ncm ? 'grey-lighten-4' : undefined" :hint="ajuda('ncm')" /></v-col>
-          <v-col cols="12" sm="6"><v-text-field v-model="form.cest" label="Código CEST" variant="outlined" density="comfortable" :hint="ajuda('cest')" /></v-col>
-          <v-col cols="12" sm="6"><v-text-field v-model="form.categoria" label="Categoria" variant="outlined" density="comfortable" :hint="ajuda('categoria')" /></v-col>
+          <v-col cols="12" sm="6"><v-text-field v-model="form.ncm" label="NCM (automático quando encontrado)" variant="outlined" density="comfortable" :loading="loadingFiscal" :readonly="!isAdmin || !!fiscalClassification?.ncm" :bg-color="(!isAdmin || fiscalClassification?.ncm) ? 'grey-lighten-4' : undefined" :hint="ajuda('ncm')" /></v-col>
+          <v-col cols="12" sm="6"><v-text-field v-model="form.cest" label="Código CEST" variant="outlined" density="comfortable" :readonly="!isAdmin" :bg-color="!isAdmin ? 'grey-lighten-4' : undefined" :hint="ajuda('cest')" /></v-col>
+          <v-col cols="12" sm="6"><v-text-field v-model="form.categoria" label="Categoria" variant="outlined" density="comfortable" :readonly="!isAdmin" :bg-color="!isAdmin ? 'grey-lighten-4' : undefined" :hint="ajuda('categoria')" /></v-col>
           <v-col cols="12" sm="6"><v-text-field :model-value="automaticFiscal?.cstPisCofins ?? form.cstPisCofins" label="CST PIS/COFINS (automático)" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" /></v-col>
           <v-col cols="6" sm="4"><v-text-field :model-value="form.cstReforma || '—'" label="CST reforma" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" /></v-col>
           <v-col cols="6" sm="4"><v-text-field :model-value="form.cClassTrib || '—'" label="cClassTrib" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" /></v-col>
@@ -635,12 +788,12 @@ onMounted(async () => {
   padding: 22px 16px;
   text-align: center;
   cursor: pointer;
-  background: #faf7f4;
+  background: var(--cx-surface-sunken);
   transition: border-color 0.2s ease, background 0.2s ease;
 }
 .dropzone:hover {
-  border-color: #5c3a34;
-  background: #f5efea;
+  border-color: var(--cx-brand);
+  background: var(--cx-brand-wash);
 }
 .dropzone--full {
   cursor: default;

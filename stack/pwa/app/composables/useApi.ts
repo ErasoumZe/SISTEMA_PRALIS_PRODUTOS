@@ -58,8 +58,13 @@ export function useApi() {
         { ...base, method: 'POST', body },
       ),
 
+    // devolve o envelope inteiro, igual ao create: `details.sheetSync` diz se
+    // a planilha acompanhou a edição
     updateProduct: (id: string, body: ProductRequests.UpdateProductRequest) =>
-      unwrap($fetch<{ data: Product }>(`/products/${id}`, { ...base, method: 'PUT', body })),
+      $fetch<{ data: Product; message: string; details: { sheetSync?: SheetSyncStatus } | null }>(
+        `/products/${id}`,
+        { ...base, method: 'PUT', body },
+      ),
 
     deleteProduct: (id: string) =>
       $fetch(`/products/${id}`, { ...base, method: 'DELETE' }),

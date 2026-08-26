@@ -1,0 +1,90 @@
+export type CreareFieldKind = 'alpha' | 'numeric' | 'date';
+
+export interface CreareDecimalPlaces {
+  unitPrice: 2 | 3;
+  icmsReduction: number;
+  fullTaxRate: number;
+  fcpRate: number;
+  pisRate: number;
+  cofinsRate: number;
+  maximumQuantity: number;
+  minimumQuantity: number;
+}
+
+export interface CreareField {
+  name: string;
+  length: number;
+  kind: CreareFieldKind;
+  decimals?: number | keyof CreareDecimalPlaces;
+}
+
+/**
+ * Layout oficial de produtos do SIA Supervisor.
+ *
+ * Duas correções necessárias para o registro fechar em 363 posições e
+ * coincidir com o TXT fornecido: fornecedor começa em 72 e o vazio tem 4 bytes.
+ */
+export const CREARE_PRODUCT_LAYOUT = [
+  { name: 'barcode', length: 13, kind: 'alpha' },
+  { name: 'groupCode', length: 4, kind: 'numeric' },
+  { name: 'shortDescription', length: 24, kind: 'alpha' },
+  { name: 'unitPrice', length: 10, kind: 'numeric', decimals: 'unitPrice' },
+  { name: 'unit', length: 2, kind: 'alpha' },
+  { name: 'ecfTaxCode', length: 2, kind: 'numeric' },
+  { name: 'promotionPrice', length: 10, kind: 'numeric', decimals: 2 },
+  { name: 'internalCode', length: 6, kind: 'numeric' },
+  { name: 'supplierManufacturer', length: 40, kind: 'alpha' },
+  { name: 'reference', length: 30, kind: 'alpha' },
+  { name: 'basketKit', length: 1, kind: 'alpha' },
+  { name: 'cost', length: 10, kind: 'numeric', decimals: 3 },
+  { name: 'description', length: 50, kind: 'alpha' },
+  { name: 'basketCode', length: 6, kind: 'numeric' },
+  { name: 'promotionStart', length: 8, kind: 'date' },
+  { name: 'promotionEnd', length: 8, kind: 'date' },
+  { name: 'quantity', length: 10, kind: 'numeric', decimals: 3 },
+  { name: 'iat', length: 1, kind: 'alpha' },
+  { name: 'ippt', length: 1, kind: 'alpha' },
+  { name: 'ncm', length: 8, kind: 'numeric' },
+  { name: 'reserved', length: 4, kind: 'alpha' },
+  { name: 'extendedInternalCode', length: 9, kind: 'numeric' },
+  { name: 'weighable', length: 1, kind: 'alpha' },
+  { name: 'scaleKey', length: 3, kind: 'numeric' },
+  { name: 'cest', length: 7, kind: 'numeric' },
+  { name: 'icmsReduction', length: 4, kind: 'numeric', decimals: 'icmsReduction' },
+  { name: 'fullTaxRate', length: 5, kind: 'numeric', decimals: 'fullTaxRate' },
+  { name: 'fcpRate', length: 4, kind: 'numeric', decimals: 'fcpRate' },
+  { name: 'pisCofinsCst', length: 2, kind: 'numeric' },
+  { name: 'pisRate', length: 8, kind: 'numeric', decimals: 'pisRate' },
+  { name: 'cofinsRate', length: 8, kind: 'numeric', decimals: 'cofinsRate' },
+  { name: 'maximumQuantity', length: 10, kind: 'numeric', decimals: 'maximumQuantity' },
+  { name: 'minimumQuantity', length: 10, kind: 'numeric', decimals: 'minimumQuantity' },
+  { name: 'extendedBarcode', length: 14, kind: 'alpha' },
+  { name: 'active', length: 1, kind: 'alpha' },
+  { name: 'stockControlled', length: 1, kind: 'alpha' },
+  { name: 'originId', length: 6, kind: 'numeric' },
+  { name: 'originFactor', length: 10, kind: 'numeric', decimals: 3 },
+  { name: 'scaleValidity', length: 3, kind: 'alpha' },
+  { name: 'categoryCode', length: 9, kind: 'numeric' },
+] as const satisfies readonly CreareField[];
+
+export type CreareFieldName = (typeof CREARE_PRODUCT_LAYOUT)[number]['name'];
+export type CreareRawRecord = Record<CreareFieldName, string>;
+
+export const CREARE_PRODUCT_RECORD_LENGTH = CREARE_PRODUCT_LAYOUT.reduce(
+  (total, field) => total + field.length,
+  0,
+);
+
+export function creareProductPositions(): Array<{
+  name: CreareFieldName;
+  start: number;
+  end: number;
+  length: number;
+}> {
+  let start = 1;
+  return CREARE_PRODUCT_LAYOUT.map((field) => {
+    const position = { name: field.name, start, end: start + field.length - 1, length: field.length };
+    start += field.length;
+    return position;
+  });
+}

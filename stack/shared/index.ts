@@ -7,3 +7,5 @@ export * as ProductRequests from './src/product/product.requests';
 export * as ProductReplies from './src/product/product.replies';
 export * as AdminSchemas from './src/admin/admin.schemas';
 export * as AdminRequests from './src/admin/admin.requests';
+export * as Creare from './src/creare/creare.generator';
+export * as CreareLayout from './src/creare/creare.layout';

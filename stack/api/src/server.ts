@@ -20,6 +20,7 @@ import { fileRoutes } from '@/modules/file/file.routes';
 import { adminRoutes } from '@/modules/admin/admin.routes';
 import { productSheetRoutes } from '@/modules/google-sheets/product-sheet.routes';
 import { apoioRoutes } from '@/modules/apoio/apoio.routes';
+import { creareRoutes } from '@/modules/creare/creare.routes';
 
 const app = Fastify({
   logger: env.NODE_ENV === 'dev',
@@ -67,6 +68,7 @@ app.register(productRoutes);
 app.register(adminRoutes);
 app.register(productSheetRoutes);
 app.register(apoioRoutes);
+app.register(creareRoutes);
 
 app.get('/health', async () => ({ ok: true }));
 

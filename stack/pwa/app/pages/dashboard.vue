@@ -27,8 +27,8 @@ const cards = computed(() => {
   const t = data.value?.totais;
   if (!t) return [];
   return [
-    { label: 'Usuários', value: t.usuarios, icon: 'group', color: '#5C3A34' },
-    { label: 'Lojas ativas', value: t.lojas, icon: 'storefront', color: '#EE7A1E' },
+    { label: 'Usuários', value: t.usuarios, icon: 'group', color: '#6515DD' },
+    { label: 'Lojas ativas', value: t.lojas, icon: 'storefront', color: '#35128C' },
     { label: 'Produtos (total)', value: t.produtos, icon: 'inventory_2', color: '#3B82F6', hint: `${nf(t.base)} no catálogo Base` },
     { label: 'Ativos', value: t.ativos, icon: 'check_circle', color: '#34A853', hint: `${pct(t.ativos, t.produtos)}% do total` },
     { label: 'Inativos', value: t.inativos, icon: 'cancel', color: '#E5484D', hint: `${pct(t.inativos, t.produtos)}% do total` },
@@ -53,8 +53,8 @@ const produtividade = computed(() => {
   return {
     series: [{ name: 'Produtos cadastrados', data: p.map((x) => x.total) }],
     options: {
-      chart: { toolbar: { show: false }, fontFamily: 'Montserrat, sans-serif' },
-      colors: ['#EE7A1E'],
+      chart: { toolbar: { show: false }, fontFamily: 'Noto Sans, sans-serif' },
+      colors: ['#6515DD'],
       plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '58%' } },
       dataLabels: { enabled: true },
       xaxis: { categories: p.map((x) => x.nome) },
@@ -68,8 +68,8 @@ const porDia = computed(() => {
   return {
     series: [{ name: 'Cadastros', data: d.map((x) => x.total) }],
     options: {
-      chart: { toolbar: { show: false }, fontFamily: 'Montserrat, sans-serif' },
-      colors: ['#5C3A34'],
+      chart: { toolbar: { show: false }, fontFamily: 'Noto Sans, sans-serif' },
+      colors: ['#35128C'],
       stroke: { curve: 'smooth', width: 3 },
       fill: { type: 'gradient', gradient: { opacityFrom: 0.4, opacityTo: 0.05 } },
       dataLabels: { enabled: false },

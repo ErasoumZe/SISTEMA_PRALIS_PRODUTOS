@@ -1,29 +1,61 @@
-/* ===== Identidade Pralis — base clara estilo Apple ===== */
-
+/* ===== CICLUZ — camada visual compartilhada ===== */
 :root {
-  --pralis-bordo: #5c3a34;
-  --pralis-laranja: #ee7a1e;
-  --pralis-bege: #f4ecdd;
+  color-scheme: light;
+  --cx-canvas: #f4f6fa;
+  --cx-surface: #ffffff;
+  --cx-surface-sunken: #f7f8fb;
+  --cx-ink: #1f2733;
+  --cx-ink-soft: #5b6675;
+  --cx-line: #e4e8ef;
+  --cx-line-soft: #eef1f6;
+  --cx-brand: #6515dd;
+  --cx-brand-strong: #35128c;
+  --cx-brand-on: #ffffff;
+  --cx-brand-wash: #f0ebff;
+  --cx-positive: #157f3c;
+  --cx-negative: #c62828;
+  --cx-r-sm: 8px;
+  --cx-r-md: 12px;
+  --cx-r-lg: 16px;
+  --cx-r-xl: 22px;
+  --cx-e-1: 0 1px 2px rgb(15 23 42 / 0.05), 0 4px 12px -4px rgb(15 23 42 / 0.08);
+  --cx-e-2: 0 1px 3px rgb(15 23 42 / 0.06), 0 12px 28px -10px rgb(15 23 42 / 0.14);
+  --cx-e-3: 0 2px 6px rgb(15 23 42 / 0.07), 0 28px 60px -18px rgb(15 23 42 / 0.2);
+  --cx-focus: rgb(101 21 221 / 0.28);
+  --cx-ease: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 html,
 body {
-  font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
+  font-family: 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--cx-canvas);
+  color: var(--cx-ink);
+}
+
+#__nuxt,
+.v-application,
+.v-application__wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .v-application {
-  font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-  letter-spacing: -0.011em;
+  font-family: 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+  letter-spacing: -0.006em;
 }
 
-/* títulos um pouco mais firmes, como na Apple */
 .v-application .text-h4,
 .v-application .text-h5,
 .v-application .text-h6,
 .v-application .font-weight-bold {
-  letter-spacing: -0.02em;
+  letter-spacing: -0.018em;
 }
 
 /* ===== Material Symbols (ícones) ===== */
@@ -40,33 +72,82 @@ body {
   font-feature-settings: 'liga';
 }
 
-/* ===== toques estilo Apple ===== */
-/* sombra suave e difusa nos cards (sobrepõe a elevação dura padrão) */
 .v-card.v-card--variant-elevated,
 .v-card.v-card--variant-flat {
-  box-shadow:
-    0 1px 2px rgba(29, 29, 31, 0.04),
-    0 4px 16px rgba(29, 29, 31, 0.04) !important;
+  box-shadow: var(--cx-e-1) !important;
 }
 
-/* seleção de texto na cor da marca */
+.v-card.v-card--variant-outlined,
+.v-card[border] {
+  border-color: var(--cx-line) !important;
+}
+
+.v-field {
+  transition: box-shadow 120ms var(--cx-ease), border-color 120ms var(--cx-ease);
+}
+.v-field--focused {
+  box-shadow: 0 0 0 3px var(--cx-focus);
+}
+
+.v-btn {
+  letter-spacing: 0 !important;
+}
+.v-btn--variant-flat.bg-primary {
+  box-shadow: 0 8px 18px rgb(101 21 221 / 0.22);
+}
+.v-btn--variant-flat.bg-primary:hover {
+  background: var(--cx-brand-strong) !important;
+}
+
+.v-table,
+.v-data-table {
+  color: var(--cx-ink);
+}
+.v-table thead th,
+.v-data-table thead th {
+  background: var(--cx-surface-sunken) !important;
+  color: var(--cx-ink-soft) !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase;
+}
+
 ::selection {
-  background: rgba(238, 122, 30, 0.18);
+  background: rgb(101 21 221 / 0.18);
 }
 
-/* scrollbar fininha */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(29, 29, 31, 0.18) transparent;
+  scrollbar-color: rgb(31 39 51 / 0.18) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(29, 29, 31, 0.18);
+  background: rgb(31 39 51 / 0.18);
   border-radius: 8px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(29, 29, 31, 0.3);
+  background: rgb(31 39 51 / 0.3);
+}
+
+@media (max-width: 600px) {
+  .v-container {
+    max-width: 100% !important;
+  }
+  .v-btn.v-btn--size-small {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Sistema de cadastro de produtos — Padaria Pralis (mesmo stack seguro da Cicluz)",
+  "description": "Sistema Cicluz de cadastro e gestão de produtos",
   "workspaces": [
     "stack/shared",
     "stack/api",
