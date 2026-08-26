@@ -42,13 +42,49 @@ export class FakeSheetsGateway implements SheetsGateway {
   }
 
   // ---- helpers de teste ----
+  /**
+   * Células de ABAS específicas. Quando uma aba aparece aqui, ela passa a ter
+   * o próprio mapa; qualquer outra continua usando `cells`. É o que permite
+   * simular abas com layouts diferentes sem tocar nos testes já existentes.
+   */
+  readonly cellsPorAba = new Map<string, Map<string, string>>();
+
   set(a1Cell: string, value: string): this {
     this.cells.set(a1Cell, value);
     return this;
   }
 
+  /** Define uma célula de uma aba específica (ex.: a aba da TNP). */
+  setNaAba(titulo: string, a1Cell: string, value: string): this {
+    let mapa = this.cellsPorAba.get(titulo);
+    if (!mapa) { mapa = new Map(); this.cellsPorAba.set(titulo, mapa); }
+    mapa.set(a1Cell, value);
+    return this;
+  }
+
+  /** Registra uma aba que existe na planilha mas não tem cabeçalho nenhum. */
+  comAbaVazia(titulo: string): this {
+    if (!this.cellsPorAba.has(titulo)) this.cellsPorAba.set(titulo, new Map());
+    return this;
+  }
+
   get(a1Cell: string): string {
     return this.cells.get(a1Cell) ?? '';
+  }
+
+  /** Título da aba embutido no range A1 ('TITULO'!A5:C5), já sem as aspas. */
+  private tituloDe(range: string): string | null {
+    const i = range.indexOf('!');
+    if (i < 0) return null;
+    const bruto = range.slice(0, i);
+    if (!bruto.startsWith("'")) return bruto;
+    return bruto.slice(1, -1).split("''").join("'");
+  }
+
+  /** Mapa de células da aba — o próprio, se registrado; senão o compartilhado. */
+  private mapaDe(titulo: string | null): Map<string, string> {
+    if (titulo && this.cellsPorAba.has(titulo)) return this.cellsPorAba.get(titulo)!;
+    return this.cells;
   }
 
   /** Cabeçalhos válidos da linha 5. */
@@ -179,7 +215,7 @@ export class FakeSheetsGateway implements SheetsGateway {
       }
       this.operacoes.push(`write:${cell}`);
       this.writes.push({ range: cell, value, option: valueInputOption });
-      this.cells.set(cell, value == null ? '' : String(value));
+      this.mapaDe(this.tituloDe(d.range)).set(cell, value == null ? '' : String(value));
     }
   }
 
@@ -208,10 +244,12 @@ export class FakeSheetsGateway implements SheetsGateway {
 
   private lerRange(range: string): string[][] {
     const r = this.semAba(range);
+    const mapa = this.mapaDe(this.tituloDe(range));
+    const ler = (cell: string): string => mapa.get(cell) ?? '';
 
     const celula = /^([A-Z]+)(\d+)$/.exec(r);
     if (celula) {
-      const v = this.get(r);
+      const v = ler(r);
       return v === '' ? [] : [[v]];
     }
 
@@ -221,13 +259,13 @@ export class FakeSheetsGateway implements SheetsGateway {
       const [, col, inicio] = colunaAberta;
       const start = Number(inicio);
       let ultima = start - 1;
-      for (const [k, v] of this.cells) {
+      for (const [k, v] of mapa) {
         const m = new RegExp(`^${col}(\\d+)$`).exec(k);
         if (m && v !== '' && Number(m[1]) >= start) ultima = Math.max(ultima, Number(m[1]));
       }
       const out: string[][] = [];
       for (let row = start; row <= ultima; row++) {
-        const v = this.get(`${col}${row}`);
+        const v = ler(`${col}${row}`);
         out.push(v === '' ? [] : [v]);
       }
       return out;
@@ -241,7 +279,7 @@ export class FakeSheetsGateway implements SheetsGateway {
       for (let row = Number(r0); row <= Number(r1); row++) {
         const linha: string[] = [];
         for (let c = colToIndex(c0!); c <= colToIndex(c1!); c++) {
-          linha.push(this.get(`${indexToCol(c)}${row}`));
+          linha.push(ler(`${indexToCol(c)}${row}`));
         }
         out.push(linha);
       }

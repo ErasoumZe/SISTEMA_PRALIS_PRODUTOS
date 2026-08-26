@@ -3,7 +3,7 @@ definePageMeta({ layout: 'auth' });
 
 const { login, register, verify, resend, forgotPassword, resetPassword } = useAuth();
 const adminEmail = (useRuntimeConfig().public.adminEmail as string).toLowerCase();
-const brandLogo = '/brand/simbolo.png';
+const brandLogo = '/cicluz/logo-cicluz.png';
 
 type Modo = 'login' | 'registro' | 'verificar' | 'esqueci' | 'redefinir';
 const modo = ref<Modo>('login');
@@ -111,22 +111,11 @@ const botao = computed(
 
 <template>
   <div class="d-flex align-center justify-center pa-4" style="min-height: 100vh">
-    <v-card width="440" max-width="100%" rounded="xl" elevation="12" class="pa-2">
+    <v-card width="440" max-width="100%" rounded="xl" elevation="0" class="login-card pa-2">
       <v-card-text class="pa-8">
         <div class="text-center mb-6">
-          <v-avatar
-            color="primary"
-            size="64"
-            class="mb-3"
-            style="border-radius: 20px; box-shadow: 0 8px 22px rgba(92, 58, 52, 0.35)"
-          >
-            <v-img :src="brandLogo" cover>
-              <template #error>
-                <v-icon size="32" color="white">storefront</v-icon>
-              </template>
-            </v-img>
-          </v-avatar>
-          <div class="text-overline text-medium-emphasis">CADASTRO DE PRODUTOS — PRALIS</div>
+          <v-img :src="brandLogo" alt="Cicluz Gestão Profissional" width="210" max-width="72%" class="mx-auto mb-5" />
+          <div class="text-overline text-medium-emphasis">GESTÃO DE PRODUTOS</div>
           <div class="text-h5 font-weight-bold mt-1">{{ titulo }}</div>
           <div class="text-body-2 text-medium-emphasis">{{ subtitulo }}</div>
         </div>
@@ -204,3 +193,25 @@ const botao = computed(
     </v-card>
   </div>
 </template>
+
+<style scoped>
+.login-card {
+  border: 0;
+  background: var(--cx-surface);
+  box-shadow: var(--cx-e-3) !important;
+  animation: login-in 260ms var(--cx-ease) both;
+}
+.login-card :deep(.v-card-text) {
+  padding: 36px 32px 28px !important;
+}
+@keyframes login-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 390px) {
+  .login-card :deep(.v-card-text) { padding: 26px 20px 22px !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-card { animation: none; }
+}
+</style>

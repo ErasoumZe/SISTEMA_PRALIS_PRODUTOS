@@ -26,12 +26,14 @@ const pct = (part: number, total: number) => (total ? Math.round((part / total) 
 const cards = computed(() => {
   const t = data.value?.totais;
   if (!t) return [];
+  // `atalho:` leva à tela que detalha o número do card. Card sem atalho não
+  // vira link — melhor não clicável do que clicável sem destino útil.
   return [
-    { label: 'Usuários', value: t.usuarios, icon: 'group', color: '#5C3A34' },
-    { label: 'Lojas ativas', value: t.lojas, icon: 'storefront', color: '#EE7A1E' },
-    { label: 'Produtos (total)', value: t.produtos, icon: 'inventory_2', color: '#3B82F6', hint: `${nf(t.base)} no catálogo Base` },
-    { label: 'Ativos', value: t.ativos, icon: 'check_circle', color: '#34A853', hint: `${pct(t.ativos, t.produtos)}% do total` },
-    { label: 'Inativos', value: t.inativos, icon: 'cancel', color: '#E5484D', hint: `${pct(t.inativos, t.produtos)}% do total` },
+    { label: 'Usuários', value: t.usuarios, icon: 'group', color: '#6515DD', atalho: '/usuarios' },
+    { label: 'Lojas ativas', value: t.lojas, icon: 'storefront', color: '#35128C' },
+    { label: 'Produtos (total)', value: t.produtos, icon: 'inventory_2', color: '#3B82F6', hint: `${nf(t.base)} no catálogo Base`, atalho: '/' },
+    { label: 'Ativos', value: t.ativos, icon: 'check_circle', color: '#34A853', hint: `${pct(t.ativos, t.produtos)}% do total`, atalho: '/?status=ativo' },
+    { label: 'Inativos', value: t.inativos, icon: 'cancel', color: '#E5484D', hint: `${pct(t.inativos, t.produtos)}% do total`, atalho: '/?status=inativo' },
   ];
 });
 
@@ -53,8 +55,8 @@ const produtividade = computed(() => {
   return {
     series: [{ name: 'Produtos cadastrados', data: p.map((x) => x.total) }],
     options: {
-      chart: { toolbar: { show: false }, fontFamily: 'Montserrat, sans-serif' },
-      colors: ['#EE7A1E'],
+      chart: { toolbar: { show: false }, fontFamily: 'Noto Sans, sans-serif' },
+      colors: ['#6515DD'],
       plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '58%' } },
       dataLabels: { enabled: true },
       xaxis: { categories: p.map((x) => x.nome) },
@@ -68,8 +70,8 @@ const porDia = computed(() => {
   return {
     series: [{ name: 'Cadastros', data: d.map((x) => x.total) }],
     options: {
-      chart: { toolbar: { show: false }, fontFamily: 'Montserrat, sans-serif' },
-      colors: ['#5C3A34'],
+      chart: { toolbar: { show: false }, fontFamily: 'Noto Sans, sans-serif' },
+      colors: ['#35128C'],
       stroke: { curve: 'smooth', width: 3 },
       fill: { type: 'gradient', gradient: { opacityFrom: 0.4, opacityTo: 0.05 } },
       dataLabels: { enabled: false },
@@ -105,16 +107,25 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
       <!-- cards de resumo -->
       <v-row class="mb-1">
         <v-col v-for="c in cards" :key="c.label" cols="12" sm="6" md="auto" class="flex-grow-1">
-          <v-card flat border rounded="lg" class="pa-4 h-100">
+          <v-card
+            flat
+            border
+            rounded="lg"
+            class="pa-4 h-100"
+            :to="c.atalho"
+            :hover="!!c.atalho"
+            :ripple="!!c.atalho"
+          >
             <div class="d-flex align-center ga-3">
               <v-avatar :color="c.color" size="46" rounded="lg" variant="flat">
                 <v-icon color="white">{{ c.icon }}</v-icon>
               </v-avatar>
-              <div>
+              <div style="min-width: 0">
                 <div class="text-caption text-medium-emphasis text-uppercase">{{ c.label }}</div>
                 <div class="text-h5 font-weight-bold">{{ nf(c.value) }}</div>
                 <div v-if="c.hint" class="text-caption text-medium-emphasis">{{ c.hint }}</div>
               </div>
+              <v-icon v-if="c.atalho" class="ms-auto text-medium-emphasis" size="18">chevron_right</v-icon>
             </div>
           </v-card>
         </v-col>
@@ -166,22 +177,27 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
         <v-col cols="12" md="4">
           <v-card flat border rounded="lg" class="pa-4 mb-4">
             <div class="text-subtitle-1 font-weight-bold mb-3">Produtos por loja</div>
-            <div v-for="l in porLoja" :key="l.loja" class="d-flex align-center justify-space-between mb-2">
+            <NuxtLink
+              v-for="l in porLoja"
+              :key="l.loja"
+              :to="`/?loja=${l.loja}`"
+              class="d-flex align-center justify-space-between mb-2 atalho-loja"
+            >
               <v-chip :color="lojaColor[l.loja]" variant="tonal" size="small" class="font-weight-medium">{{ l.loja }}</v-chip>
               <span class="font-weight-bold">{{ nf(l.total) }}</span>
-            </div>
+            </NuxtLink>
             <div v-if="!porLoja.length" class="text-caption text-medium-emphasis">Nenhuma loja com produtos ainda.</div>
           </v-card>
 
           <v-card flat border rounded="lg" class="pa-4">
             <div class="text-subtitle-1 font-weight-bold mb-3">Atividades recentes</div>
-            <div v-for="(r, i) in data.recentes" :key="i" class="d-flex align-center ga-3 mb-3">
+            <NuxtLink v-for="(r, i) in data.recentes" :key="i" :to="`/produtos/${r.id}`" class="d-flex align-center ga-3 mb-3 atalho-loja">
               <v-avatar color="bege" size="34" rounded="lg"><v-icon size="18" color="primary">inventory_2</v-icon></v-avatar>
               <div style="min-width: 0">
                 <div class="text-body-2 font-weight-medium text-truncate">{{ r.nome }}</div>
                 <div class="text-caption text-medium-emphasis">{{ r.createdByName || '—' }} · {{ r.loja }} · {{ quando(r.createdAt) }}</div>
               </div>
-            </div>
+            </NuxtLink>
             <div v-if="!data.recentes.length" class="text-caption text-medium-emphasis">Nenhuma atividade recente.</div>
           </v-card>
         </v-col>
@@ -189,3 +205,9 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
     </template>
   </div>
 </template>
+
+<style scoped>
+/* atalhos do dashboard: clicáveis, sem cara de link cru */
+.atalho-loja { color: inherit; text-decoration: none; }
+.atalho-loja:hover { opacity: 0.7; }
+</style>

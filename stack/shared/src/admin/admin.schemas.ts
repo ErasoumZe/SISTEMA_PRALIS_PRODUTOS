@@ -20,6 +20,7 @@ export const dashboardSchema = z.object({
   porDia: z.array(z.object({ dia: z.string(), total: z.number().int() })),
   recentes: z.array(
     z.object({
+      id: z.string(),
       nome: z.string(),
       loja: catalogo,
       createdByName: z.string().nullable(),

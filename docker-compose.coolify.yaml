@@ -49,6 +49,8 @@ services:
       GOOGLE_SHEETS_DEFAULT_LOJAS: ${GOOGLE_SHEETS_DEFAULT_LOJAS}
       GOOGLE_SERVICE_ACCOUNT_EMAIL: ${GOOGLE_SERVICE_ACCOUNT_EMAIL}
       GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
+      # Token exclusivo do robô para POST /vendas/importar (mínimo 32 caracteres).
+      VENDAS_IMPORT_TOKEN: ${VENDAS_IMPORT_TOKEN}
     depends_on:
       postgres:
         condition: service_healthy

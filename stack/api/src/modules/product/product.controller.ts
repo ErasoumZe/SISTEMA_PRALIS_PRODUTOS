@@ -46,8 +46,19 @@ export class ProductController {
   }
 
   async update(request: FastifyRequest<{ Params: IdParams; Body: ProductRequests.UpdateProductRequest }>, reply: FastifyReply) {
-    const product = await this.service.update(requireUser(request), request.params.id, request.body);
-    return reply.status(200).send(buildResponse(product, 'Produto atualizado com sucesso'));
+    const { sheetSync, lojasAtualizadas, ...product } = await this.service.update(requireUser(request), request.params.id, request.body);
+    // Mesma regra do create: a edição valeu nos três casos, a mensagem só diz
+    // como ficou o espelho. Nunca pedir para editar de novo.
+    const message =
+      sheetSync === 'synced'
+        ? 'Produto atualizado no banco e na planilha'
+        : sheetSync === 'failed' || sheetSync === 'misconfigured'
+          ? 'Produto atualizado no banco. Sincronização com a planilha pendente'
+          : 'Produto atualizado com sucesso';
+    const herdaram = lojasAtualizadas > 0
+      ? ` A mudança desceu para ${lojasAtualizadas} produto(s) de loja.`
+      : '';
+    return reply.status(200).send(buildResponse(product, message + herdaram, { sheetSync, lojasAtualizadas }));
   }
 
   async delete(request: FastifyRequest<{ Params: IdParams }>, reply: FastifyReply) {

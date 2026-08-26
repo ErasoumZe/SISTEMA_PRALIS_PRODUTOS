@@ -1,8 +1,13 @@
-import type { ProductSchemas, ProductRequests, AdminSchemas } from '@pralis/shared';
+import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
 type AdminUser = AdminSchemas.AdminUser;
+export type VendasReport = VendasSchemas.VendasReport;
+export type VendasReportQuery = VendasSchemas.VendasReportQuery;
+export type DeParaLista = VendasDePara.DeParaLista;
+export type DeParaQuery = VendasDePara.DeParaQuery;
+export type VincularBody = VendasDePara.VincularBody;
 export interface GroupTaxRule {
   grupo: string;
   cstPisCofins: string;
@@ -58,8 +63,13 @@ export function useApi() {
         { ...base, method: 'POST', body },
       ),
 
+    // devolve o envelope inteiro, igual ao create: `details.sheetSync` diz se
+    // a planilha acompanhou a edição
     updateProduct: (id: string, body: ProductRequests.UpdateProductRequest) =>
-      unwrap($fetch<{ data: Product }>(`/products/${id}`, { ...base, method: 'PUT', body })),
+      $fetch<{ data: Product; message: string; details: { sheetSync?: SheetSyncStatus } | null }>(
+        `/products/${id}`,
+        { ...base, method: 'PUT', body },
+      ),
 
     deleteProduct: (id: string) =>
       $fetch(`/products/${id}`, { ...base, method: 'DELETE' }),
@@ -77,6 +87,19 @@ export function useApi() {
       unwrap($fetch<{ data: FiscalClassification }>('/apoio/classificacao-fiscal', {
         ...base, query: { grupo, ...(codigoBarras ? { codigoBarras } : {}) },
       })),
+
+    // ---- vendas ----
+    // O backend decide a loja: admin informa, usuario de loja recebe a dele.
+    vendasReport: (query: VendasReportQuery) =>
+      unwrap($fetch<{ data: VendasReport }>('/vendas/relatorio', { ...base, query })),
+
+    /** Códigos do PDV sem produto no cadastro, com sugestões por semelhança. */
+    vendasDePara: (query: DeParaQuery) =>
+      unwrap($fetch<{ data: DeParaLista }>('/vendas/de-para', { ...base, query })),
+
+    /** Confirma (ou desfaz, com productId nulo) o vínculo. */
+    vincularDePara: (body: VincularBody) =>
+      $fetch('/vendas/de-para', { ...base, method: 'POST', body }),
 
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),

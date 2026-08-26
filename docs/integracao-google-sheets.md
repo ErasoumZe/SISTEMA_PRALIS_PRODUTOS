@@ -56,12 +56,89 @@ Se a própria reserva falhar, nada foi escrito e o banco não guarda linha nenhu
 — a tentativa seguinte escolhe uma linha livre do zero. Em nenhum caminho a
 planilha é consultada pelo `row_number` salvo: a busca é sempre pelo UUID.
 
+## Exclusão espelhada
+
+Excluir um produto no sistema **apaga o produto da planilha**. A linha é
+localizada pelo UUID na coluna ID (nunca pelo `row_number` salvo) e o sistema
+**limpa as colunas de entrada** dela — as mesmas colunas que a escrita preenche.
+
+**Por que limpar em vez de excluir a linha (`deleteDimension`):** excluir a
+linha desloca para cima tudo o que está abaixo. A planilha tem fórmulas com
+referência absoluta e as abas de loja apontam para linhas fixas — o
+deslocamento quebraria essas referências. Limpando, a grade não se mexe.
+
+**Por que só as colunas de entrada e não a linha inteira:** as fórmulas
+precisam ficar. A linha `FORMULA_TEMPLATE_ROW` (12) é a linha-modelo de onde
+toda sincronização futura copia as fórmulas; se o produto que estivesse nela
+fosse excluído e a linha inteira fosse limpa, o modelo seria destruído e
+**todas** as sincronizações seguintes passariam a falhar com "Linha-modelo 12
+incompleta".
+
+**A linha volta a ser reutilizável de graça:** `primeiraLinhaLivre` procura a
+primeira linha com NOME (E) e ID vazios, e as duas são colunas de entrada. O
+próximo cadastro ocupa o buraco sozinho, sem código extra.
+
+**A ordem é o inverso da criação — e de propósito.** Na criação, o produto é
+gravado no Postgres primeiro e uma falha do Google nunca desfaz o cadastro. Na
+exclusão, a planilha vem **primeiro**: se o Google falhar, nada é excluído e a
+API responde `502 SHEET_DELETE_FAILED` com o produto intacto nos dois lados.
+Isso pode porque exclusão é sempre repetível — basta tentar de novo. Se o
+Postgres falhar depois da linha já limpa, o sistema reescreve a linha antes de
+propagar o erro, para os dois lados não divergirem.
+
+| Resultado | Significado | Exclusão prossegue? |
+|---|---|---|
+| `removed` | linha encontrada e liberada | sim |
+| `absent` | o produto não estava na planilha | sim (nada a fazer) |
+| `skipped` | produto de loja (TNP/LI/HORA), fora do espelhamento | sim |
+| `disabled` | `GOOGLE_SHEETS_ENABLED=false` | sim |
+| `misconfigured` | ligada, mas sem destino configurado | **não** — 502 |
+| `failed` | o Google recusou ou caiu | **não** — 502 |
+
+## Por que as lojas ainda NÃO são espelhadas
+
+Não é falta de código: as abas de loja **não têm a estrutura** para receber o
+espelhamento. Verificado na planilha real em 25/08/2026 (leitura, nada escrito),
+e reproduzível a qualquer momento por `GET /admin/sheets/health`, que agora
+diagnostica TODAS as abas de cadastro:
+
+| Aba | Cabeçalhos | ID | FOTO | Pronta? |
+|---|---|---|---|---|
+| `(BASE) CADASTRO PRODUTOS` | 74 | CP | CO | **sim** |
+| `(TNP) CADASTRO PRODUTOS` | 70 | — | CK | não |
+| `(LI) CADASTRO PRODUTOS` | 68 | — | — | não |
+| `(HORA) CADASTRO PRODUTOS` | 68 | — | — | não |
+
+As abas de loja não são "a BASE deslocada" — são **outro esquema**:
+
+- **não têm coluna ID.** É por ela que a sincronização acha a linha do produto
+  (nunca pelo `row_number` salvo, porque a planilha é editada por gente). Sem
+  ID não há idempotência, nem edição, nem exclusão confiáveis;
+- **não têm NOME, QUANTIDADE nem MEDIDA BASE como colunas próprias** — só as
+  descrições concatenadas. O mapper não teria onde escrever a identidade do
+  produto;
+- **cada uma tem um layout diferente** (97, 87 e 87 colunas; TNP tem FOTO e
+  HABILITAR AJUDA, LI e HORA não têm nenhuma das duas).
+
+Apontar o mapa de colunas da BASE para essas abas escreveria cada dado na coluna
+errada, em uma planilha de produção com ~9.930 linhas. Por isso a escrita por
+loja **não foi implementada** — seria um espelhamento que corrompe.
+
+**O que destrava:** alinhar as abas de loja à estrutura da BASE (no mínimo:
+coluna ID, NOME em E e CODIGO INT. em AC). Quando `pronta` virar `sim` no
+health, o espelhamento por loja passa a ser uma mudança contida — o resto do
+mecanismo (fila, reserva de linha por UUID, cópia de formato/validação/fórmula,
+limpeza na exclusão) já é o mesmo.
+
+**Chave do `product_sheet_sync`:** ao contrário do que se supôs antes, ela NÃO
+precisa mudar. Cada produto de loja é uma linha própria em `products`, com id
+próprio, e ocupa uma única linha em uma única aba — a chave por produto continua
+correta.
+
 ## O que esta etapa NÃO faz (fora de escopo)
 
-- não sincroniza as lojas TNP/LI/HORA;
+- não sincroniza as lojas TNP/LI/HORA (ver "Por que as lojas ainda NÃO são espelhadas" acima — é bloqueio de estrutura da planilha, não de código);
 - não lê da planilha para o banco;
-- não espelha **edição** nem **exclusão** (alterar um produto no sistema não
-  altera a linha da planilha — só o reprocessamento manual reescreve a linha);
 - não é bidirecional.
 
 ---
@@ -319,10 +396,11 @@ vale reportar a quem mantém a planilha.
    ao mesmo tempo, dois cadastros simultâneos podem disputar a mesma linha. Hoje
    o Coolify roda uma instância. Se isso mudar, é preciso um lock no Postgres
    (`pg_advisory_lock`) antes de escolher a linha.
-8. **Edição não é espelhada.** Editar um produto no sistema não atualiza a linha
-   da planilha (fora do escopo desta etapa). Até a etapa 2, os dois lados
-   divergem depois da primeira edição. O reprocessamento manual reescreve a linha
-   com o estado atual do banco.
+8. **Edição e exclusão são espelhadas.** Editar reescreve a linha; excluir
+   limpa as colunas de entrada e libera a linha (ver "Exclusão espelhada"). A
+   exclusão é o único caminho em que uma falha do Google **bloqueia** a operação
+   no Postgres — é o que impede os dois lados de divergirem, já que uma exclusão
+   pode simplesmente ser repetida.
 9. **Produtos cadastrados com a integração desligada** acumulam `status =
    pending` e não têm linha na planilha. Não há endpoint de sincronização em
    lote nesta etapa — é uma chamada de `POST /admin/products/:id/sync-sheet` por

@@ -48,6 +48,7 @@ export class AdminRepository {
 
     const recentes = await db
       .select({
+        id: products.id, // o dashboard usa como atalho para o produto
         nome: products.nome,
         loja: products.loja,
         createdByName: products.createdByName,
@@ -75,6 +76,7 @@ export class AdminRepository {
       produtividade: produtividade.map((r) => ({ nome: r.nome ?? '—', total: Number(r.total) })),
       porDia: porDiaRows.map((r) => ({ dia: r.dia, total: Number(r.total) })),
       recentes: recentes.map((r) => ({
+        id: r.id,
         nome: r.nome,
         loja: r.loja as Catalogo,
         createdByName: r.createdByName,

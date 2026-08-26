@@ -763,3 +763,192 @@ describe('ProductSheetService — health (somente leitura)', () => {
     expect(sheets.chamadas.getSheets).toBe(0);
   });
 });
+
+describe('ProductSheetService — exclusão espelhada na planilha', () => {
+  it('limpa as colunas de entrada da linha do produto', async () => {
+    const sheets = new FakeSheetsGateway()
+      .comCabecalhos()
+      .comProduto(11, 'TESTE', 'aaaa1111')
+      .comProduto(12, 'PAO FRANCES', ID);
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.removeProduct(ID);
+
+    expect(res).toMatchObject({ outcome: 'removed', rowNumber: 12 });
+    expect(sheets.get('E12')).toBe('');
+    expect(sheets.get('CP12')).toBe('');
+  });
+
+  it('NÃO destrói as fórmulas da linha — a linha 12 é a linha-modelo do sistema', async () => {
+    const sheets = new FakeSheetsGateway()
+      .comCabecalhos()
+      .comProduto(11, 'TESTE', 'aaaa1111')
+      .comProduto(12, 'PAO FRANCES', ID);
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    await service.removeProduct(ID);
+
+    // se estas fórmulas sumissem, TODA sincronização futura passaria a falhar
+    // com "Linha-modelo 12 incompleta"
+    expect(sheets.get('H12')).toMatch(/^=/);
+    expect(sheets.get('AP12')).toMatch(/^=/);
+    expect(sheets.get('AO12')).toMatch(/^=/);
+  });
+
+  it('a linha liberada é reaproveitada pelo próximo cadastro', async () => {
+    const sheets = new FakeSheetsGateway()
+      .comCabecalhos()
+      .comProduto(11, 'TESTE', 'aaaa1111')
+      .comProduto(12, 'PAO FRANCES', ID)
+      .comProduto(13, 'ACUCAR', 'cccc3333');
+    const { repo: syncRepo } = fakeSyncRepo();
+    const outro = produto({ id: OUTRO_ID, nome: 'CAFE TORRADO' });
+    const service = new ProductSheetService(fakeProductRepo(produto(), outro), syncRepo, sheets);
+
+    await service.removeProduct(ID);
+    const res = await service.syncProduct(OUTRO_ID);
+
+    expect(res).toMatchObject({ outcome: 'synced', rowNumber: 12 });
+    expect(sheets.get('E12')).toBe('CAFE TORRADO');
+    expect(sheets.get('CP12')).toBe(OUTRO_ID);
+    expect(sheets.get('E13')).toBe('ACUCAR'); // nada se deslocou
+  });
+
+  it('produto que não está na planilha não é erro (idempotente)', async () => {
+    const sheets = planilha();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.removeProduct(ID);
+
+    expect(res.outcome).toBe('absent');
+    expect(sheets.writes).toHaveLength(0);
+  });
+
+  it('falha no Google devolve failed e não vaza credencial', async () => {
+    const sheets = new FakeSheetsGateway()
+      .comCabecalhos()
+      .comProduto(11, 'PAO FRANCES', ID);
+    sheets.falharEscrita = new Error('quota exceeded -----BEGIN PRIVATE KEY-----AAAA-----END PRIVATE KEY-----');
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.removeProduct(ID);
+
+    expect(res.outcome).toBe('failed');
+    expect(res.error).not.toContain('BEGIN PRIVATE KEY');
+    expect(sheets.get('E11')).toBe('PAO FRANCES'); // nada foi apagado
+  });
+
+  it('integração desligada não chama o Google', async () => {
+    env.GOOGLE_SHEETS_ENABLED = false;
+    const sheets = planilha();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.removeProduct(ID);
+
+    expect(res.outcome).toBe('disabled');
+    expect(sheets.chamadas.getSheets).toBe(0);
+  });
+
+  it('ligada sem destino configurado recusa antes de tocar no Google', async () => {
+    env.GOOGLE_SHEETS_SPREADSHEET_ID = '';
+    const sheets = planilha();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    const res = await service.removeProduct(ID);
+
+    expect(res.outcome).toBe('misconfigured');
+    expect(sheets.chamadas.getSheets).toBe(0);
+  });
+
+  it('produto de loja não é espelhado nesta etapa', async () => {
+    const sheets = planilha();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const p = produto({ loja: 'TNP' });
+    const service = new ProductSheetService(fakeProductRepo(p), syncRepo, sheets);
+
+    const res = await service.removeProduct(ID);
+
+    expect(res.outcome).toBe('skipped');
+    expect(sheets.writes).toHaveLength(0);
+  });
+});
+
+describe('ProductSheetService — diagnóstico das abas de cadastro', () => {
+  const TNP = '(TNP) CADASTRO PRODUTOS';
+
+  /** Planilha com a BASE pronta e a TNP no layout REAL (sem coluna ID). */
+  function comAbaTnpReal() {
+    return planilha()
+      .setNaAba(TNP, 'C5', 'A/I')
+      .setNaAba(TNP, 'D5', 'CADASTRO PRODUTOS ATUALIZADO NOVO')
+      .setNaAba(TNP, 'E5', 'CADASTRO PRODUTOS HISTORICO ANTIGO')
+      .setNaAba(TNP, 'F5', 'CODIGO BARRAS')
+      .setNaAba(TNP, 'AC5', 'ESTOQUE MAX')
+      .setNaAba(TNP, 'CK5', 'FOTO');
+  }
+
+  it('a BASE aparece pronta para espelhamento', async () => {
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(), syncRepo, comAbaTnpReal());
+
+    const health = await service.health();
+    const base = health.abas.find((a) => a.loja === 'BASE')!;
+
+    expect(base).toMatchObject({ encontrada: true, pronta: true, colunaId: 'CP', colunaFoto: 'CO' });
+    expect(base.faltando).toEqual([]);
+  });
+
+  it('a aba da TNP aparece NÃO pronta, dizendo exatamente o que falta', async () => {
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(), syncRepo, comAbaTnpReal());
+
+    const health = await service.health();
+    const tnp = health.abas.find((a) => a.loja === 'TNP')!;
+
+    expect(tnp.encontrada).toBe(true);
+    expect(tnp.pronta).toBe(false);
+    expect(tnp.colunaId).toBeNull();       // é o que impede achar a linha do produto
+    expect(tnp.colunaFoto).toBe('CK');     // essa ela tem, em outra coluna
+    expect(tnp.faltando).toEqual(['coluna ID', 'NOME na coluna E', 'CODIGO INT. na coluna AC']);
+  });
+
+  it('aba que não existe na planilha é reportada como não encontrada', async () => {
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(), syncRepo, comAbaTnpReal());
+
+    const health = await service.health();
+    const li = health.abas.find((a) => a.loja === 'LI')!;
+
+    expect(li).toMatchObject({ encontrada: false, pronta: false });
+    expect(li.faltando).toEqual(['aba não encontrada']);
+  });
+
+  it('o diagnóstico não escreve nada na planilha', async () => {
+    const sheets = comAbaTnpReal();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(), syncRepo, sheets);
+
+    await service.health();
+
+    expect(sheets.writes).toHaveLength(0);
+    expect(sheets.chamadas.batchUpdate).toBe(0);
+  });
+
+  it('desligado não consulta o Google nem monta diagnóstico', async () => {
+    env.GOOGLE_SHEETS_ENABLED = false;
+    const sheets = comAbaTnpReal();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(), syncRepo, sheets);
+
+    const health = await service.health();
+
+    expect(health.abas).toEqual([]);
+    expect(sheets.chamadas.getSheets).toBe(0);
+  });
+});

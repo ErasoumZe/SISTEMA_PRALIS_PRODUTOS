@@ -135,7 +135,13 @@ export class ProductRepository {
     return db.transaction(async (tx) => {
       const exists = await tx.select({ id: products.id }).from(products).where(eq(products.id, id)).limit(1);
       if (exists.length === 0) return null;
-      await tx.update(products).set(this.productColumns(payload) as Partial<typeof products.$inferInsert>).where(eq(products.id, id));
+      // Um payload que só mexe em relações (promoções, fiscal, transformação)
+      // não tem coluna nenhuma para atualizar, e `set({})` faz o drizzle
+      // estourar "No values to set". As relações abaixo continuam valendo.
+      const colunas = this.productColumns(payload);
+      if (Object.keys(colunas).length > 0) {
+        await tx.update(products).set(colunas as Partial<typeof products.$inferInsert>).where(eq(products.id, id));
+      }
       await this.replaceRelations(id, payload, tx);
       return this.findById(id, tx);
     });
@@ -200,6 +206,16 @@ export class ProductRepository {
       .where(and(eq(products.loja, loja), eq(products.baseProductId, baseProductId)))
       .limit(1);
     return !!row;
+  }
+
+  /** Cópias deste produto da BASE nas lojas (criadas por `importFromBase`). */
+  async listByBaseProductId(baseProductId: string): Promise<ProductEntity[]> {
+    const linhas = await db
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.baseProductId, baseProductId));
+    const completos = await Promise.all(linhas.map((l) => this.findById(l.id)));
+    return completos.filter((p): p is ProductEntity => p !== null);
   }
 
   async list(

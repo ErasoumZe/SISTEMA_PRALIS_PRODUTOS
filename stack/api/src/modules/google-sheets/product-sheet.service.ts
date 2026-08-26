@@ -43,6 +43,37 @@ export interface SyncResult {
   error?: string;
 }
 
+/**
+ * Resultado de uma tentativa de APAGAR o produto da planilha.
+ * `absent`: a linha não estava lá — não é erro, é a exclusão já refletida.
+ */
+export type SheetRemovalOutcome = 'removed' | 'absent' | 'failed' | 'disabled' | 'skipped' | 'misconfigured';
+
+export interface RemovalResult {
+  outcome: SheetRemovalOutcome;
+  rowNumber: number | null;
+  message: string;
+  error?: string;
+}
+
+/**
+ * Estrutura de UMA aba de cadastro, do ponto de vista do espelhamento.
+ * Hoje só a BASE é espelhada; isto existe para mostrar, sem adivinhação, o que
+ * falta em cada aba de loja antes de o espelhamento por loja ser possível.
+ */
+export interface AbaCadastroStatus {
+  loja: string;
+  titulo: string;
+  encontrada: boolean;
+  /** Quantos cabeçalhos preenchidos a linha 5 tem. */
+  colunas: number;
+  colunaId: string | null;
+  colunaFoto: string | null;
+  pronta: boolean;
+  /** O que impede o espelhamento desta aba. Vazio = pronta. */
+  faltando: string[];
+}
+
 export interface SheetsHealth {
   enabled: boolean;
   /** Nomes das variáveis ausentes — nunca os valores. */
@@ -56,9 +87,21 @@ export interface SheetsHealth {
   sheetId: number | null;
   cabecalhos: { coluna: string; esperado: string; encontrado: string; ok: boolean }[];
   cabecalhosOk: boolean;
+  /** Diagnóstico de TODAS as abas de cadastro (BASE + lojas). */
+  abas: AbaCadastroStatus[];
   ok: boolean;
   erro?: string;
 }
+
+/** Catálogos que têm aba de cadastro na planilha. */
+const CATALOGOS_COM_ABA = ['BASE', 'TNP', 'LI', 'HORA'] as const;
+
+/**
+ * Título da aba de cadastro de um catálogo. Só a BASE é configurável por env,
+ * porque só ela é escrita — as demais entram apenas no diagnóstico.
+ */
+const abaDoCatalogo = (loja: string): string =>
+  loja === 'BASE' ? env.GOOGLE_SHEETS_BASE_TAB : `(${loja}) CADASTRO PRODUTOS`;
 
 /** Primeira linha de produto da aba (linha 5 = cabeçalhos). */
 export const FIRST_DATA_ROW = 11;
@@ -212,6 +255,103 @@ export class ProductSheetService {
     });
   }
 
+  /**
+   * Apaga o produto da planilha LIMPANDO as colunas de entrada da linha dele.
+   *
+   * Por que limpar e não excluir a linha (`deleteDimension`):
+   *  - excluir desloca todas as linhas de baixo, e a planilha tem fórmulas com
+   *    referência absoluta e abas de loja que apontam para linhas fixas;
+   *  - limpar mantém a grade estável e a linha volta a ser candidata em
+   *    `primeiraLinhaLivre` (que exige NOME e ID vazios — as duas são colunas
+   *    de entrada), então o próximo cadastro reaproveita o espaço sozinho.
+   *
+   * Por que só as colunas de entrada e não a linha inteira:
+   *  - as fórmulas ficam. `FORMULA_TEMPLATE_ROW` (linha 12) é a linha-modelo de
+   *    onde toda sincronização futura copia; limpar a linha inteira do produto
+   *    que estivesse nela destruiria o modelo e derrubaria a integração toda.
+   *
+   * Nunca lança por causa do Google: devolve `failed` para quem chamou decidir.
+   */
+  async removeProduct(productId: string): Promise<RemovalResult> {
+    if (!this.enabled) {
+      return { outcome: 'disabled', rowNumber: null, message: 'Integração com a planilha desligada (GOOGLE_SHEETS_ENABLED=false).' };
+    }
+    const faltando = this.destinoFaltando;
+    if (faltando.length > 0) {
+      return {
+        outcome: 'misconfigured',
+        rowNumber: null,
+        message: `Integração ligada, mas sem destino configurado: ${faltando.join(', ')}. Nada foi apagado.`,
+        error: `configuração incompleta: ${faltando.join(', ')}`,
+      };
+    }
+
+    const product = await this.products.findById(productId);
+    if (!product) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
+    if (product.loja !== 'BASE') {
+      return { outcome: 'skipped', rowNumber: null, message: 'Nesta etapa só o catálogo BASE é espelhado na planilha.' };
+    }
+
+    // mesma fila da escrita: uma criação concorrente não pode tomar a linha
+    // enquanto ela está sendo liberada, nem ler a coluna de IDs no meio disso.
+    return this.enfileirar(async () => {
+      try {
+        const rowNumber = await this.limparLinha(product.id);
+        if (rowNumber === null) {
+          return { outcome: 'absent' as const, rowNumber: null, message: 'O produto não estava na planilha; nada a apagar.' };
+        }
+        return {
+          outcome: 'removed' as const,
+          rowNumber,
+          message: `Produto apagado da planilha (linha ${rowNumber} liberada).`,
+        };
+      } catch (e) {
+        const error = sanitizeError(e);
+        await this.syncRepo.markFailed(productId, error).catch(() => {});
+        return {
+          outcome: 'failed' as const,
+          rowNumber: null,
+          message: 'Não foi possível apagar o produto da planilha.',
+          error,
+        };
+      }
+    });
+  }
+
+  /**
+   * Localiza a linha pelo UUID na coluna ID e limpa as colunas de entrada.
+   * Devolve a linha liberada, ou null se o produto não está na planilha.
+   */
+  private async limparLinha(productId: string): Promise<number | null> {
+    const aba = await this.resolverAba();
+    const layout = await this.resolverLayout(aba);
+    const divergente = layout.cabecalhos.find((h) => !h.ok);
+    if (divergente) {
+      throw new Error(
+        `Cabeçalho inesperado ou ausente na linha ${HEADER_ROW}: esperado "${divergente.esperado}".`,
+      );
+    }
+
+    // a linha é achada pelo UUID, nunca pelo row_number salvo — a planilha é
+    // editada por gente e as linhas se movem.
+    const [colunaIds] = await this.sheets.batchGetValues(
+      this.spreadsheetId,
+      [a1(this.sheetName, `${layout.footer.id}${FIRST_DATA_ROW}:${layout.footer.id}`)],
+      'FORMATTED_VALUE',
+    );
+    const ids = (colunaIds ?? []).map((r) => (r?.[0] ?? '').trim());
+    const indice = ids.indexOf(productId);
+    if (indice < 0) return null;
+    const linha = FIRST_DATA_ROW + indice;
+
+    const limpeza: ValueRange[] = inputColumnsFor(layout.footer).map((col) => ({
+      range: a1(this.sheetName, `${col}${linha}`),
+      values: [['']],
+    }));
+    await this.sheets.batchUpdateValues(this.spreadsheetId, limpeza, 'RAW');
+    return linha;
+  }
+
   /** Checagem SOMENTE LEITURA: configuração, autenticação, acesso, aba e cabeçalhos. */
   async health(): Promise<SheetsHealth> {
     // nomes de variáveis, nunca valores
@@ -228,6 +368,7 @@ export class ProductSheetService {
       sheetId: null,
       cabecalhos: [],
       cabecalhosOk: false,
+      abas: [],
       ok: false,
     };
     if (!this.enabled) return { ...base, erro: 'GOOGLE_SHEETS_ENABLED=false' };
@@ -239,6 +380,10 @@ export class ProductSheetService {
       const abas = await this.sheets.getSheets(this.spreadsheetId);
       base.auth = true;
       base.spreadsheetAcessivel = true;
+
+      // O diagnóstico das abas vem ANTES do resto: mesmo que a aba da BASE
+      // esteja faltando, ele já mostra o que existe e o que falta em cada uma.
+      base.abas = await this.diagnosticarAbas(abas);
 
       const aba = abas.find((s) => s.title === this.sheetName);
       if (!aba) {
@@ -257,6 +402,62 @@ export class ProductSheetService {
     } catch (e) {
       return { ...base, erro: sanitizeError(e) };
     }
+  }
+
+  /**
+   * SOMENTE LEITURA: lê a linha de cabeçalho de cada aba de cadastro e diz se
+   * ela tem a estrutura que a sincronização exige (coluna ID para achar a linha
+   * do produto, coluna FOTO, NOME em E e CODIGO INT. em AC).
+   */
+  private async diagnosticarAbas(abasDaPlanilha: SheetMeta[]): Promise<AbaCadastroStatus[]> {
+    const resultado: AbaCadastroStatus[] = [];
+
+    for (const loja of CATALOGOS_COM_ABA) {
+      const titulo = abaDoCatalogo(loja);
+      const meta = abasDaPlanilha.find((a) => a.title === titulo);
+      if (!meta) {
+        resultado.push({
+          loja, titulo, encontrada: false, colunas: 0,
+          colunaId: null, colunaFoto: null, pronta: false,
+          faltando: ['aba não encontrada'],
+        });
+        continue;
+      }
+
+      const ultimaColuna = indexToCol(Math.max(0, meta.columnCount - 1));
+      const [range] = await this.sheets.batchGetValues(
+        this.spreadsheetId,
+        [a1(titulo, `A${HEADER_ROW}:${ultimaColuna}${HEADER_ROW}`)],
+        'FORMATTED_VALUE',
+      );
+      const headers = range?.[0] ?? [];
+      const localizar = (nome: string): string | null => {
+        const alvo = normalizeHeader(nome);
+        const i = headers.findIndex((h) => normalizeHeader(h) === alvo);
+        return i >= 0 ? indexToCol(i) : null;
+      };
+
+      const colunaId = localizar('ID');
+      const colunaFoto = localizar('FOTO');
+      const faltando: string[] = [];
+      if (!colunaId) faltando.push('coluna ID');
+      if (!colunaFoto) faltando.push('coluna FOTO');
+      for (const fixo of REQUIRED_FIXED_HEADERS) {
+        const encontrado = headers[colToIndex(fixo.coluna)] ?? '';
+        if (normalizeHeader(encontrado) !== normalizeHeader(fixo.esperado)) {
+          faltando.push(`${fixo.esperado} na coluna ${fixo.coluna}`);
+        }
+      }
+
+      resultado.push({
+        loja, titulo, encontrada: true,
+        colunas: headers.filter((h) => (h ?? '').trim() !== '').length,
+        colunaId, colunaFoto,
+        pronta: faltando.length === 0,
+        faltando,
+      });
+    }
+    return resultado;
   }
 
   // ---------------- internos ----------------

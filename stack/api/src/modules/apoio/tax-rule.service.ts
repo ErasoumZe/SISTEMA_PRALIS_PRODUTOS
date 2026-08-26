@@ -34,10 +34,33 @@ export class TaxRuleService {
     if (this.cache && this.cache.expiresAt > Date.now()) return this.cache;
     const missing = [...destinoSheetsFaltando(), ...credenciaisSheetsFaltando()];
     if (missing.length) throw new AppError(`Regras fiscais indisponíveis: configuração incompleta (${missing.join(', ')}).`, 503, 'TAX_RULES_UNAVAILABLE');
-    const [groupRows, productRows, reformRows, cstRows] = await this.sheets.batchGetValues(env.GOOGLE_SHEETS_SPREADSHEET_ID, [
-      a1(env.GOOGLE_SHEETS_FISCAL_TAB, 'AB4:AG79'), a1(env.GOOGLE_SHEETS_FISCAL_TAB, 'A4:E2000'),
-      a1(env.GOOGLE_SHEETS_FISCAL_TAB, 'H4:M200'), a1(env.GOOGLE_SHEETS_FISCAL_TAB, 'O4:Q20'),
-    ], 'FORMATTED_VALUE');
+    const FAIXA_GRUPOS = 'AB4:AG79';
+    const demais = ['A4:E2000', 'H4:M200', 'O4:Q20'].map((r) => a1(env.GOOGLE_SHEETS_FISCAL_TAB, r));
+    let ranges: string[][][];
+    try {
+      ranges = await this.sheets.batchGetValues(
+        env.GOOGLE_SHEETS_SPREADSHEET_ID,
+        [a1(env.GOOGLE_SHEETS_FISCAL_TAB, FAIXA_GRUPOS), ...demais],
+        'FORMATTED_VALUE',
+      );
+    } catch {
+      // UMA faixa fora da grade derruba o LOTE inteiro — e levava junto as três
+      // tabelas que continuam existindo. Relê sem a faixa de grupos: se o resto
+      // vier, o problema é só ela, e o erro abaixo diz exatamente qual.
+      const semGrupos = await this.sheets
+        .batchGetValues(env.GOOGLE_SHEETS_SPREADSHEET_ID, demais, 'FORMATTED_VALUE')
+        .catch(() => null);
+      if (!semGrupos) {
+        // Não expõe o erro bruto do Google (traz URL e IDs internos).
+        throw new AppError(
+          `Não foi possível ler a aba fiscal "${env.GOOGLE_SHEETS_FISCAL_TAB}".`,
+          503,
+          'TAX_RULES_SOURCE_INVALID',
+        );
+      }
+      ranges = [[], ...semGrupos];
+    }
+    const [groupRows = [], productRows = [], reformRows = [], cstRows = []] = ranges;
     const unique = new Map<string, GroupTaxRule>();
     for (const row of groupRows ?? []) {
       const [grupo = '', cst = '', tributacao = '', aliquota = '', icms = '', base = ''] = row; const key = normalizeGroup(grupo);
@@ -50,7 +73,14 @@ export class TaxRuleService {
     const cstMap = new Map<string, { tributacao: string; aliquota: number }>();
     for (const [cst = '', tributacao = '', aliquota = ''] of cstRows ?? []) if (cst) cstMap.set(cst.trim(), { tributacao: tributacao.trim(), aliquota: parseSheetPercent(aliquota) });
     const groups = [...unique.values()].sort((a, b) => a.grupo.localeCompare(b.grupo, 'pt-BR'));
-    if (!groups.length) throw new AppError('Nenhuma regra fiscal foi encontrada na tabela de grupos.', 503, 'TAX_RULES_EMPTY');
+    if (!groups.length) {
+      throw new AppError(
+        `A tabela de regras por grupo não foi encontrada em "${env.GOOGLE_SHEETS_FISCAL_TAB}"!${FAIXA_GRUPOS}. ` +
+        'Restaure nessa faixa as colunas grupo, CST PIS/COFINS, tributação (Simples), alíquota, % ICMS RE e base fiscal.',
+        503,
+        'TAX_RULES_EMPTY',
+      );
+    }
     this.cache = { expiresAt: Date.now() + CACHE_MS, groups, products, reform, cst: cstMap }; return this.cache;
   }
 

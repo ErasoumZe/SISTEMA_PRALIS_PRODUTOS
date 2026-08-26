@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useDisplay } from 'vuetify';
 import { ProductRules } from '@pralis/shared';
 import type { ProductSchemas } from '@pralis/shared';
 
@@ -12,11 +13,22 @@ const mostrarFlash = computed({
   get: () => !!flash.value,
   set: (v: boolean) => { if (!v) flash.value = null; },
 });
+// A paginação com número fixo de botões estourava a largura no celular e
+// criava rolagem horizontal na lista. O total visível acompanha a tela.
+const { xs, smAndDown } = useDisplay();
+const paginasVisiveis = computed(() => (xs.value ? 3 : smAndDown.value ? 4 : 6));
+
 const products = ref<Product[]>([]);
 const search = ref('');
 const loading = ref(false);
 const erro = ref('');
 let timer: ReturnType<typeof setInterval> | null = null;
+/**
+ * Assinatura da última lista recebida. O polling só substitui os dados quando
+ * ALGO mudou de verdade: trocar o array a cada 5s re-renderiza 10 cards embaixo
+ * do cursor de quem está lendo e faz o navegador reposicionar a rolagem.
+ */
+let assinatura = '';
 
 // Admin enxerga o catálogo Geral (BASE) e o de cada loja; usuário comum só a própria loja.
 const isAdmin = computed(() => user.value?.role === 'admin');
@@ -41,6 +53,21 @@ const tipoOpcoes = [
 ] as const;
 const setorFiltro = ref<string | null>(null);
 const grupoFiltro = ref<string | null>(null);
+
+/**
+ * Filtro vindo por URL — é assim que os atalhos do dashboard abrem a lista já
+ * filtrada (/?loja=TNP&status=inativo). Roda no setup, antes do primeiro
+ * `load()`, para a aba certa ser buscada de uma vez só.
+ */
+const rota = useRoute();
+{
+  const loja = String(rota.query.loja ?? '').toUpperCase();
+  if (loja === 'BASE' || loja === 'TNP' || loja === 'LI' || loja === 'HORA') aba.value = loja;
+  const status = String(rota.query.status ?? '');
+  if (status === 'ativo' || status === 'inativo') statusFiltro.value = status;
+  const tipo = String(rota.query.tipo ?? '');
+  if (tipo === 'revenda' || tipo === 'transformacao') tipoFiltro.value = tipo;
+}
 const setores = computed(() => [...new Set(products.value.map((p) => p.setorEstoque).filter((s): s is string => !!s))]);
 const grupos = computed(() => [...new Set(products.value.map((p) => p.grupo).filter((g): g is string => !!g))]);
 
@@ -103,15 +130,23 @@ const paginados = computed(() => ordenados.value.slice((page.value - 1) * PER_PA
 watch([statusFiltro, tipoFiltro, setorFiltro, grupoFiltro, ordenar, search, aba], () => { page.value = 1; });
 watch(totalPaginas, (n) => { if (page.value > n) page.value = n; });
 
+/** Substitui a lista só se ela mudou; no polling, ignora resposta idêntica. */
+function aplicar(lista: Product[], silent: boolean) {
+  const nova = JSON.stringify(lista);
+  if (silent && nova === assinatura) return;
+  assinatura = nova;
+  products.value = lista;
+}
+
 async function load(silent = false) {
   if (!silent) loading.value = true;
   erro.value = '';
   try {
     const q = search.value || undefined;
     if (isAdmin.value) {
-      products.value = aba.value === 'BASE' ? await api.listBase(q) : await api.listProducts(q, aba.value);
+      aplicar(aba.value === 'BASE' ? await api.listBase(q) : await api.listProducts(q, aba.value), silent);
     } else {
-      products.value = await api.listProducts(q);
+      aplicar(await api.listProducts(q), silent);
     }
   } catch {
     if (!silent) erro.value = 'Não foi possível carregar.';
@@ -124,13 +159,26 @@ watch(aba, () => load());
 
 async function remover(p: Product) {
   if (!confirm(`Excluir "${p.nome}"?`)) return;
-  await api.deleteProduct(p.id);
+  try {
+    await api.deleteProduct(p.id);
+  } catch (e) {
+    // A API BLOQUEIA a exclusão quando a linha da planilha não pôde ser
+    // apagada — o produto continua na lista de propósito. Sem esta mensagem o
+    // usuário clicaria em Excluir e nada aconteceria, sem explicação.
+    flash.value = {
+      tipo: 'error',
+      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível excluir o produto.',
+    };
+    return;
+  }
   await load();
 }
 
 onMounted(() => {
   load();
-  timer = setInterval(() => load(true), 5000); // polling (atualização "em tempo real")
+  // Não atualiza com a aba em segundo plano: gasta requisição à toa e é a
+  // volta ao primeiro plano que interessa.
+  timer = setInterval(() => { if (!document.hidden) load(true); }, 5000);
 });
 onUnmounted(() => { if (timer) clearInterval(timer); });
 
@@ -155,7 +203,7 @@ function preco(p: Product): string | null {
     <v-snackbar
       v-model="mostrarFlash"
       :color="flash?.tipo ?? 'success'"
-      :timeout="flash?.tipo === 'warning' ? 9000 : 4000"
+      :timeout="flash?.tipo === 'success' ? 4000 : 9000"
       location="top"
     >
       {{ flash?.texto }}
@@ -300,6 +348,15 @@ function preco(p: Product): string | null {
     <v-card v-else-if="!loading && !erro" flat border rounded="lg" class="pa-12 text-center text-medium-emphasis">
       <v-icon size="48" class="mb-2">inventory_2</v-icon>
       <div>{{ temFiltro ? 'Nenhum produto com esses filtros.' : 'Nenhum produto cadastrado ainda.' }}</div>
+      <!--
+        Os números do dashboard somam TODAS as lojas, mas esta lista mostra uma
+        aba por vez. Sem esta linha, clicar em "Inativos" e cair numa lista
+        vazia parece defeito — e não é: o produto está em outra aba.
+      -->
+      <div v-if="temFiltro && isAdmin" class="text-caption mt-1">
+        Você está vendo a aba <strong>{{ abas.find((a) => a.key === aba)?.label ?? aba }}</strong>.
+        Produtos com esses filtros podem estar em outra loja.
+      </div>
       <v-btn v-if="temFiltro" color="primary" variant="tonal" class="mt-4" @click="limparFiltros">Limpar filtros</v-btn>
       <v-btn v-else color="primary" variant="tonal" class="mt-4" to="/produtos/novo">Cadastrar o primeiro</v-btn>
     </v-card>
@@ -313,7 +370,7 @@ function preco(p: Product): string | null {
         v-if="totalPaginas > 1"
         v-model="page"
         :length="totalPaginas"
-        :total-visible="6"
+        :total-visible="paginasVisiveis"
         density="comfortable"
         rounded="lg"
         active-color="primary"

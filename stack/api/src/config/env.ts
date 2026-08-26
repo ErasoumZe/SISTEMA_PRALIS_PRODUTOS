@@ -89,6 +89,15 @@ export const env = {
   GOOGLE_SHEETS_DEFAULT_LOJAS: envVar('GOOGLE_SHEETS_DEFAULT_LOJAS', 'TNP,LI,HORA'),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: envVar('GOOGLE_SERVICE_ACCOUNT_EMAIL', ''),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: normalizePrivateKey(envVar('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', '')),
+
+  // ---- Criare/SIA Supervisor (exportação posicional; nunca grava no Supervisor) ----
+  CREARE_EXPORT_ENABLED: envBool('CREARE_EXPORT_ENABLED', false),
+  /** JSON por loja. Sem fallback: de-para fiscal e defaults precisam ser decisão explícita. */
+  CREARE_STORE_CONFIG_JSON: envVar('CREARE_STORE_CONFIG_JSON', ''),
+
+  // ---- Ingestão de vendas pelo robô (TNP/Lisboa) ----
+  // Sem fallback: token ausente deixa a autenticação de máquina desabilitada.
+  VENDAS_IMPORT_TOKEN: envVar('VENDAS_IMPORT_TOKEN', ''),
 };
 
 /** Só o que é preciso para saber ONDE escrever. */

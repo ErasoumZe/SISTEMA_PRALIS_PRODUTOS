@@ -1,0 +1,147 @@
+{
+  "capturadoEm": "2026-08-26",
+  "origem": "Amostra estrutural anonimizada de VENDAS_PRODUTOS e FECHAMENTOS_CAIXAS",
+  "observacoes": [
+    "Os nomes de produtos e o operador nominal foram substituidos.",
+    "Codigos, quantidades, datas e formatos preservam os casos reais relevantes.",
+    "Datas/hora carregam o apostrofo que normalizeRecord envia antes de o Google Sheets ocultar esse escape.",
+    "Os hashes foram recalculados com o mesmo algoritmo do robo depois da anonimizacao.",
+    "O primeiro produto aparece duas vezes para provar a correcao por chave natural, com hash e atualizado_em diferentes."
+  ],
+  "lotes": [
+    {
+      "tipo": "venda_produto_dia",
+      "linhas": [
+        {
+          "DATA_VENDA": "18/05/2026",
+          "PRODUTO_CODIGO": "7890000000001",
+          "PRODUTO": "PRODUTO EAN EXEMPLO 200ML",
+          "QUANTIDADE": "1",
+          "VALOR_UNITARIO": "5,45",
+          "TOTAL": "5,45",
+          "EMPRESA": "TNP CENTRAL",
+          "ATUALIZADO_EM": "'2026-05-18 07:48:50",
+          "HASH": "86b8502e0641ece12820c9c0aab4309a391b8e6e23d8a49c4ded02e2c493d9ce"
+        },
+        {
+          "DATA_VENDA": "18/05/2026",
+          "PRODUTO_CODIGO": "7890000000001",
+          "PRODUTO": "PRODUTO EAN EXEMPLO 200ML",
+          "QUANTIDADE": "6",
+          "VALOR_UNITARIO": "5,45",
+          "TOTAL": "32,7",
+          "EMPRESA": "TNP CENTRAL",
+          "ATUALIZADO_EM": "'2026-08-20 14:54:38",
+          "HASH": "9fa482dca3a3e528d5af17581e65be6cb5502667cc9b0a2f1ef7e15deadad8f6"
+        },
+        {
+          "DATA_VENDA": "02/02/2026",
+          "PRODUTO_CODIGO": "",
+          "PRODUTO": "PRODUTO PESAVEL SEM CODIGO A",
+          "QUANTIDADE": "0,17",
+          "VALOR_UNITARIO": "39,9",
+          "TOTAL": "6,7",
+          "EMPRESA": "TNP CENTRAL",
+          "ATUALIZADO_EM": "'2026-05-18 07:48:50",
+          "HASH": "803506979cff53726382b6bd4411f25613cd26d2481ccc09b3f81f8f7744bd8f"
+        },
+        {
+          "DATA_VENDA": "02/02/2026",
+          "PRODUTO_CODIGO": "",
+          "PRODUTO": "PRODUTO PESAVEL SEM CODIGO B",
+          "QUANTIDADE": "0,22",
+          "VALOR_UNITARIO": "39,9",
+          "TOTAL": "8,62",
+          "EMPRESA": "TNP CENTRAL",
+          "ATUALIZADO_EM": "'2026-05-18 07:48:50",
+          "HASH": "e5895a02f1d2bdab30c47ceefb5837844247db368163b531deb8d7de63673f31"
+        },
+        {
+          "DATA_VENDA": "25/04/2026",
+          "PRODUTO_CODIGO": "10469",
+          "PRODUTO": "PRODUTO INTERNO FRACIONADO KG",
+          "QUANTIDADE": "0,32",
+          "VALOR_UNITARIO": "67,9",
+          "TOTAL": "21,46",
+          "EMPRESA": "LISBOA CENTRAL",
+          "ATUALIZADO_EM": "'2026-05-18 07:41:22",
+          "HASH": "41a406596c87b6db879e3eee96498650e97eb13b62e030c11be0c1992f4d1c45"
+        },
+        {
+          "DATA_VENDA": "25/04/2026",
+          "PRODUTO_CODIGO": "7890000000002",
+          "PRODUTO": "PRODUTO EAN LISBOA 250G",
+          "QUANTIDADE": "1",
+          "VALOR_UNITARIO": "18,2",
+          "TOTAL": "18,2",
+          "EMPRESA": "LISBOA CENTRAL",
+          "ATUALIZADO_EM": "'2026-05-18 07:41:22",
+          "HASH": "d68ac19be36ff1d43e965e5cba40ef8f3809dfcbe8be3df6ee4b701568876114"
+        }
+      ]
+    },
+    {
+      "tipo": "fechamento_caixa_dia",
+      "linhas": [
+        {
+          "DATA_VENDA": "02/01/2026",
+          "PDV": "TNP-PC-CXPDV-1",
+          "OPERADOR": "VND CAIXA PDV - 1M",
+          "PRIMEIRA_VENDA": "'2026-01-02 06:16:56",
+          "ULTIMA_VENDA": "'2026-01-02 11:14:29",
+          "NUMERO_VENDAS": "214",
+          "CREDIARIO": "132,27",
+          "CREDITO": "471,81",
+          "DEBITO": "653,29",
+          "DINHEIRO": "898,87",
+          "PIX": "206,35",
+          "VOUCHER": "393,94",
+          "TOTAL_PAGAMENTO": "2756,53",
+          "EMPRESA": "TNP CENTRAL",
+          "ATUALIZADO_EM": "'2026-05-18 07:48:24",
+          "HASH": "fe978784df19bd9b7860a6f4a0f31aa5a8716d1b7c1c318727e62a90945dcdb0",
+          "OUTROS": "0",
+          "CHAVE": "TNP CENTRAL|02/01/2026|TNP-PC-CXPDV-1|VND CAIXA PDV - 1M",
+          "CAIXA": "1",
+          "TURNO": "M",
+          "COLABORADOR": "",
+          "CLIENTES": "0",
+          "COLABORADORES": "0",
+          "ALIMENTACAO": "0",
+          "ROUBO_FURTO": "0",
+          "SOCIOS": "0",
+          "SOBRA_PERDA": "0"
+        },
+        {
+          "DATA_VENDA": "02/01/2026",
+          "PDV": "LI-PC-CXPDV-1",
+          "OPERADOR": "OPERADOR NOMINAL 01",
+          "PRIMEIRA_VENDA": "'2026-01-02 06:14:35",
+          "ULTIMA_VENDA": "'2026-01-02 12:40:21",
+          "NUMERO_VENDAS": "270",
+          "CREDIARIO": "69,22",
+          "CREDITO": "564,88",
+          "DEBITO": "844,04",
+          "DINHEIRO": "1586,29",
+          "PIX": "324,73",
+          "VOUCHER": "380,66",
+          "TOTAL_PAGAMENTO": "3769,82",
+          "EMPRESA": "LISBOA CENTRAL",
+          "ATUALIZADO_EM": "'2026-05-18 07:45:50",
+          "HASH": "31db2bcf265497bc0f17881bc31f405245595539aaf84722ebdc5425bbf86998",
+          "OUTROS": "0",
+          "CHAVE": "LISBOA CENTRAL|02/01/2026|LI-PC-CXPDV-1|OPERADOR NOMINAL 01",
+          "CAIXA": "",
+          "TURNO": "",
+          "COLABORADOR": "",
+          "CLIENTES": "0",
+          "COLABORADORES": "0",
+          "ALIMENTACAO": "0",
+          "ROUBO_FURTO": "0",
+          "SOCIOS": "0",
+          "SOBRA_PERDA": "0"
+        }
+      ]
+    }
+  ]
+}

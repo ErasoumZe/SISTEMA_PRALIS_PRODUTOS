@@ -42,6 +42,18 @@ export async function productSheetRoutes(app: FastifyInstance) {
         }),
       ),
       cabecalhosOk: z.boolean(),
+      abas: z.array(
+        z.object({
+          loja: z.string(),
+          titulo: z.string(),
+          encontrada: z.boolean(),
+          colunas: z.number(),
+          colunaId: z.string().nullable(),
+          colunaFoto: z.string().nullable(),
+          pronta: z.boolean(),
+          faltando: z.array(z.string()),
+        }),
+      ),
       ok: z.boolean(),
       erro: z.string().optional(),
     }),

@@ -202,3 +202,70 @@ describe('Seed da BASE — código interno na criação', () => {
     expect(cells.AC).not.toEqual({ kind: 'empty' });
   });
 });
+
+describe('Herança BASE -> lojas (Postgres real)', () => {
+  it('as lojas herdam o que seguiam; o campo que a loja editou é preservado', async () => {
+    const base = await service.create(admin, mkPayload('HERANCA REAL'));
+    await service.importFromBase(jose, [base.id]);
+    await service.importFromBase(lia, [base.id]);
+    const tnp = (await repo.list('TNP', {})).find((x) => x.baseProductId === base.id)!;
+    const li = (await repo.list('LI', {})).find((x) => x.baseProductId === base.id)!;
+
+    // a TNP passa a ter custo PRÓPRIO; a LI continua seguindo a BASE
+    await service.update(jose, tnp.id, { custo: 99 });
+
+    const r = await service.update(admin, base.id, { nome: 'HERANCA REAL EDITADA', custo: 42 });
+    expect(r.lojasAtualizadas).toBe(2);
+
+    const tnpDepois = (await repo.findById(tnp.id))!;
+    const liDepois = (await repo.findById(li.id))!;
+
+    // nome: as duas seguiam -> as duas herdaram (cadastro igual entre lojas)
+    expect(tnpDepois.nome).toBe('HERANCA REAL EDITADA');
+    expect(liDepois.nome).toBe('HERANCA REAL EDITADA');
+
+    // custo: a TNP tinha valor próprio -> preservado; a LI seguia -> herdou
+    expect(Number(tnpDepois.custo)).toBe(99);
+    expect(Number(liDepois.custo)).toBe(42);
+  });
+
+  it('promoção é da loja: a da BASE não desce e a da loja não é apagada', async () => {
+    const base = await service.create(admin, mkPayload('HERANCA PROMO'));
+    await service.importFromBase(jose, [base.id]);
+    const tnp = (await repo.list('TNP', {})).find((x) => x.baseProductId === base.id)!;
+
+    await service.update(jose, tnp.id, {
+      promocoes: [{
+        tipo: 'desconto', valor: null, descontoPct: 0.15, horaInicio: null, horaFim: null,
+        dias: [true, false, false, false, false, false, false], descontoAte: null,
+      }],
+    });
+
+    await service.update(admin, base.id, {
+      nome: 'HERANCA PROMO EDITADA',
+      promocoes: [{
+        tipo: 'desconto', valor: null, descontoPct: 0.5, horaInicio: null, horaFim: null,
+        dias: [false, false, false, false, false, false, true], descontoAte: null,
+      }],
+    });
+
+    const tnpDepois = (await repo.findById(tnp.id))!;
+    expect(tnpDepois.nome).toBe('HERANCA PROMO EDITADA');          // cadastro herdou
+    expect(tnpDepois.promocoes).toHaveLength(1);
+    expect(Number(tnpDepois.promocoes[0]!.descontoPct)).toBe(0.15); // a promo da loja ficou
+  });
+
+  it('editar produto de LOJA não mexe na BASE nem na outra loja', async () => {
+    const base = await service.create(admin, mkPayload('HERANCA ISOLADA'));
+    await service.importFromBase(jose, [base.id]);
+    await service.importFromBase(lia, [base.id]);
+    const tnp = (await repo.list('TNP', {})).find((x) => x.baseProductId === base.id)!;
+    const li = (await repo.list('LI', {})).find((x) => x.baseProductId === base.id)!;
+
+    const r = await service.update(jose, tnp.id, { nome: 'SO DA TNP' });
+    expect(r.lojasAtualizadas).toBe(0);
+
+    expect((await repo.findById(base.id))!.nome).toBe('HERANCA ISOLADA');
+    expect((await repo.findById(li.id))!.nome).toBe('HERANCA ISOLADA');
+  });
+});
