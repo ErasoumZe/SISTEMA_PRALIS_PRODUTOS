@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VendasDatas } from '@pralis/shared';
 import type { VendasReport } from '~/composables/useApi';
 
 const api = useApi();
@@ -11,14 +12,15 @@ const LOJAS = [
   { value: 'LI', label: 'Lisboa' },
 ] as const;
 
-const iso = (d: Date) => d.toISOString().slice(0, 10);
+// data pelo relógio LOCAL: toISOString() converte para UTC e, das 21h em
+// diante em Brasília, abriria o filtro com o dia seguinte.
 const hoje = new Date();
-const trintaDiasAtras = new Date(hoje.getTime() - 29 * 86_400_000);
+const iso = VendasDatas.dataLocalISO;
 
 const loja = ref<'TNP' | 'LI'>(
   user.value?.loja === 'LI' ? 'LI' : 'TNP',
 );
-const inicio = ref(iso(trintaDiasAtras));
+const inicio = ref(iso(VendasDatas.diasAntes(hoje, 29)));
 const fim = ref(iso(hoje));
 
 const dados = ref<VendasReport | null>(null);
@@ -66,11 +68,14 @@ const pct = (v: number) => `${v.toLocaleString('pt-BR', { maximumFractionDigits:
 const resumoCards = computed(() => {
   const r = dados.value?.resumo;
   if (!r) return [];
+  // A origem fica escrita no card: faturamento e quantidade vêm das VENDAS por
+  // produto; número de vendas e ticket vêm do FECHAMENTO de caixa. São duas
+  // fontes e podem divergir — sem dizer isso, o usuário lê como erro de conta.
   return [
-    { label: 'Faturamento', valor: brl(r.faturamento), icon: 'payments', cor: '#6515DD' },
-    { label: 'Quantidade vendida', valor: num(r.quantidade), icon: 'inventory_2', cor: '#3B82F6' },
-    { label: 'Nº de vendas', valor: num(r.numeroVendas), icon: 'receipt_long', cor: '#35128C' },
-    { label: 'Ticket médio', valor: brl(r.ticketMedio), icon: 'trending_up', cor: '#34A853' },
+    { label: 'Faturamento', origem: 'vendas por produto', valor: brl(r.faturamento), icon: 'payments', cor: '#6515DD' },
+    { label: 'Quantidade vendida', origem: 'vendas por produto', valor: num(r.quantidade), icon: 'inventory_2', cor: '#3B82F6' },
+    { label: 'Nº de vendas', origem: 'fechamento de caixa', valor: num(r.numeroVendas), icon: 'receipt_long', cor: '#35128C' },
+    { label: 'Ticket médio', origem: 'fechamento de caixa', valor: brl(r.ticketMedio), icon: 'trending_up', cor: '#34A853' },
   ];
 });
 
@@ -176,11 +181,18 @@ const corClasse = { A: 'success', B: 'warning', C: 'grey' } as const;
               <div style="min-width: 0">
                 <div class="text-caption text-medium-emphasis text-uppercase">{{ c.label }}</div>
                 <div class="text-h6 font-weight-bold">{{ c.valor }}</div>
+                <div class="text-caption text-medium-emphasis">{{ c.origem }}</div>
               </div>
             </div>
           </v-card>
         </v-col>
       </v-row>
+
+      <div class="text-caption text-medium-emphasis mb-4">
+        O faturamento sai das vendas por produto e o número de vendas sai do fechamento
+        de caixa. São registros diferentes do PDV, então os totais podem não bater:
+        o fechamento inclui crediário, sobra/perda e outros lançamentos que não são venda de produto.
+      </div>
 
       <v-alert v-if="semMovimento" type="info" variant="tonal" class="mb-4">
         Nenhuma venda registrada nesse período para esta loja.
