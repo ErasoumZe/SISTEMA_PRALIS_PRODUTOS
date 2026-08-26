@@ -23,6 +23,12 @@ const search = ref('');
 const loading = ref(false);
 const erro = ref('');
 let timer: ReturnType<typeof setInterval> | null = null;
+/**
+ * Assinatura da última lista recebida. O polling só substitui os dados quando
+ * ALGO mudou de verdade: trocar o array a cada 5s re-renderiza 10 cards embaixo
+ * do cursor de quem está lendo e faz o navegador reposicionar a rolagem.
+ */
+let assinatura = '';
 
 // Admin enxerga o catálogo Geral (BASE) e o de cada loja; usuário comum só a própria loja.
 const isAdmin = computed(() => user.value?.role === 'admin');
@@ -124,15 +130,23 @@ const paginados = computed(() => ordenados.value.slice((page.value - 1) * PER_PA
 watch([statusFiltro, tipoFiltro, setorFiltro, grupoFiltro, ordenar, search, aba], () => { page.value = 1; });
 watch(totalPaginas, (n) => { if (page.value > n) page.value = n; });
 
+/** Substitui a lista só se ela mudou; no polling, ignora resposta idêntica. */
+function aplicar(lista: Product[], silent: boolean) {
+  const nova = JSON.stringify(lista);
+  if (silent && nova === assinatura) return;
+  assinatura = nova;
+  products.value = lista;
+}
+
 async function load(silent = false) {
   if (!silent) loading.value = true;
   erro.value = '';
   try {
     const q = search.value || undefined;
     if (isAdmin.value) {
-      products.value = aba.value === 'BASE' ? await api.listBase(q) : await api.listProducts(q, aba.value);
+      aplicar(aba.value === 'BASE' ? await api.listBase(q) : await api.listProducts(q, aba.value), silent);
     } else {
-      products.value = await api.listProducts(q);
+      aplicar(await api.listProducts(q), silent);
     }
   } catch {
     if (!silent) erro.value = 'Não foi possível carregar.';
@@ -162,7 +176,9 @@ async function remover(p: Product) {
 
 onMounted(() => {
   load();
-  timer = setInterval(() => load(true), 5000); // polling (atualização "em tempo real")
+  // Não atualiza com a aba em segundo plano: gasta requisição à toa e é a
+  // volta ao primeiro plano que interessa.
+  timer = setInterval(() => { if (!document.hidden) load(true); }, 5000);
 });
 onUnmounted(() => { if (timer) clearInterval(timer); });
 
