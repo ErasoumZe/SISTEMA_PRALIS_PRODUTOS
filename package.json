@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "npm test --workspace @pralis/shared && npm test --workspace @pralis/api",
+    "test:integration": "npm run test:integration --workspace @pralis/api",
+    "typecheck": "npm run typecheck --workspace @pralis/api",
+    "build": "npm run build --workspace @pralis/pwa"
+  },
   "description": "Sistema Cicluz de cadastro e gestão de produtos",
   "workspaces": [
     "stack/shared",
