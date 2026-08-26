@@ -47,6 +47,21 @@ const tipoOpcoes = [
 ] as const;
 const setorFiltro = ref<string | null>(null);
 const grupoFiltro = ref<string | null>(null);
+
+/**
+ * Filtro vindo por URL — é assim que os atalhos do dashboard abrem a lista já
+ * filtrada (/?loja=TNP&status=inativo). Roda no setup, antes do primeiro
+ * `load()`, para a aba certa ser buscada de uma vez só.
+ */
+const rota = useRoute();
+{
+  const loja = String(rota.query.loja ?? '').toUpperCase();
+  if (loja === 'BASE' || loja === 'TNP' || loja === 'LI' || loja === 'HORA') aba.value = loja;
+  const status = String(rota.query.status ?? '');
+  if (status === 'ativo' || status === 'inativo') statusFiltro.value = status;
+  const tipo = String(rota.query.tipo ?? '');
+  if (tipo === 'revenda' || tipo === 'transformacao') tipoFiltro.value = tipo;
+}
 const setores = computed(() => [...new Set(products.value.map((p) => p.setorEstoque).filter((s): s is string => !!s))]);
 const grupos = computed(() => [...new Set(products.value.map((p) => p.grupo).filter((g): g is string => !!g))]);
 
@@ -317,6 +332,15 @@ function preco(p: Product): string | null {
     <v-card v-else-if="!loading && !erro" flat border rounded="lg" class="pa-12 text-center text-medium-emphasis">
       <v-icon size="48" class="mb-2">inventory_2</v-icon>
       <div>{{ temFiltro ? 'Nenhum produto com esses filtros.' : 'Nenhum produto cadastrado ainda.' }}</div>
+      <!--
+        Os números do dashboard somam TODAS as lojas, mas esta lista mostra uma
+        aba por vez. Sem esta linha, clicar em "Inativos" e cair numa lista
+        vazia parece defeito — e não é: o produto está em outra aba.
+      -->
+      <div v-if="temFiltro && isAdmin" class="text-caption mt-1">
+        Você está vendo a aba <strong>{{ abas.find((a) => a.key === aba)?.label ?? aba }}</strong>.
+        Produtos com esses filtros podem estar em outra loja.
+      </div>
       <v-btn v-if="temFiltro" color="primary" variant="tonal" class="mt-4" @click="limparFiltros">Limpar filtros</v-btn>
       <v-btn v-else color="primary" variant="tonal" class="mt-4" to="/produtos/novo">Cadastrar o primeiro</v-btn>
     </v-card>
