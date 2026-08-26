@@ -2,6 +2,9 @@
 
 Data: 26/08/2026
 Status: aprovado para virar plano de implementação
+Escopo: **TNP e LISBOA apenas**. A HORA fica de fora até o José dizer o
+contrário — ela usa outro PDV (`PDV_RESTAURANTE`, Firebird), outra query e é
+quase outra empresa. TNP e LI são padarias, com cadastro que vem da mesma base.
 Branch de trabalho: `homologacao/cadastro-produtos-2026-08-25` (nunca `main` —
 deploy automático no Coolify)
 
@@ -66,8 +69,9 @@ decimal e data `dd/mm/aaaa`. A API precisa converter na entrada.
 
 ### 2.3 Empresas
 
-O robô manda `TNP CENTRAL`, `LISBOA CENTRAL`, `HORA`. O Pralis usa `TNP`, `LI`,
-`HORA`. De-para fixo na ingestão; empresa desconhecida **recusa o lote**.
+O robô manda `TNP CENTRAL` e `LISBOA CENTRAL` (a HORA está fora deste escopo).
+O Pralis usa `TNP` e `LI`. De-para fixo na ingestão; empresa desconhecida
+**recusa o lote** — inclusive `HORA`, até ser decidida.
 
 ## 3. Modelo de dados
 
@@ -120,6 +124,9 @@ Guardadas no grão bruto e derivadas do `operador`, replicando
 | `VND CAIXA PDV - 3T` | `posto` | 3 | `T` |
 | `TOTEN`, `BURPIZ`, `PEDIDO MESA`, `CAIXA_UNICO` | `canal` | — | — |
 | qualquer outro | `nominal` | — | — |
+
+A linha `canal` só ocorre na HORA. Fica implementada porque é a mesma função,
+mas não é exercitada neste escopo.
 
 Regex: `/^VND\s+CAIXA\s+PDV\s*-\s*(\d+)\s*([MT])$/i`.
 
@@ -264,11 +271,15 @@ de fatiamento — cada fatia entrega valor sozinha:
 
 ## 9. Riscos
 
-- **O robô ainda não faz `POST`.** Esta etapa entrega o lado do Pralis
-  (schema + endpoint + relatório). A alteração no robô é trabalho à parte, no
-  repositório dele.
+- **O robô ainda não faz `POST`.** Ele está acessível em
+  `C:UsersJoséDesktopot` e a alteração pode ser feita aqui mesmo — não é
+  outro repositório fora de alcance. **Mas ele NÃO está versionado**: sem git,
+  sem histórico, sem desfazer, e é automação em produção rodando na TNP. Antes
+  de tocar nele, colocar sob git local (mesmo sem remoto) para haver como voltar.
+  A pasta `_original-18-08-2026` mostra que hoje o "desfazer" é cópia manual.
 - **`colaborador` fora de escopo** — depende da aba `DE_PARA_OPERADORES`.
-- **Canais da HORA** (`TOTEN`, `BURPIZ`) entram como `natureza = canal` e ficam
-  sem caixa/turno. O de-para desses canais é decisão pendente do José.
+- **HORA fora de escopo** por decisão do José (26/08/2026): outro PDV
+  (`PDV_RESTAURANTE`/Firebird), outra query, negócio diferente. Retomar só
+  quando ele pedir.
 - Produto sem `codigoBarras` no Pralis não casa automaticamente; a cobertura
   mede o tamanho disso já na primeira carga.
