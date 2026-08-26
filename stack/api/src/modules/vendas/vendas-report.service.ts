@@ -1,6 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import { AppError } from '@/config/api.replies';
 import { VendasReportRepository } from './vendas-report.repository';
+import { calcularMargem, indexarPorCodigo } from './vendas-margem';
 import type { VendasSchemas } from '@pralis/shared';
 
 type ProdutoRanking = VendasSchemas.ProdutoRanking;
@@ -19,11 +20,21 @@ export class VendasReportService {
     if (days < 0) throw new AppError('Data inicial deve ser anterior à final.', 422, 'INVALID_PERIOD');
     if (days > 366) throw new AppError('O período máximo do relatório é de 366 dias.', 422, 'PERIOD_TOO_LARGE');
 
-    const [summary, products, payments] = await Promise.all([
+    const [summary, products, payments, cadastro, dePara] = await Promise.all([
       this.repository.resumo(loja, inicio, fim),
       this.repository.produtos(loja, inicio, fim),
       this.repository.pagamentos(loja, inicio, fim),
+      this.repository.produtosDaLoja(loja),
+      this.repository.deParaDaLoja(loja),
     ]);
+    // A margem sai do MESMO agregado do ranking: produto x periodo. Casar por
+    // `barcodeCandidates` faz o pesavel casar sozinho; o que sobrar aparece
+    // como cobertura menor que 100%, nunca como margem inventada.
+    const margem = calcularMargem(
+      products.map((p) => ({ produtoCodigo: p.produtoCodigo, produto: p.produto, quantidade: p.quantidade, total: p.faturamento })),
+      indexarPorCodigo(cadastro),
+      dePara,
+    );
     const total = summary.faturamento;
     const abc = abcSummary(products, total);
     const byQuantity = [...products].sort((a, b) => b.quantidade - a.quantidade || b.faturamento - a.faturamento);
@@ -44,6 +55,7 @@ export class VendasReportService {
       ranking: { maisVendidos: byQuantity.slice(0, 10), menosVendidos: bottom.slice(0, 10) },
       curvaAbc: abc,
       pagamentos: payments,
+      margem,
       qualidade: {
         produtosSemCodigo: summary.produtosSemCodigo,
         faturamentoSemCodigo: summary.faturamentoSemCodigo,

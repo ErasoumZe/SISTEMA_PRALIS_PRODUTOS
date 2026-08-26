@@ -44,6 +44,7 @@ const titulo = computed(() => {
     '/': 'Produtos',
     '/dashboard': 'Dashboard',
     '/vendas': 'Relatório de vendas',
+    '/vendas/de-para': 'Produtos do PDV sem cadastro',
     '/usuarios': 'Usuários',
     '/importar': 'Importar da base',
     '/produtos/novo': 'Novo produto',

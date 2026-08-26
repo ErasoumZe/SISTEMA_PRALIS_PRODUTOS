@@ -2,6 +2,7 @@ import { injectable } from 'tsyringe';
 import { sql } from 'drizzle-orm';
 import { db } from '@/db/databases';
 import type { VendasSchemas } from '@pralis/shared';
+import { chaveDePara, type ProdutoCadastro } from './vendas-margem';
 
 type PagamentoDia = VendasSchemas.PagamentoDia;
 type ProdutoRanking = VendasSchemas.ProdutoRanking;
@@ -75,5 +76,46 @@ export class VendasReportRepository {
       socios: n(row.socios), sobraPerda: n(row.sobra_perda), outros: n(row.outros), total: n(row.total),
     }));
   }
-}
 
+  /**
+   * Cadastro da loja, só com o que a margem precisa. Consulta enxuta de
+   * proposito: `ProductRepository.list()` carrega promoções, fiscal e
+   * transformação por produto, o que aqui seria N+1 sem serventia.
+   */
+  async produtosDaLoja(loja: Loja): Promise<ProdutoCadastro[]> {
+    const result = await db.execute(sql`
+      SELECT id, nome, codigo_barras, custo, qt_cad, quantidade, medida_base
+        FROM products WHERE loja = ${loja}
+    `);
+    return result.rows.map((row) => ({
+      id: String(row.id),
+      nome: String(row.nome ?? ''),
+      codigoBarras: row.codigo_barras == null ? null : String(row.codigo_barras),
+      custo: row.custo == null ? null : Number(row.custo),
+      qtCad: Number(row.qt_cad ?? 1),
+      quantidade: row.quantidade == null ? null : Number(row.quantidade),
+      medidaBase: row.medida_base == null ? null : String(row.medida_base),
+    }));
+  }
+
+  /** Vínculos confirmados por pessoa: código do PDV -> produto do cadastro. */
+  async deParaDaLoja(loja: Loja): Promise<Map<string, ProdutoCadastro>> {
+    const result = await db.execute(sql`
+      SELECT pc.produto_codigo, pc.produto, p.id, p.nome, p.codigo_barras, p.custo, p.qt_cad
+        FROM produto_creare pc
+        JOIN products p ON p.id = pc.product_id
+       WHERE pc.loja = ${loja}
+    `);
+    const mapa = new Map<string, ProdutoCadastro>();
+    for (const row of result.rows) {
+      mapa.set(chaveDePara(String(row.produto_codigo ?? ''), String(row.produto ?? '')), {
+        id: String(row.id),
+        nome: String(row.nome ?? ''),
+        codigoBarras: row.codigo_barras == null ? null : String(row.codigo_barras),
+        custo: row.custo == null ? null : Number(row.custo),
+        qtCad: Number(row.qt_cad ?? 1),
+      });
+    }
+    return mapa;
+  }
+}

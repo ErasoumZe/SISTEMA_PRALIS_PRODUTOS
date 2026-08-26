@@ -32,6 +32,26 @@ const pagamentoDiaSchema = z.object({
   total: z.number(),
 });
 
+/**
+ * Margem SEMPRE acompanhada da cobertura. Um lucro calculado sobre 60% do
+ * faturamento, apresentado como se fosse o total, leva a decisão errada de
+ * preço — numa padaria, o pão sem custo cadastrado se esconde atrás da
+ * Coca-Cola. Quem lê precisa ver sobre quanto a conta foi feita.
+ */
+const margemSchema = z.object({
+  /** Faturamento cujo produto foi encontrado no cadastro E tem custo. */
+  faturamentoComCusto: z.number(),
+  faturamentoSemCusto: z.number(),
+  /** 0 a 100. É o número que qualifica todos os outros deste bloco. */
+  coberturaPercentual: z.number(),
+  /** Códigos vendidos que não casaram com nenhum produto do cadastro. */
+  produtosSemVinculo: z.number(),
+  custoTotal: z.number(),
+  lucroBruto: z.number(),
+  /** Lucro sobre o faturamento COM custo, nunca sobre o total. */
+  margemPercentual: z.number(),
+});
+
 export const vendasReportSchema = z.object({
   loja: z.enum(['TNP', 'LI']),
   periodo: z.object({ inicio: z.string(), fim: z.string() }),
@@ -53,6 +73,7 @@ export const vendasReportSchema = z.object({
     percentual: z.number(),
   })),
   pagamentos: z.array(pagamentoDiaSchema),
+  margem: margemSchema,
   qualidade: z.object({
     produtosSemCodigo: z.number(),
     faturamentoSemCodigo: z.number(),
@@ -64,4 +85,5 @@ export type VendasReportQuery = z.output<typeof vendasReportQuerySchema>;
 export type VendasReport = z.output<typeof vendasReportSchema>;
 export type ProdutoRanking = z.output<typeof produtoRankingSchema>;
 export type PagamentoDia = z.output<typeof pagamentoDiaSchema>;
+export type Margem = z.output<typeof margemSchema>;
 

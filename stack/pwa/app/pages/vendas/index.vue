@@ -103,6 +103,15 @@ const colunasComMovimento = computed(() => {
 });
 
 const corClasse = { A: 'success', B: 'warning', C: 'grey' } as const;
+
+/**
+ * A cor da cobertura é o aviso: abaixo de 80% o número de margem já não
+ * representa o negócio, e quem lê precisa perceber isso sem ler o rodapé.
+ */
+const corCobertura = computed(() => {
+  const c = dados.value?.margem.coberturaPercentual ?? 0;
+  return c >= 80 ? 'success' : c >= 50 ? 'warning' : 'error';
+});
 </script>
 
 <template>
@@ -233,6 +242,65 @@ const corClasse = { A: 'success', B: 'warning', C: 'grey' } as const;
             </v-card>
           </v-col>
         </v-row>
+
+        <v-card flat border rounded="lg" class="pa-4 mt-4">
+          <div class="d-flex align-center flex-wrap ga-2 mb-1">
+            <div class="text-subtitle-1 font-weight-bold">Margem e lucro</div>
+            <v-spacer />
+            <v-btn
+              size="small"
+              variant="tonal"
+              :color="dados.margem.produtosSemVinculo ? 'warning' : undefined"
+              to="/vendas/de-para"
+            >
+              Resolver produtos sem custo
+              <template v-if="dados.margem.produtosSemVinculo">({{ num(dados.margem.produtosSemVinculo) }})</template>
+            </v-btn>
+          </div>
+
+          <!--
+            A cobertura vem ANTES do lucro de propósito. Margem calculada sobre
+            metade do faturamento, apresentada como total, leva a decisão errada
+            de preço — o pão sem custo cadastrado se esconde atrás da Coca-Cola.
+          -->
+          <div class="d-flex align-center ga-2 mb-1 mt-2">
+            <span class="text-body-2">Calculada sobre</span>
+            <strong :class="`text-${corCobertura}`">{{ pct(dados.margem.coberturaPercentual) }}</strong>
+            <span class="text-body-2">do faturamento</span>
+          </div>
+          <v-progress-linear
+            :model-value="dados.margem.coberturaPercentual"
+            :color="corCobertura"
+            height="8"
+            rounded
+            class="mb-3"
+          />
+          <div class="text-caption text-medium-emphasis mb-4">
+            {{ brl(dados.margem.faturamentoSemCusto) }} em vendas ainda não têm custo cadastrado
+            <template v-if="dados.margem.produtosSemVinculo">
+              ({{ num(dados.margem.produtosSemVinculo) }} produto(s) sem vínculo)
+            </template>.
+          </div>
+
+          <v-row dense>
+            <v-col cols="12" sm="4">
+              <div class="text-caption text-medium-emphasis text-uppercase">Custo</div>
+              <div class="text-h6 font-weight-bold">{{ brl(dados.margem.custoTotal) }}</div>
+            </v-col>
+            <v-col cols="12" sm="4">
+              <div class="text-caption text-medium-emphasis text-uppercase">Lucro bruto</div>
+              <div class="text-h6 font-weight-bold" :class="dados.margem.lucroBruto < 0 ? 'text-error' : 'text-success'">
+                {{ brl(dados.margem.lucroBruto) }}
+              </div>
+            </v-col>
+            <v-col cols="12" sm="4">
+              <div class="text-caption text-medium-emphasis text-uppercase">Margem</div>
+              <div class="text-h6 font-weight-bold" :class="dados.margem.margemPercentual < 0 ? 'text-error' : ''">
+                {{ pct(dados.margem.margemPercentual) }}
+              </div>
+            </v-col>
+          </v-row>
+        </v-card>
 
         <v-card flat border rounded="lg" class="pa-4 mt-4">
           <div class="text-subtitle-1 font-weight-bold mb-1">Curva ABC</div>

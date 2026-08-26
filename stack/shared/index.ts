@@ -11,3 +11,4 @@ export * as Creare from './src/creare/creare.generator';
 export * as CreareLayout from './src/creare/creare.layout';
 export * as VendasSchemas from './src/vendas/vendas-report.schemas';
 export * as VendasDatas from './src/vendas/vendas.datas';
+export * as VendasDePara from './src/vendas/vendas-depara.schemas';

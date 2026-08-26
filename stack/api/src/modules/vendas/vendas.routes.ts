@@ -11,11 +11,14 @@ import {
 import { vendasImportAuth } from './vendas.auth';
 import { authMiddleware } from '@/middlewares/auth-handler';
 import { VendasReportController } from './vendas-report.controller';
-import { VendasSchemas } from '@pralis/shared';
+import { VendasDeParaController } from './vendas-depara.controller';
+import { z } from 'zod/v4';
+import { VendasSchemas, VendasDePara } from '@pralis/shared';
 
 export async function vendasRoutes(app: FastifyInstance) {
   const controller = container.resolve(VendasController);
   const reportController = container.resolve(VendasReportController);
+  const deParaController = container.resolve(VendasDeParaController);
   const typed = app.withTypeProvider<ZodTypeProvider>();
 
   typed.post<{ Body: ImportarVendasBody }>(
@@ -45,5 +48,33 @@ export async function vendasRoutes(app: FastifyInstance) {
       },
     },
     reportController.report.bind(reportController),
+  );
+
+  typed.get<{ Querystring: VendasDePara.DeParaQuery }>(
+    '/vendas/de-para',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: VendasDePara.deParaQuerySchema,
+        response: { 200: apiResponseSchema(VendasDePara.deParaListaSchema) },
+        summary: 'Códigos do PDV sem produto no cadastro, com sugestões',
+        tags: ['VENDAS'],
+      },
+    },
+    deParaController.pendentes.bind(deParaController),
+  );
+
+  typed.post<{ Body: VendasDePara.VincularBody }>(
+    '/vendas/de-para',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        body: VendasDePara.vincularBodySchema,
+        response: { 200: apiResponseSchema(z.null()) },
+        summary: 'Confirmar (ou desfazer) o vínculo entre código do PDV e produto',
+        tags: ['VENDAS'],
+      },
+    },
+    deParaController.vincular.bind(deParaController),
   );
 }

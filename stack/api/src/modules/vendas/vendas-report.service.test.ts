@@ -21,6 +21,8 @@ function repositorio(over: {
   numeroVendas?: number;
   totalPagamentos?: number;
   faturamento?: number;
+  /** cadastro da loja; vazio = nada casa e a cobertura fica em 0 */
+  cadastro?: Array<{ id: string; nome: string; codigoBarras: string | null; custo: number | null; qtCad: number }>;
 } = {}) {
   const produtos = over.produtos ?? [];
   return {
@@ -37,6 +39,8 @@ function repositorio(over: {
     },
     async produtos() { return produtos; },
     async pagamentos() { return []; },
+    async produtosDaLoja() { return over.cadastro ?? []; },
+    async deParaDaLoja() { return new Map(); },
   } as unknown as VendasReportRepository;
 }
 
@@ -142,5 +146,32 @@ describe('VendasReportService — período e agregações', () => {
     const r = await service(repo).report('TNP', '2026-08-01', '2026-08-02');
 
     expect(r.qualidade).toMatchObject({ produtosSemCodigo: 1, faturamentoSemCodigo: 30 });
+  });
+});
+
+describe('VendasReportService — margem entra no relatório com a cobertura', () => {
+  it('sem cadastro que case, a cobertura é 0 e a margem não é inventada', async () => {
+    const repo = repositorio({ produtos: [produto('999', 1, 100)] });
+
+    const r = await new VendasReportService(repo).report('TNP', '2026-08-01', '2026-08-02');
+
+    expect(r.margem).toMatchObject({
+      faturamentoComCusto: 0, faturamentoSemCusto: 100,
+      coberturaPercentual: 0, margemPercentual: 0, produtosSemVinculo: 1,
+    });
+  });
+
+  it('com o produto cadastrado, a margem sai e a cobertura é 100%', async () => {
+    const repo = repositorio({
+      produtos: [produto('7891234000019', 2, 20)],
+      cadastro: [{ id: 'p', nome: 'X', codigoBarras: '7891234000019', custo: 6, qtCad: 1 }],
+    });
+
+    const r = await new VendasReportService(repo).report('TNP', '2026-08-01', '2026-08-02');
+
+    expect(r.margem).toMatchObject({
+      faturamentoComCusto: 20, custoTotal: 12, lucroBruto: 8,
+      margemPercentual: 40, coberturaPercentual: 100,
+    });
   });
 });

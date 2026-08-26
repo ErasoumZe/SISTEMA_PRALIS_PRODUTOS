@@ -9,6 +9,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { uuidv7 } from 'uuidv7';
+import { products } from '@/modules/product/product.table';
 
 export const vendaProdutoDia = pgTable(
   'venda_produto_dia',
@@ -71,3 +72,36 @@ export const fechamentoCaixaDia = pgTable(
   ],
 );
 
+/**
+ * De-para do que NAO casou sozinho: codigo do PDV -> produto do cadastro.
+ *
+ * A maioria dos codigos casa por `barcodeCandidates` (EAN ou PLU de balanca)
+ * sem precisar de linha aqui. Esta tabela guarda so a excecao, e so o que uma
+ * PESSOA confirmou — vincular errado significa calcular margem com o custo de
+ * outro produto.
+ *
+ * `onDelete: 'cascade'`: se o produto sai do cadastro, o vinculo perde
+ * sentido. A venda continua no relatorio, apenas volta a contar como sem
+ * custo — que e a verdade naquele momento.
+ */
+export const produtoCreare = pgTable(
+  'produto_creare',
+  {
+    id: text('id').primaryKey().$defaultFn(() => uuidv7()),
+    loja: text('loja').notNull(),
+    produtoCodigo: text('produto_codigo').notNull(),
+    /**
+     * A descricao entra na chave PELO MESMO motivo da venda: o PDV manda
+     * produto sem codigo, e sem ela dois produtos distintos sem codigo
+     * colidiriam num vinculo so — justamente os que mais precisam de de-para.
+     */
+    produto: text('produto').notNull().default(''),
+    productId: text('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+    confirmadoPor: text('confirmado_por'),
+    confirmadoEm: timestamp('confirmado_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('uq_produto_creare_natural').on(t.loja, t.produtoCodigo, t.produto),
+    index('idx_produto_creare_produto').on(t.productId),
+  ],
+);

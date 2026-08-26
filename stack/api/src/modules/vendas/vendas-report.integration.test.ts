@@ -22,7 +22,12 @@ type Fixture = {
 
 let container: StartedPostgreSqlContainer;
 let service: VendasReportService;
-let db: { $client: { end: () => Promise<void> } };
+let db: {
+  execute: (query: unknown) => Promise<{ rows: Record<string, unknown>[] }>;
+  $client: { end: () => Promise<void> };
+};
+let sqlTag: typeof import('drizzle-orm')['sql'];
+let deParaService: import('./vendas-depara.service').VendasDeParaService;
 
 const fixture = JSON.parse(readFileSync(
   resolve(process.cwd(), '../../docs/superpowers/fixtures/2026-08-26-vendas-reais-anonimizadas.json'),
@@ -40,6 +45,7 @@ beforeAll(async () => {
   container = await new PostgreSqlContainer('postgres:18.1-alpine').start();
   process.env.DATABASE_URL = container.getConnectionUri();
   const { migrate } = await import('drizzle-orm/node-postgres/migrator');
+  sqlTag = (await import('drizzle-orm')).sql;
   const dbModule = await import('@/db/databases');
   db = dbModule.db as unknown as typeof db;
   await migrate(dbModule.db, { migrationsFolder: './drizzle' });
@@ -56,6 +62,8 @@ beforeAll(async () => {
   const { VendasReportService } = await import('./vendas-report.service');
   service = new VendasReportService(new VendasReportRepository());
   ({ reportStore } = await import('./vendas-report.controller'));
+  const { VendasDeParaService } = await import('./vendas-depara.service');
+  deParaService = new VendasDeParaService(new VendasReportRepository());
 }, 180000);
 
 afterAll(async () => {
@@ -165,5 +173,117 @@ describe('quem pode consultar qual loja (mesma função usada pela rota)', () =>
 
   it('não autenticado recebe 401', () => {
     expect(() => reportStore(pedido())).toThrow(expect.objectContaining({ statusCode: 401 }));
+  });
+});
+
+/**
+ * Margem e de-para contra o banco real. O cadastro entra por SQL porque o que
+ * importa aqui é o CASAMENTO, não o fluxo de cadastro de produto.
+ */
+describe('margem, cobertura e de-para (Postgres real)', () => {
+  const produtoTnp = async (id: string, nome: string, codigoBarras: string | null, custo: number | null) => {
+    await db.execute(sqlTag`
+      INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
+                            habilitar_ajuda, auto, codigo_barras, custo)
+      VALUES (${id}, 'TNP', ${'PR-' + id}, ${nome}, 'UN', 'revenda', 'ativo', 1, 1,
+              false, false, ${codigoBarras}, ${custo})
+      ON CONFLICT (id) DO NOTHING`);
+  };
+
+  it('sem cadastro nenhum, a cobertura é 0 — e a margem não é inventada', async () => {
+    const r = await service.report('TNP', INICIO, FIM);
+
+    expect(r.margem.coberturaPercentual).toBe(0);
+    expect(r.margem.margemPercentual).toBe(0);
+    expect(r.margem.faturamentoSemCusto).toBeCloseTo(48.02, 2);
+  });
+
+  it('produto cadastrado com EAN casa sozinho e levanta a cobertura', async () => {
+    await produtoTnp('prod-ean', 'PRODUTO EAN EXEMPLO', '7890000000001', 3);
+
+    const r = await service.report('TNP', INICIO, FIM);
+
+    // 32,70 dos 48,02 passam a ter custo
+    expect(r.margem.faturamentoComCusto).toBeCloseTo(32.7, 2);
+    expect(r.margem.coberturaPercentual).toBeCloseTo(68.1, 1);
+    expect(r.margem.custoTotal).toBeCloseTo(18, 2); // 3 x 6 unidades
+    expect(r.margem.lucroBruto).toBeCloseTo(14.7, 2);
+  });
+
+  it('lista como pendente só o que NÃO casou, ordenado por faturamento', async () => {
+    const lista = await deParaService.pendentes('TNP', INICIO, FIM);
+
+    // as duas linhas sem código continuam pendentes; o EAN já casou
+    expect(lista.pendentes.map((p) => p.produto)).not.toContain('PRODUTO EAN EXEMPLO 200ML');
+    expect(lista.pendentes.length).toBe(2);
+    expect(lista.pendentes[0]!.faturamento).toBeGreaterThanOrEqual(lista.pendentes[1]!.faturamento);
+    expect(lista.faturamentoPendente).toBeCloseTo(15.32, 2);
+  });
+
+  it('sugere candidato por semelhança de nome, sem vincular nada', async () => {
+    const pendente = (await deParaService.pendentes('TNP', INICIO, FIM)).pendentes[0]!;
+    await produtoTnp('prod-parecido', pendente.produto, null, 1);
+
+    const depois = (await deParaService.pendentes('TNP', INICIO, FIM))
+      .pendentes.find((p) => p.produto === pendente.produto)!;
+
+    expect(depois.sugestoes.length).toBeGreaterThan(0);
+    expect(depois.sugestoes[0]!.semelhanca).toBeGreaterThan(50);
+    // sugerir NÃO vincula: continua pendente
+    expect(depois.produtoCodigo).toBe(pendente.produtoCodigo);
+  });
+
+  it('vínculo confirmado tira da fila e entra na cobertura', async () => {
+    const antes = await deParaService.pendentes('TNP', INICIO, FIM);
+    const alvo = antes.pendentes[0]!;
+
+    await deParaService.vincular('TNP', alvo.produtoCodigo, alvo.produto, 'prod-parecido', 'ZZ Teste');
+
+    const depois = await deParaService.pendentes('TNP', INICIO, FIM);
+    const relatorio = await service.report('TNP', INICIO, FIM);
+
+    expect(depois.pendentes.length).toBe(antes.pendentes.length - 1);
+    expect(relatorio.margem.coberturaPercentual).toBeGreaterThan(68.1);
+  });
+
+  it('produto SEM código do PDV também pode ser vinculado', async () => {
+    // é o caso dos pesáveis: o de-para é identificado pela descrição
+    const vinculo = await db.execute(sqlTag`
+      SELECT produto_codigo, produto FROM produto_creare WHERE loja = 'TNP'`);
+
+    expect(vinculo.rows).toHaveLength(1);
+    expect(String(vinculo.rows[0]!.produto_codigo)).toBe('');
+    expect(String(vinculo.rows[0]!.produto)).not.toBe('');
+  });
+
+  it('desfazer o vínculo devolve o código para a fila', async () => {
+    const antes = await deParaService.pendentes('TNP', INICIO, FIM);
+    const vinculo = await db.execute(sqlTag`
+      SELECT produto_codigo, produto FROM produto_creare WHERE loja = 'TNP'`);
+    const linha = vinculo.rows[0]!;
+
+    await deParaService.vincular('TNP', String(linha.produto_codigo), String(linha.produto), null, 'ZZ Teste');
+
+    const depois = await deParaService.pendentes('TNP', INICIO, FIM);
+    expect(depois.pendentes.length).toBe(antes.pendentes.length + 1);
+  });
+
+  it('NÃO deixa vincular produto de outra loja', async () => {
+    await db.execute(sqlTag`
+      INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
+                            habilitar_ajuda, auto)
+      VALUES ('prod-li', 'LI', 'PR-LI', 'DA LISBOA', 'UN', 'revenda', 'ativo', 1, 1, false, false)
+      ON CONFLICT (id) DO NOTHING`);
+
+    await expect(deParaService.vincular('TNP', '7890000000001', 'ALGUM', 'prod-li', 'ZZ Teste'))
+      .rejects.toMatchObject({ code: 'PRODUCT_OTHER_STORE' });
+  });
+
+  it('recusa produto inexistente em vez de gravar vínculo quebrado', async () => {
+    await expect(deParaService.vincular('TNP', '123', 'ALGUM', 'nao-existe', 'ZZ Teste'))
+      .rejects.toMatchObject({ code: 'PRODUCT_NOT_FOUND' });
+
+    await expect(deParaService.vincular('TNP', '123', '   ', 'prod-ean', 'ZZ Teste'))
+      .rejects.toMatchObject({ code: 'DESCRIPTION_REQUIRED' });
   });
 });
