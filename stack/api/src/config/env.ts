@@ -94,6 +94,10 @@ export const env = {
   CREARE_EXPORT_ENABLED: envBool('CREARE_EXPORT_ENABLED', false),
   /** JSON por loja. Sem fallback: de-para fiscal e defaults precisam ser decisão explícita. */
   CREARE_STORE_CONFIG_JSON: envVar('CREARE_STORE_CONFIG_JSON', ''),
+
+  // ---- Ingestão de vendas pelo robô (TNP/Lisboa) ----
+  // Sem fallback: token ausente deixa a autenticação de máquina desabilitada.
+  VENDAS_IMPORT_TOKEN: envVar('VENDAS_IMPORT_TOKEN', ''),
 };
 
 /** Só o que é preciso para saber ONDE escrever. */

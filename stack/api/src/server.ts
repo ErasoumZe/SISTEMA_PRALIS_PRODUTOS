@@ -21,6 +21,7 @@ import { adminRoutes } from '@/modules/admin/admin.routes';
 import { productSheetRoutes } from '@/modules/google-sheets/product-sheet.routes';
 import { apoioRoutes } from '@/modules/apoio/apoio.routes';
 import { creareRoutes } from '@/modules/creare/creare.routes';
+import { vendasRoutes } from '@/modules/vendas/vendas.routes';
 
 const app = Fastify({
   logger: env.NODE_ENV === 'dev',
@@ -69,6 +70,7 @@ app.register(adminRoutes);
 app.register(productSheetRoutes);
 app.register(apoioRoutes);
 app.register(creareRoutes);
+app.register(vendasRoutes);
 
 app.get('/health', async () => ({ ok: true }));
 
@@ -77,7 +79,7 @@ app.setErrorHandler((error: Error & { statusCode?: number; validation?: unknown 
   if (error instanceof AppError) {
     return reply
       .status(error.statusCode)
-      .send({ message: error.message, data: null, details: { code: error.code } });
+      .send({ message: error.message, data: null, details: { code: error.code, data: error.details } });
   }
   // erros de validação do Zod chegam com statusCode 400
   const statusCode = error.statusCode ?? 500;

@@ -1,7 +1,7 @@
 # Módulo de relatório de vendas — desenho
 
 Data: 26/08/2026
-Status: aprovado para virar plano de implementação
+Status: fatia 1 implementada e validada localmente; ainda não ativada em produção
 Escopo: **TNP e LISBOA apenas**. A HORA fica de fora até o José dizer o
 contrário — ela usa outro PDV (`PDV_RESTAURANTE`, Firebird), outra query e é
 quase outra empresa. TNP e LI são padarias, com cadastro que vem da mesma base.
@@ -65,13 +65,42 @@ Grão: **dia × PDV × operador**. Não existe `TURNO` no agrupamento.
 ### 2.2 Formato dos valores
 
 `services/recordService.js` normaliza antes de gravar: número com **vírgula**
-decimal e data `dd/mm/aaaa`. A API precisa converter na entrada.
+decimal e data `dd/mm/aaaa`. Datas/hora `aaaa-mm-dd hh:mm:ss` recebem um
+apóstrofo inicial para o Sheets tratá-las como texto; no JSON enviado direto
+esse escape continua presente. A API precisa aceitar e remover o apóstrofo.
 
 ### 2.3 Empresas
 
 O robô manda `TNP CENTRAL` e `LISBOA CENTRAL` (a HORA está fora deste escopo).
 O Pralis usa `TNP` e `LI`. De-para fixo na ingestão; empresa desconhecida
 **recusa o lote** — inclusive `HORA`, até ser decidida.
+
+### 2.4 Validação contra os dados reais
+
+Leitura somente leitura realizada em 26/08/2026 com a conta de serviço do
+robô. A fixture anonimizada está em
+`docs/superpowers/fixtures/2026-08-26-vendas-reais-anonimizadas.json`.
+
+| Medida | Resultado |
+|---|---:|
+| Linhas de vendas analisadas | 91.562 |
+| TNP | 65.492 |
+| Lisboa | 26.070 |
+| Linhas sem `PRODUTO_CODIGO` | 105 (0,115%) |
+| Chaves naturais repetidas | 1.155 |
+| Repetições com hashes diferentes | 1.155 |
+| Quantidades ou totais inválidos | 0 |
+| Fechamentos analisados | 2.567 |
+| Fechamentos TNP/Lisboa | 2.189 |
+
+As repetições confirmam que dias são reprocessados de verdade: uma mesma
+chave natural reaparece com quantidade/total corrigidos e outro hash. Isso
+valida o `UPSERT` por chave natural e impede usar o hash como identidade.
+
+Duas células antigas de `DATA_VENDA` aparecem na planilha como número serial do
+Google Sheets. Elas são anomalias do espelho, não do contrato novo: as queries
+do robô produzem `dd/mm/aaaa`, e o `POST` parte diretamente do registro antes
+da apresentação na planilha.
 
 ## 3. Modelo de dados
 
@@ -251,7 +280,10 @@ de fatiamento — cada fatia entrega valor sozinha:
 
 1. **Ingestão**: as duas tabelas, as derivadas e o `POST /vendas/importar`.
    Sem tela. Fecha quando um lote de exemplo entra, reenvia sem duplicar e um
-   dia corrigido substitui o anterior.
+   dia corrigido substitui o anterior. **Implementada localmente em 26/08/2026:**
+   fixture real anonimizada, migração, autenticação de máquina, lote atômico,
+   testes com Postgres real e cliente do robô com fila/replay. Falta somente o
+   rollout controlado, depois do deploy da API e configuração do segredo.
 2. **Relatório sem margem**: faturamento, quantidade, ranking, curva ABC,
    ticket médio e formas de pagamento. Já é útil sem depender do join.
 3. **Margem e cobertura**: join por `barcodeCandidates`, indicador de
@@ -271,12 +303,13 @@ de fatiamento — cada fatia entrega valor sozinha:
 
 ## 9. Riscos
 
-- **O robô ainda não faz `POST`.** Ele está acessível em
-  `C:UsersJoséDesktopot` e a alteração pode ser feita aqui mesmo — não é
-  outro repositório fora de alcance. **Mas ele NÃO está versionado**: sem git,
-  sem histórico, sem desfazer, e é automação em produção rodando na TNP. Antes
-  de tocar nele, colocar sob git local (mesmo sem remoto) para haver como voltar.
-  A pasta `_original-18-08-2026` mostra que hoje o "desfazer" é cópia manual.
+- **O envio do robô ainda não está ativado.** O cliente HTTP e a fila local
+  foram implementados, mas URL e token não foram colocados nos ambientes reais;
+  portanto o comportamento em produção continua sendo apenas o Sheets. O robô
+  está acessível em `C:\Users\José\Desktop\bot`. O baseline local foi criado antes de qualquer
+  alteração no commit `cfb8cd7`, com a tag `baseline-26-08-2026`; credenciais,
+  logs e arquivos de runtime permanecem ignorados. Ainda não existe remoto para
+  esse repositório.
 - **`colaborador` fora de escopo** — depende da aba `DE_PARA_OPERADORES`.
 - **HORA fora de escopo** por decisão do José (26/08/2026): outro PDV
   (`PDV_RESTAURANTE`/Firebird), outra query, negócio diferente. Retomar só
