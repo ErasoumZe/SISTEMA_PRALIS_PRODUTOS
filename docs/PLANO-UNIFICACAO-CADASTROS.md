@@ -229,21 +229,28 @@ manter"*.
 
 ---
 
-## 6. Perguntas para o José, antes de codar
+## 6. Decisões do José — FECHADAS em 31/08/2026
 
-Nenhuma dessas deve ser adivinhada.
+Todas respondidas. Não perguntar de novo.
 
-1. **Fundir entre lojas está fora, certo?** TNP e LI mantêm cadastros próprios;
-   o que se unifica é o vínculo com o BASE. Confirmar antes de tudo.
-2. **Custo diferente entre os dois cadastros: qual vence?** Recomendação: o do
-   vencedor escolhido, com a diferença mostrada na tela antes de confirmar.
-3. **Unificar muda o histórico de vendas já fechado?** Reapontar `produto_creare`
-   muda a margem retroativa dos relatórios. Se isso for problema, a unificação
-   precisa valer só daqui para frente — e aí o desenho muda.
-4. **Quem pode unificar?** Recomendação: só admin, como já é a exclusão.
-5. **Isso precisa refletir no Creare?** Hoje não reflete nada (`CREARE_EXPORT_ENABLED=false`,
-   travado na alíquota ECF). Se um dia refletir, unificar vira mais uma coisa a
-   espelhar lá.
+1. **Fundir entre lojas: FORA.** DECIDIDO. Só duplicatas dentro da mesma loja
+   (D1). TNP e LI mantêm cadastros próprios; o código continua barrando com
+   `PRODUCT_OTHER_STORE`.
+2. **Custo diferente: vence o do cadastro vencedor.** DECIDIDO (seguindo a
+   recomendação). A diferença aparece na tela, em vermelho, antes de confirmar.
+3. **Vigência: RETROATIVO, vale para todo o histórico.** DECIDIDO. Justificativa
+   verificada no código: a margem já é recalculada na hora a partir do custo
+   atual do cadastro (`vendas-margem.ts` lê `produto.custo` no momento do
+   relatório; não há custo gravado na linha da venda). Logo, editar um custo hoje
+   já move a margem de meses passados — unificar é a MESMA classe de mudança, não
+   um risco novo. O que se move é a margem POR PRODUTO, não o fechamento de caixa
+   (receita por PDV/operador, que independe do cadastro). Desenho SIMPLES: tabela
+   de vínculo SEM data de vigência. NÃO implementar vigência por data.
+4. **Quem unifica: só admin.** DECIDIDO (seguindo a recomendação), como já é a
+   exclusão.
+5. **Refletir no Creare: NÃO por ora.** `CREARE_EXPORT_ENABLED=false`, travado na
+   alíquota ECF. Quando destravar, unificar entra na lista do que espelhar lá —
+   mas isso é trabalho de outra fase, não desta.
 
 ---
 
