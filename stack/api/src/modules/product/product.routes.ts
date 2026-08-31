@@ -3,12 +3,15 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { container } from 'tsyringe';
 import { z } from 'zod/v4';
 import { ProductController } from './product.controller';
+import { ProductDuplicadosController } from './product-duplicados.controller';
+import { ProductDuplicados } from '@pralis/shared';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { apiResponseSchema } from '@/config/api.replies';
 import { authMiddleware } from '@/middlewares/auth-handler';
 
 export async function productRoutes(app: FastifyInstance) {
   const controller = container.resolve(ProductController);
+  const duplicadosController = container.resolve(ProductDuplicadosController);
   const a = app.withTypeProvider<ZodTypeProvider>();
 
   // todas as rotas exigem autenticação
@@ -59,5 +62,19 @@ export async function productRoutes(app: FastifyInstance) {
     '/products/:id',
     { schema: { params: ProductRequests.productIdParamSchema, response: { 200: okReply }, summary: 'Excluir produto', tags: ['PRODUCTS'] } },
     controller.delete.bind(controller),
+  );
+
+  // SÓ LEITURA: esta fatia diagnostica, não funde nada.
+  a.get<{ Querystring: ProductDuplicados.DuplicadosQuery }>(
+    '/products/duplicados',
+    {
+      schema: {
+        querystring: ProductDuplicados.duplicadosQuerySchema,
+        response: { 200: apiResponseSchema(ProductDuplicados.duplicadosSchema) },
+        summary: 'Cadastros possivelmente duplicados na mesma loja (somente leitura)',
+        tags: ['PRODUTOS'],
+      },
+    },
+    duplicadosController.diagnosticar.bind(duplicadosController),
   );
 }

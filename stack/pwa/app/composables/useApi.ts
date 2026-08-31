@@ -1,4 +1,4 @@
-import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos } from '@pralis/shared';
+import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, ProductDuplicados } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
@@ -10,6 +10,7 @@ export type DeParaQuery = VendasDePara.DeParaQuery;
 export type VincularBody = VendasDePara.VincularBody;
 export type ProdutosUnicos = VendasUnicos.ProdutosUnicos;
 export type ProdutosUnicosQuery = VendasUnicos.ProdutosUnicosQuery;
+export type Duplicados = ProductDuplicados.Duplicados;
 export interface GroupTaxRule {
   grupo: string;
   cstPisCofins: string;
@@ -113,6 +114,10 @@ export function useApi() {
      */
     produtosUnicosCsvUrl: (query: Record<string, string>) =>
       `${base.baseURL}/vendas/produtos-unicos.csv?${new URLSearchParams(query).toString()}`,
+
+    /** Diagnóstico de cadastros duplicados. Só leitura — não funde nada. */
+    produtosDuplicados: (query: { loja?: string; semelhancaMinima?: number }) =>
+      unwrap($fetch<{ data: Duplicados }>('/products/duplicados', { ...base, query })),
 
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),
