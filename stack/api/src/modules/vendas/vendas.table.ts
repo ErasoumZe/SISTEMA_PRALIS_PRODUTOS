@@ -19,6 +19,14 @@ export const vendaProdutoDia = pgTable(
     data: date('data', { mode: 'string' }).notNull(),
     produtoCodigo: text('produto_codigo').notNull().default(''),
     produto: text('produto').notNull(),
+    /**
+     * ID do produto no ERP (Creare). E a identidade que sobrevive a
+     * renomeacao e a troca de codigo — sem ela, uma lista de produtos unicos
+     * num periodo longo repete o mesmo produto sob nomes diferentes.
+     * Vazio nas ~90 mil linhas anteriores a 31/08/2026; quem consulta deve
+     * cair no par (codigo, produto) quando faltar.
+     */
+    produtoIdErp: text('produto_id_erp').notNull().default(''),
     quantidade: numeric('quantidade', { precision: 16, scale: 3 }).notNull(),
     valorUnitario: numeric('valor_unitario', { precision: 16, scale: 2 }).notNull(),
     total: numeric('total', { precision: 16, scale: 2 }).notNull(),

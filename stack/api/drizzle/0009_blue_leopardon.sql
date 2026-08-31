@@ -1,0 +1,1 @@
+ALTER TABLE "venda_produto_dia" ADD COLUMN "produto_id_erp" text DEFAULT '' NOT NULL;

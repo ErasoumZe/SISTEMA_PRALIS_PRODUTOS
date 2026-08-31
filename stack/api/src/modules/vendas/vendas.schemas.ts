@@ -87,6 +87,8 @@ export const vendaProdutoInputSchema = z.object({
   EMPRESA: empresa,
   ATUALIZADO_EM: dataHora,
   HASH: hash,
+  // Coluna nova (31/08/2026): o robo antigo nao manda, entao e opcional.
+  PRODUTO_ID_ERP: valor.transform((x) => x.trim()).optional(),
 }).loose();
 
 export const fechamentoCaixaInputSchema = z.object({

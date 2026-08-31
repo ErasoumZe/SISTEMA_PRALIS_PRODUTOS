@@ -1,4 +1,4 @@
-import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara } from '@pralis/shared';
+import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
@@ -8,6 +8,8 @@ export type VendasReportQuery = VendasSchemas.VendasReportQuery;
 export type DeParaLista = VendasDePara.DeParaLista;
 export type DeParaQuery = VendasDePara.DeParaQuery;
 export type VincularBody = VendasDePara.VincularBody;
+export type ProdutosUnicos = VendasUnicos.ProdutosUnicos;
+export type ProdutosUnicosQuery = VendasUnicos.ProdutosUnicosQuery;
 export interface GroupTaxRule {
   grupo: string;
   cstPisCofins: string;
@@ -100,6 +102,17 @@ export function useApi() {
     /** Confirma (ou desfaz, com productId nulo) o vínculo. */
     vincularDePara: (body: VincularBody) =>
       $fetch('/vendas/de-para', { ...base, method: 'POST', body }),
+
+    /** Uma linha por produto vendido no período. */
+    produtosUnicos: (query: ProdutosUnicosQuery) =>
+      unwrap($fetch<{ data: ProdutosUnicos }>('/vendas/produtos-unicos', { ...base, query })),
+
+    /**
+     * URL do CSV do período INTEIRO. É link direto (não fetch) para o
+     * navegador baixar o arquivo com o nome que o servidor manda.
+     */
+    produtosUnicosCsvUrl: (query: Record<string, string>) =>
+      `${base.baseURL}/vendas/produtos-unicos.csv?${new URLSearchParams(query).toString()}`,
 
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),
