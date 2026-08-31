@@ -56,6 +56,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await db.execute(sqlTag`DELETE FROM product_merge_recusa`);
   await db.execute(sqlTag`DELETE FROM product_merge`);
   await db.execute(sqlTag`DELETE FROM produto_creare`);
   await db.execute(sqlTag`DELETE FROM products`);
@@ -217,5 +218,108 @@ describe('unificar — o que é recusado', () => {
 
     await expect(service.unificar(admin, { vencedorProductId: 'v', perdedorProductId: 'p', fiscalConfirmado: false }))
       .rejects.toMatchObject({ code: 'ALREADY_MERGED' });
+  });
+});
+
+describe('recusar — “não são o mesmo produto”', () => {
+  it('guarda a recusa com o par ORDENADO, para A-B e B-A serem a mesma', async () => {
+    await produto('a', 'TNP', 'PAO FRANCES');
+    await produto('b', 'TNP', 'PAO DE FORMA');
+
+    await service.recusar(admin, 'b', 'a'); // ordem invertida de propósito
+
+    const r = await db.execute(sqlTag`SELECT produto_a_id, produto_b_id, recusado_por FROM product_merge_recusa`);
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0]).toMatchObject({ produto_a_id: 'a', produto_b_id: 'b', recusado_por: 'Rodrigo' });
+  });
+
+  it('recusar duas vezes não duplica nem estoura', async () => {
+    await produto('a', 'TNP', 'X'); await produto('b', 'TNP', 'Y');
+    await service.recusar(admin, 'a', 'b');
+
+    await expect(service.recusar(admin, 'b', 'a')).resolves.toBeUndefined();
+    const r = await db.execute(sqlTag`SELECT count(*)::int c FROM product_merge_recusa`);
+    expect(r.rows[0]!.c).toBe(1);
+  });
+
+  it('o par recusado SOME das sugestões por nome — não volta toda semana', async () => {
+    await produto('a', 'TNP', 'PAO FRANCES KG');
+    await produto('b', 'TNP', 'PAO FRANCES QUILO');
+
+    const { ProductDuplicadosService } = await import('./product-duplicados.service');
+    const diag = new ProductDuplicadosService();
+
+    const antes = await diag.diagnosticar('TNP', 60);
+    expect(antes.grupos.some((g) => g.motivo === 'nome')).toBe(true);
+
+    await service.recusar(admin, 'a', 'b');
+
+    const depois = await diag.diagnosticar('TNP', 60);
+    expect(depois.grupos.some((g) => g.motivo === 'nome')).toBe(false);
+  });
+
+  it('não-admin não julga', async () => {
+    await produto('a', 'TNP', 'X'); await produto('b', 'TNP', 'Y');
+    await expect(service.recusar(comum, 'a', 'b')).rejects.toMatchObject({ code: 'ONLY_ADMIN_MERGE' });
+  });
+
+  it('lojas diferentes não formam par', async () => {
+    await produto('a', 'TNP', 'X'); await produto('b', 'LI', 'X');
+    await expect(service.recusar(admin, 'a', 'b')).rejects.toMatchObject({ code: 'PRODUCT_OTHER_STORE' });
+  });
+});
+
+describe('ligar à Base (caso D2)', () => {
+  it('preenche o vínculo sem copiar custo nem preço — esses são da loja', async () => {
+    await produto('base1', 'BASE', 'COCA COLA 2L');
+    await produto('loja1', 'TNP', 'COCA COLA 2L');
+    await db.execute(sqlTag`UPDATE products SET custo = 9 WHERE id = 'base1'`);
+    await db.execute(sqlTag`UPDATE products SET custo = 5 WHERE id = 'loja1'`);
+
+    await service.ligarBase(admin, 'loja1', 'base1');
+
+    const r = await db.execute(sqlTag`SELECT base_product_id, custo FROM products WHERE id = 'loja1'`);
+    expect(r.rows[0]!.base_product_id).toBe('base1');
+    expect(Number(r.rows[0]!.custo)).toBe(5); // o custo da LOJA permanece
+  });
+
+  it('o órfão some da fila de sem-base depois de ligado', async () => {
+    await produto('base1', 'BASE', 'COCA COLA 2L');
+    await produto('loja1', 'TNP', 'COCA COLA 2L');
+    const { ProductDuplicadosService } = await import('./product-duplicados.service');
+    const diag = new ProductDuplicadosService();
+
+    expect((await diag.diagnosticar('TNP', 75)).totais.semBase).toBe(1);
+    await service.ligarBase(admin, 'loja1', 'base1');
+    expect((await diag.diagnosticar('TNP', 75)).totais.semBase).toBe(0);
+  });
+
+  it('sugere a BASE por código de barras com 100%', async () => {
+    await produto('base1', 'BASE', 'COCA COLA DOIS LITROS');
+    await produto('loja1', 'TNP', 'REFRI COCA');
+    await db.execute(sqlTag`UPDATE products SET codigo_barras = '7891000100103' WHERE id IN ('base1','loja1')`);
+
+    const { ProductDuplicadosService } = await import('./product-duplicados.service');
+    const r = await new ProductDuplicadosService().diagnosticar('TNP', 90);
+    const orfao = r.grupos.find((g) => g.motivo === 'sem_base')!;
+
+    expect(orfao.sugestoesBase[0]).toMatchObject({ productId: 'base1', semelhanca: 100, porCodigoBarras: true });
+  });
+
+  it('recusa ligar num produto que não é da BASE', async () => {
+    await produto('loja1', 'TNP', 'X'); await produto('loja2', 'TNP', 'Y');
+    await expect(service.ligarBase(admin, 'loja1', 'loja2'))
+      .rejects.toMatchObject({ code: 'NOT_A_BASE_PRODUCT' });
+  });
+
+  it('recusa ligar um produto que já é da BASE', async () => {
+    await produto('base1', 'BASE', 'X'); await produto('base2', 'BASE', 'Y');
+    await expect(service.ligarBase(admin, 'base1', 'base2'))
+      .rejects.toMatchObject({ code: 'NOT_A_STORE_PRODUCT' });
+  });
+
+  it('não-admin não liga', async () => {
+    await produto('base1', 'BASE', 'X'); await produto('loja1', 'TNP', 'X');
+    await expect(service.ligarBase(comum, 'loja1', 'base1')).rejects.toMatchObject({ code: 'ONLY_ADMIN_MERGE' });
   });
 });

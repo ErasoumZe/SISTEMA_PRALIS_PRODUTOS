@@ -101,6 +101,49 @@ async function confirmarUnificacao() {
   }
 }
 
+const recusando = ref('');
+/** "Não são o mesmo": tira o par da fila para sempre. */
+async function recusar(g: GrupoDuplicado) {
+  if (g.produtos.length !== 2) return;
+  recusando.value = g.chave;
+  try {
+    await api.recusarDuplicidade({ produtoAId: g.produtos[0]!.id, produtoBId: g.produtos[1]!.id });
+    flash.value = { texto: 'Registrado. Este par não será sugerido de novo.', tipo: 'success' };
+    await carregar();
+  } catch (e: unknown) {
+    flash.value = {
+      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível registrar.',
+      tipo: 'error',
+    };
+  } finally {
+    recusando.value = '';
+  }
+}
+
+const ligando = ref('');
+/** Caso D2: pendura o produto da loja num produto da Base. */
+async function ligar(productId: string, baseProductId: string) {
+  ligando.value = productId;
+  try {
+    await api.ligarBase({ productId, baseProductId });
+    flash.value = { texto: 'Produto ligado à Base. Custo e preço da loja não foram tocados.', tipo: 'success' };
+    await carregar();
+  } catch (e: unknown) {
+    flash.value = {
+      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível ligar.',
+      tipo: 'error',
+    };
+  } finally {
+    ligando.value = '';
+  }
+}
+
+/** Unificar só no que é INDISCUTÍVEL: mesmo código, mesma loja, exatamente 2. */
+const podeUnificarGrupo = (g: GrupoDuplicado) =>
+  isAdmin.value
+  && (g.motivo === 'codigo_barras' || g.motivo === 'codigo_interno')
+  && g.produtos.length === 2;
+
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const num = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 const rotuloCampo: Record<string, string> = {
@@ -209,14 +252,24 @@ const rotuloCampo: Record<string, string> = {
           <v-spacer />
           <span class="text-body-2 font-weight-bold">{{ brl(g.faturamento90d) }}</span>
           <span class="text-caption text-medium-emphasis">90 dias</span>
-          <!-- Fatia 2: só o caso indiscutível (mesmo código de barras). -->
           <v-btn
-            v-if="isAdmin && g.motivo === 'codigo_barras' && g.produtos.length === 2"
+            v-if="podeUnificarGrupo(g)"
             size="small"
             variant="tonal"
             color="primary"
             @click="abrirUnificar(g)"
           >Unificar</v-btn>
+          <!--
+            Nome parecido é SUGESTÃO. Sem o "não são o mesmo", o par volta toda
+            semana e a tela perde a confiança de quem usa.
+          -->
+          <v-btn
+            v-if="isAdmin && g.motivo === 'nome' && g.produtos.length === 2"
+            size="small"
+            variant="text"
+            :loading="recusando === g.chave"
+            @click="recusar(g)"
+          >Não são o mesmo</v-btn>
         </div>
 
         <!--
@@ -239,6 +292,27 @@ const rotuloCampo: Record<string, string> = {
           O <strong>fiscal diverge</strong> entre estes cadastros. Unificar sem decidir qual vale
           poria imposto errado no cupom.
         </v-alert>
+
+        <!-- Caso D2: ligar, não fundir. Não copia custo nem preço. -->
+        <div v-if="g.motivo === 'sem_base' && isAdmin" class="mb-3">
+          <div v-if="!g.sugestoesBase.length" class="text-caption text-medium-emphasis">
+            Nenhum produto da Base parecido. Cadastre na Base e volte aqui.
+          </div>
+          <div v-for="s in g.sugestoesBase" :key="s.productId" class="d-flex align-center flex-wrap ga-2 mb-1">
+            <v-chip size="x-small" :color="s.porCodigoBarras ? 'success' : 'info'" variant="tonal">
+              {{ s.porCodigoBarras ? 'código de barras' : s.semelhanca + '%' }}
+            </v-chip>
+            <span class="text-body-2 text-truncate" style="max-width: 380px">{{ s.descricao || s.nome }}</span>
+            <v-spacer />
+            <v-btn
+              size="small"
+              variant="tonal"
+              color="primary"
+              :loading="ligando === g.produtos[0]!.id"
+              @click="ligar(g.produtos[0]!.id, s.productId)"
+            >Ligar à Base</v-btn>
+          </div>
+        </div>
 
         <div style="overflow-x: auto">
           <v-table density="compact">

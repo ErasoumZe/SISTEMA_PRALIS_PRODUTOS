@@ -45,4 +45,18 @@ export class ProductDuplicadosController {
     const data = await this.merge.unificar(user, request.body);
     return reply.status(200).send(buildResponse(data, 'Cadastros unificados'));
   }
+
+  async recusar(request: FastifyRequest<{ Body: ProductDuplicados.RecusarBody }>, reply: FastifyReply) {
+    const user = request.currentUser;
+    if (!user) throw new AppError('Não autenticado.', 401, 'UNAUTHENTICATED');
+    await this.merge.recusar(user, request.body.produtoAId, request.body.produtoBId);
+    return reply.status(200).send(buildResponse(null, 'Registrado: não são o mesmo produto'));
+  }
+
+  async ligarBase(request: FastifyRequest<{ Body: ProductDuplicados.LigarBaseBody }>, reply: FastifyReply) {
+    const user = request.currentUser;
+    if (!user) throw new AppError('Não autenticado.', 401, 'UNAUTHENTICATED');
+    await this.merge.ligarBase(user, request.body.productId, request.body.baseProductId);
+    return reply.status(200).send(buildResponse(null, 'Produto ligado ao catálogo Base'));
+  }
 }

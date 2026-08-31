@@ -143,3 +143,23 @@ export const productMerge = pgTable(
     uniqueIndex('uq_product_merge_perdedor').on(t.perdedorProductId),
   ],
 );
+
+/**
+ * "Estes dois NAO sao o mesmo produto."
+ *
+ * Sem isto, um par recusado por semelhanca de nome volta a ser sugerido toda
+ * semana e a tela perde a confianca de quem usa. O par e guardado ORDENADO
+ * (menor id primeiro) para que A-B e B-A sejam a mesma recusa.
+ */
+export const productMergeRecusa = pgTable(
+  'product_merge_recusa',
+  {
+    id: text('id').primaryKey().$defaultFn(() => uuidv7()),
+    loja: text('loja').notNull(),
+    produtoAId: text('produto_a_id').notNull(),
+    produtoBId: text('produto_b_id').notNull(),
+    recusadoPor: text('recusado_por'),
+    recusadoEm: timestamp('recusado_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('uq_product_merge_recusa_par').on(t.produtoAId, t.produtoBId)],
+);

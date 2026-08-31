@@ -151,4 +151,47 @@ export class ProductMergeService {
       sheetSync: espelho.outcome,
     };
   }
+
+  /**
+   * "Não são o mesmo produto." Guarda a recusa para o par não voltar à fila.
+   * Sem isso o mesmo par volta toda semana e a tela perde a confiança.
+   */
+  async recusar(user: CurrentUser, produtoAId: string, produtoBId: string): Promise<void> {
+    if (user.role !== 'admin') {
+      throw new AppError('Apenas o administrador julga duplicatas.', 403, 'ONLY_ADMIN_MERGE');
+    }
+    if (produtoAId === produtoBId) throw new AppError('Escolha dois cadastros diferentes.', 422, 'SAME_PRODUCT');
+
+    const [a, b] = await Promise.all([this.carregar(produtoAId), this.carregar(produtoBId)]);
+    if (!a || !b) throw new AppError('Produto não encontrado.', 404, 'PRODUCT_NOT_FOUND');
+    if (a.loja !== b.loja) throw new AppError('Cadastros de lojas diferentes.', 422, 'PRODUCT_OTHER_STORE');
+
+    // par ORDENADO: A-B e B-A são a mesma recusa
+    const [x, y] = [produtoAId, produtoBId].sort();
+    await db.execute(sql`
+      INSERT INTO product_merge_recusa (id, loja, produto_a_id, produto_b_id, recusado_por)
+      VALUES (gen_random_uuid()::text, ${a.loja}, ${x}, ${y}, ${user.name})
+      ON CONFLICT (produto_a_id, produto_b_id) DO NOTHING`);
+  }
+
+  /**
+   * Liga um produto de loja ao catálogo BASE (caso D2). Só preenche o vínculo:
+   * NÃO copia custo nem preço, que são de cada loja. A herança campo a campo
+   * já implementada cuida do resto a partir da próxima edição da BASE.
+   */
+  async ligarBase(user: CurrentUser, productId: string, baseProductId: string): Promise<void> {
+    if (user.role !== 'admin') {
+      throw new AppError('Apenas o administrador liga produtos à Base.', 403, 'ONLY_ADMIN_MERGE');
+    }
+    const [produto, base] = await Promise.all([this.carregar(productId), this.carregar(baseProductId)]);
+    if (!produto || !base) throw new AppError('Produto não encontrado.', 404, 'PRODUCT_NOT_FOUND');
+    if (produto.loja === 'BASE') {
+      throw new AppError('Só produtos de loja se ligam à Base.', 422, 'NOT_A_STORE_PRODUCT');
+    }
+    if (base.loja !== 'BASE') {
+      throw new AppError('O destino precisa ser um produto do catálogo Base.', 422, 'NOT_A_BASE_PRODUCT');
+    }
+    await db.execute(sql`
+      UPDATE products SET base_product_id = ${baseProductId} WHERE id = ${productId}`);
+  }
 }

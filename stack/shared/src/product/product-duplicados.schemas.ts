@@ -38,6 +38,17 @@ export const produtoDuplicadoSchema = z.object({
   faturamento90d: z.number(),
 });
 
+/** Candidato do catálogo BASE para um produto de loja órfão (caso D2). */
+export const sugestaoBaseSchema = z.object({
+  productId: z.string(),
+  nome: z.string(),
+  descricao: z.string(),
+  codigoBarras: z.string().nullable(),
+  /** 0..100. 100 quando o casamento foi por código de barras. */
+  semelhanca: z.number(),
+  porCodigoBarras: z.boolean(),
+});
+
 export const grupoDuplicadoSchema = z.object({
   motivo: motivoDuplicidade,
   /** O que os une: o código, ou o par de nomes. */
@@ -50,6 +61,8 @@ export const grupoDuplicadoSchema = z.object({
   fiscalDiverge: z.boolean(),
   faturamento90d: z.number(),
   produtos: z.array(produtoDuplicadoSchema),
+  /** Só em grupos `sem_base`: candidatos da BASE para ligar. */
+  sugestoesBase: z.array(sugestaoBaseSchema),
 });
 
 export const duplicadosSchema = z.object({
@@ -106,5 +119,23 @@ export const unificarResultSchema = z.object({
   sheetSync: z.string(),
 });
 
+/** "Não são o mesmo": guarda a recusa para o par não voltar a ser sugerido. */
+export const recusarBodySchema = z.object({
+  produtoAId: z.string().min(1),
+  produtoBId: z.string().min(1),
+});
+
+/**
+ * Ligar produto de loja ao catálogo BASE (caso D2). Só preenche o vínculo —
+ * NÃO copia custo nem preço, que são de cada loja.
+ */
+export const ligarBaseBodySchema = z.object({
+  productId: z.string().min(1),
+  baseProductId: z.string().min(1),
+});
+
+export type RecusarBody = z.output<typeof recusarBodySchema>;
+export type LigarBaseBody = z.output<typeof ligarBaseBodySchema>;
+export type SugestaoBase = z.output<typeof sugestaoBaseSchema>;
 export type UnificarBody = z.output<typeof unificarBodySchema>;
 export type UnificarResult = z.output<typeof unificarResultSchema>;

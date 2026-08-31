@@ -106,6 +106,31 @@ function voltarAHerdar() {
   });
 }
 
+/**
+ * Fatia 5 (prevenir): avisa na hora se o código de barras já existe neste
+ * catálogo. Salvar já era recusado com DUPLICATE_PRODUCT — mas descobrir isso
+ * só depois de preencher o formulário inteiro é o que faz a pessoa forçar.
+ * Aviso, não bloqueio: existe caso legítimo de mesmo EAN (kit, fracionado).
+ */
+const barrasJaExiste = ref<{ nome: string; id: string } | null>(null);
+let buscaBarras: ReturnType<typeof setTimeout> | null = null;
+
+watch(() => form.codigoBarras, (valor) => {
+  barrasJaExiste.value = null;
+  if (buscaBarras) clearTimeout(buscaBarras);
+  const codigo = (valor ?? "").replace(/\D/g, "");
+  if (codigo.length < 6) return; // curto demais para significar alguma coisa
+  buscaBarras = setTimeout(async () => {
+    try {
+      const achados = await api.listProducts(codigo);
+      const outro = achados.find((p) => p.codigoBarras === codigo && p.id !== props.productId);
+      barrasJaExiste.value = outro ? { nome: outro.nome, id: outro.id } : null;
+    } catch {
+      barrasJaExiste.value = null; // a busca é conveniência: falhar não atrapalha o cadastro
+    }
+  }, 500);
+});
+
 const groupTaxRules = ref<GroupTaxRule[]>([]);
 const loadingGroups = ref(false);
 const groupRulesError = ref('');
@@ -564,6 +589,17 @@ onMounted(async () => {
               append-inner-icon="barcode_scanner"
               @click:append-inner="scanOpen = true"
             />
+            <v-alert
+              v-if="barrasJaExiste"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mt-1"
+            >
+              Já existe <strong>{{ barrasJaExiste.nome }}</strong> com este código de barras neste
+              catálogo. Confira antes de cadastrar de novo —
+              <NuxtLink :to="`/produtos/${barrasJaExiste.id}`" class="text-primary">abrir o existente</NuxtLink>.
+            </v-alert>
           </v-col>
           <v-col v-if="productId" cols="12" sm="6">
             <v-text-field

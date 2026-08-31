@@ -128,6 +128,14 @@ export function useApi() {
         ...base, method: 'POST', body,
       })),
 
+    /** "Não são o mesmo produto": o par não volta a ser sugerido. */
+    recusarDuplicidade: (body: { produtoAId: string; produtoBId: string }) =>
+      $fetch('/products/duplicados/recusar', { ...base, method: 'POST', body }),
+
+    /** Liga um produto de loja ao catálogo Base. Não copia custo nem preço. */
+    ligarBase: (body: { productId: string; baseProductId: string }) =>
+      $fetch('/products/ligar-base', { ...base, method: 'POST', body }),
+
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),
     listUsers: () => unwrap($fetch<{ data: AdminUser[] }>('/admin/users', { ...base })),

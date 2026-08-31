@@ -111,8 +111,53 @@ export class ProductDuplicadosService {
     return { porProduto, porChave };
   }
 
+  /** Pares que uma pessoa já disse não serem o mesmo produto. */
+  private async recusas(): Promise<Set<string>> {
+    const r = await db.execute(sql`SELECT produto_a_id, produto_b_id FROM product_merge_recusa`);
+    return new Set(r.rows.map((x) => `${String(x.produto_a_id)}|${String(x.produto_b_id)}`));
+  }
+
+  /**
+   * Candidatos da BASE para um produto de loja órfão (caso D2). Código de
+   * barras vale 100 e vem primeiro; nome é sugestão e depende do piso.
+   */
+  private sugerirBase(
+    p: LinhaProduto, base: LinhaProduto[], indiceBase: Map<string, ProdutoCadastro>, piso: number,
+  ): ProductDuplicados.SugestaoBase[] {
+    const porBarras = resolverProduto(p.codigoBarras ?? '', p.nome, indiceBase, new Map());
+    const saida: ProductDuplicados.SugestaoBase[] = [];
+    if (porBarras) {
+      const achado = base.find((b) => b.id === porBarras.id);
+      if (achado) {
+        saida.push({
+          productId: achado.id, nome: achado.nome,
+          descricao: ProductRules.montarDescricao(achado.nome, achado.quantidade ?? 0, achado.medidaBase ?? ''),
+          codigoBarras: achado.codigoBarras, semelhanca: 100, porCodigoBarras: true,
+        });
+      }
+    }
+    for (const b of base) {
+      if (saida.some((s) => s.productId === b.id)) continue;
+      const sem = Math.max(semelhanca(p.nome, b.nome), semelhanca(
+        ProductRules.montarDescricao(p.nome, p.quantidade ?? 0, p.medidaBase ?? ''),
+        ProductRules.montarDescricao(b.nome, b.quantidade ?? 0, b.medidaBase ?? ''),
+      ));
+      if (sem < piso) continue;
+      saida.push({
+        productId: b.id, nome: b.nome,
+        descricao: ProductRules.montarDescricao(b.nome, b.quantidade ?? 0, b.medidaBase ?? ''),
+        codigoBarras: b.codigoBarras, semelhanca: sem, porCodigoBarras: false,
+      });
+    }
+    return saida.sort((a, b) => b.semelhanca - a.semelhanca).slice(0, 5);
+  }
+
   async diagnosticar(loja: Catalogo, semelhancaMinima: number): Promise<ProductDuplicados.Duplicados> {
     const produtos = await this.produtos(loja);
+    const recusados = await this.recusas();
+    // catálogo BASE só é carregado quando há órfão para ligar
+    const base = loja === 'BASE' ? [] : await this.produtos('BASE');
+    const indiceBase = indexarPorCodigo(base);
     const { porProduto: faturamento, porChave } = await this.faturamento90d(loja, produtos);
     const grupos: ProductDuplicados.GrupoDuplicado[] = [];
 
@@ -160,6 +205,9 @@ export class ProductDuplicadosService {
             : saida.reduce((s, p) => s + p.faturamento90d, 0)) * 100,
         ) / 100,
         produtos: saida,
+        sugestoesBase: motivo === 'sem_base' && itens[0]
+          ? this.sugerirBase(itens[0], base, indiceBase, semelhancaMinima)
+          : [],
       };
     };
 
@@ -207,6 +255,9 @@ export class ProductDuplicadosService {
             ProductRules.montarDescricao(b.nome, b.quantidade ?? 0, b.medidaBase ?? ''),
           ));
           if (sem < semelhancaMinima) continue;
+          // par que alguém já disse não ser o mesmo não volta a ser sugerido
+          const [x, y] = [a.id, b.id].sort();
+          if (recusados.has(`${x}|${y}`)) continue;
           vistos.add(par);
           grupos.push(montar('nome', `${a.nome} ≈ ${b.nome}`, [a, b], sem));
         }

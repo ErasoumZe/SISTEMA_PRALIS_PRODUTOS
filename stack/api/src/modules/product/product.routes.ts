@@ -90,4 +90,30 @@ export async function productRoutes(app: FastifyInstance) {
     },
     duplicadosController.unificar.bind(duplicadosController),
   );
+
+  a.post<{ Body: ProductDuplicados.RecusarBody }>(
+    '/products/duplicados/recusar',
+    {
+      schema: {
+        body: ProductDuplicados.recusarBodySchema,
+        response: { 200: apiResponseSchema(z.null()) },
+        summary: 'Marcar que dois cadastros NÃO são o mesmo produto',
+        tags: ['PRODUTOS'],
+      },
+    },
+    duplicadosController.recusar.bind(duplicadosController),
+  );
+
+  a.post<{ Body: ProductDuplicados.LigarBaseBody }>(
+    '/products/ligar-base',
+    {
+      schema: {
+        body: ProductDuplicados.ligarBaseBodySchema,
+        response: { 200: apiResponseSchema(z.null()) },
+        summary: 'Ligar um produto de loja ao catálogo Base (não copia custo nem preço)',
+        tags: ['PRODUTOS'],
+      },
+    },
+    duplicadosController.ligarBase.bind(duplicadosController),
+  );
 }
