@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Duplicados } from '~/composables/useApi';
+import type { Duplicados, GrupoDuplicado } from '~/composables/useApi';
 
 const api = useApi();
 const { user } = useAuth();
@@ -47,6 +47,60 @@ watch([loja, semelhancaMinima], carregar);
 
 const visiveis = computed(() => (dados.value?.grupos ?? []).filter((g) => filtro.value.includes(g.motivo)));
 
+const flash = useFlash();
+const mostrarFlash = computed({
+  get: () => !!flash.value,
+  set: (v: boolean) => { if (!v) flash.value = null; },
+});
+
+/**
+ * Unificação: o admin escolhe qual LINHA sobrevive, não campo a campo — é
+ * onde esse tipo de tela vira um formulário que ninguém termina.
+ */
+const unificarDialog = ref(false);
+const grupoAlvo = ref<GrupoDuplicado | null>(null);
+const vencedorId = ref<string | null>(null);
+const fiscalConfirmado = ref(false);
+const unificando = ref(false);
+
+function abrirUnificar(g: GrupoDuplicado) {
+  grupoAlvo.value = g;
+  // ninguém vem pré-escolhido: a escolha precisa ser consciente
+  vencedorId.value = null;
+  fiscalConfirmado.value = false;
+  unificarDialog.value = true;
+}
+
+const perdedores = computed(() =>
+  (grupoAlvo.value?.produtos ?? []).filter((p) => p.id !== vencedorId.value));
+
+const podeUnificar = computed(() =>
+  !!vencedorId.value
+  && perdedores.value.length === 1
+  && (!grupoAlvo.value?.fiscalDiverge || fiscalConfirmado.value));
+
+async function confirmarUnificacao() {
+  if (!podeUnificar.value || !grupoAlvo.value) return;
+  unificando.value = true;
+  try {
+    await api.unificarProdutos({
+      vencedorProductId: vencedorId.value!,
+      perdedorProductId: perdedores.value[0]!.id,
+      fiscalConfirmado: fiscalConfirmado.value,
+    });
+    flash.value = { texto: 'Cadastros unificados. O perdedor foi aposentado, não apagado.', tipo: 'success' };
+    unificarDialog.value = false;
+    await carregar();
+  } catch (e: unknown) {
+    flash.value = {
+      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível unificar.',
+      tipo: 'error',
+    };
+  } finally {
+    unificando.value = false;
+  }
+}
+
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const num = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 const rotuloCampo: Record<string, string> = {
@@ -91,14 +145,18 @@ const rotuloCampo: Record<string, string> = {
 
     <template v-else-if="dados">
       <!--
-        Esta fatia é DIAGNÓSTICO. Não existe botão de fundir aqui de propósito:
-        ninguém sabia se eram 12 duplicatas ou 1.200, e esse número é que decide
-        se a unificação precisa de ação em lote ou de um modal por vez.
+        Unificar só está liberado no caso INDISCUTÍVEL: mesmo código de barras,
+        mesma loja, exatamente dois cadastros. Nome parecido é sugestão e ainda
+        não tem botão — julgar semelhança é outra fatia.
       -->
       <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-        Esta tela apenas <strong>mostra</strong>. Nada é alterado aqui.
         {{ num(dados.produtosAnalisados) }} produto(s) analisados no catálogo
         <strong>{{ dados.loja }}</strong>.
+        <template v-if="isAdmin">
+          Só é possível unificar quando o <strong>código de barras é o mesmo</strong> —
+          os demais grupos são diagnóstico.
+        </template>
+        <template v-else>Esta tela apenas <strong>mostra</strong>: unificar é do administrador.</template>
       </v-alert>
 
       <v-row class="mb-1">
@@ -151,6 +209,14 @@ const rotuloCampo: Record<string, string> = {
           <v-spacer />
           <span class="text-body-2 font-weight-bold">{{ brl(g.faturamento90d) }}</span>
           <span class="text-caption text-medium-emphasis">90 dias</span>
+          <!-- Fatia 2: só o caso indiscutível (mesmo código de barras). -->
+          <v-btn
+            v-if="isAdmin && g.motivo === 'codigo_barras' && g.produtos.length === 2"
+            size="small"
+            variant="tonal"
+            color="primary"
+            @click="abrirUnificar(g)"
+          >Unificar</v-btn>
         </div>
 
         <!--
@@ -206,5 +272,83 @@ const rotuloCampo: Record<string, string> = {
         </div>
       </v-card>
     </template>
+
+    <v-snackbar v-model="mostrarFlash" :color="flash?.tipo ?? 'success'" :timeout="flash?.tipo === 'success' ? 5000 : 9000" location="top">
+      {{ flash?.texto }}
+      <template #actions><v-btn variant="text" @click="mostrarFlash = false">Fechar</v-btn></template>
+    </v-snackbar>
+
+    <v-dialog v-model="unificarDialog" max-width="920" scrollable>
+      <v-card v-if="grupoAlvo" rounded="lg">
+        <v-card-title class="text-subtitle-1 font-weight-bold">Unificar cadastros</v-card-title>
+        <v-card-text>
+          <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+            Escolha <strong>qual cadastro sobrevive</strong>. O outro é
+            <strong>aposentado, não apagado</strong>: some das listagens, mas continua no banco
+            com um retrato completo, e os vínculos de venda passam para o vencedor.
+          </v-alert>
+
+          <v-alert v-if="grupoAlvo.fiscalDiverge" type="error" variant="tonal" density="compact" class="mb-4">
+            <div class="mb-2">
+              <strong>O fiscal diverge.</strong> Isso significa que estes cadastros
+              <strong>não eram iguais</strong>. Ao unificar, passa a valer o NCM, CST e alíquota do vencedor.
+            </div>
+            <v-checkbox
+              v-model="fiscalConfirmado"
+              density="compact"
+              hide-details
+              label="Conferi e assumo o fiscal do cadastro vencedor"
+            />
+          </v-alert>
+
+          <div style="overflow-x: auto">
+            <v-table density="compact">
+              <thead>
+                <tr>
+                  <th class="text-left">Sobrevive</th>
+                  <th class="text-left">Produto</th>
+                  <th class="text-left">Cód. barras</th>
+                  <th class="text-left">Interno</th>
+                  <th class="text-right">Custo</th>
+                  <th class="text-right">V. Venda</th>
+                  <th class="text-left">NCM</th>
+                  <th class="text-left">CST</th>
+                  <th class="text-right">90 dias</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="p in grupoAlvo.produtos" :key="p.id">
+                  <td>
+                    <v-radio-group v-model="vencedorId" hide-details density="compact">
+                      <v-radio :value="p.id" />
+                    </v-radio-group>
+                  </td>
+                  <td :class="grupoAlvo.camposDiferentes.includes('nome') ? 'text-error font-weight-bold' : ''">{{ p.descricao || p.nome }}</td>
+                  <td class="text-no-wrap">{{ p.codigoBarras || '—' }}</td>
+                  <td class="text-no-wrap">{{ p.codigoInterno || '—' }}</td>
+                  <td class="text-right" :class="grupoAlvo.camposDiferentes.includes('custo') ? 'text-error font-weight-bold' : ''">{{ p.custo == null ? '—' : brl(p.custo) }}</td>
+                  <td class="text-right" :class="grupoAlvo.camposDiferentes.includes('vVendaPontual') ? 'text-error font-weight-bold' : ''">{{ p.vVendaPontual == null ? '—' : brl(p.vVendaPontual) }}</td>
+                  <td :class="grupoAlvo.camposDiferentes.includes('ncm') ? 'text-error font-weight-bold' : ''">{{ p.ncm || '—' }}</td>
+                  <td :class="grupoAlvo.camposDiferentes.includes('cstPisCofins') ? 'text-error font-weight-bold' : ''">{{ p.cstPisCofins || '—' }}</td>
+                  <td class="text-right">{{ brl(p.faturamento90d) }}</td>
+                </tr>
+              </tbody>
+            </v-table>
+          </div>
+
+          <div v-if="grupoAlvo.camposDiferentes.length" class="text-caption text-error mt-2">
+            Em vermelho, os campos que <strong>diferem</strong>. "Os dados se mantêm porque são
+            iguais" precisa ser conferido, não assumido.
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="unificarDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" variant="flat" :disabled="!podeUnificar" :loading="unificando" @click="confirmarUnificacao">
+            Unificar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>

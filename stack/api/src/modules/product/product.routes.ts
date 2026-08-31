@@ -77,4 +77,17 @@ export async function productRoutes(app: FastifyInstance) {
     },
     duplicadosController.diagnosticar.bind(duplicadosController),
   );
+
+  a.post<{ Body: ProductDuplicados.UnificarBody }>(
+    '/products/unificar',
+    {
+      schema: {
+        body: ProductDuplicados.unificarBodySchema,
+        response: { 200: apiResponseSchema(ProductDuplicados.unificarResultSchema) },
+        summary: 'Unificar dois cadastros da mesma loja (não apaga: aposenta o perdedor)',
+        tags: ['PRODUTOS'],
+      },
+    },
+    duplicadosController.unificar.bind(duplicadosController),
+  );
 }

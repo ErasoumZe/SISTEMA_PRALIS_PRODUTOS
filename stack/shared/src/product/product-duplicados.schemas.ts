@@ -78,3 +78,33 @@ export type GrupoDuplicado = z.output<typeof grupoDuplicadoSchema>;
 export type Duplicados = z.output<typeof duplicadosSchema>;
 export type DuplicadosQuery = z.output<typeof duplicadosQuerySchema>;
 export type MotivoDuplicidade = z.output<typeof motivoDuplicidade>;
+
+/**
+ * Pedido de unificação. O admin escolhe qual LINHA sobrevive — não campo a
+ * campo, que é onde esse tipo de tela vira um formulário que ninguém termina.
+ */
+export const unificarBodySchema = z.object({
+  vencedorProductId: z.string().min(1),
+  perdedorProductId: z.string().min(1),
+  /**
+   * O admin viu a divergência fiscal e assumiu que o NCM/CST/alíquota do
+   * vencedor é o correto. Sem isso, unificar com fiscal divergente é RECUSADO:
+   * o mesmo princípio de nunca inventar alíquota.
+   */
+  fiscalConfirmado: z.boolean().default(false),
+});
+
+export const unificarResultSchema = z.object({
+  loja: catalogo,
+  vencedorProductId: z.string(),
+  perdedorProductId: z.string(),
+  /** Vínculos de venda que passaram a apontar para o vencedor. */
+  vinculosReapontados: z.number(),
+  /** Produtos de loja que penduravam no perdedor e foram reapontados. */
+  filhosReapontados: z.number(),
+  /** Como ficou o espelho da planilha ao aposentar o perdedor. */
+  sheetSync: z.string(),
+});
+
+export type UnificarBody = z.output<typeof unificarBodySchema>;
+export type UnificarResult = z.output<typeof unificarResultSchema>;

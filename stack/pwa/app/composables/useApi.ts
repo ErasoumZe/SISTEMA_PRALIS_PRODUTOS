@@ -11,6 +11,9 @@ export type VincularBody = VendasDePara.VincularBody;
 export type ProdutosUnicos = VendasUnicos.ProdutosUnicos;
 export type ProdutosUnicosQuery = VendasUnicos.ProdutosUnicosQuery;
 export type Duplicados = ProductDuplicados.Duplicados;
+export type GrupoDuplicado = ProductDuplicados.GrupoDuplicado;
+export type ProdutoDuplicado = ProductDuplicados.ProdutoDuplicado;
+export type UnificarBody = ProductDuplicados.UnificarBody;
 export interface GroupTaxRule {
   grupo: string;
   cstPisCofins: string;
@@ -118,6 +121,12 @@ export function useApi() {
     /** Diagnóstico de cadastros duplicados. Só leitura — não funde nada. */
     produtosDuplicados: (query: { loja?: string; semelhancaMinima?: number }) =>
       unwrap($fetch<{ data: Duplicados }>('/products/duplicados', { ...base, query })),
+
+    /** Funde dois cadastros da mesma loja. Não apaga: aposenta o perdedor. */
+    unificarProdutos: (body: UnificarBody) =>
+      unwrap($fetch<{ data: ProductDuplicados.UnificarResult }>('/products/unificar', {
+        ...base, method: 'POST', body,
+      })),
 
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),

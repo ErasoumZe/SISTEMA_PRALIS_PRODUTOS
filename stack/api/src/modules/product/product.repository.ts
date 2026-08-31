@@ -1,5 +1,5 @@
 import { injectable } from 'tsyringe';
-import { and, eq, ilike, inArray, or, desc, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, ilike, inArray, or, desc, isNotNull, sql, ne } from 'drizzle-orm';
 import { db, Tx } from '@/db/databases';
 import { ProductSchemas, ProductRequests } from '@pralis/shared';
 import { products, productTransformacao, productFiscal, promocoes } from './product.table';
@@ -223,7 +223,9 @@ export class ProductRepository {
     filter: ProductRequests.ListProductQuery,
     importadosNaLoja?: Catalogo | null,
   ): Promise<ProductEntity[]> {
-    const conditions = [eq(products.loja, loja)];
+    // Cadastro aposentado por unificação some das listagens — continua no
+    // banco para o desfazer, mas não é mais um produto.
+    const conditions = [eq(products.loja, loja), ne(products.status, 'unificado')];
     if (filter.tipo) conditions.push(eq(products.tipo, filter.tipo));
     if (filter.status) conditions.push(eq(products.status, filter.status));
     if (filter.q) {

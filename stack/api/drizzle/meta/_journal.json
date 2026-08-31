@@ -71,6 +71,13 @@
       "when": 1788214006311,
       "tag": "0009_blue_leopardon",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788215581891,
+      "tag": "0010_famous_captain_britain",
+      "breakpoints": true
     }
   ]
 }
