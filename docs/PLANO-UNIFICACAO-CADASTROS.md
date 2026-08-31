@@ -33,9 +33,12 @@ if (produto.loja !== loja) {
 }
 ```
 
-**Antes de escrever qualquer linha, confirme esse entendimento com o José.**
-Se ele quiser mesmo fundir cadastros entre lojas, o pedido é outro (unificar o
-catálogo BASE) e o plano muda.
+**DECISÃO DO JOSÉ — FECHADA em 31/08/2026:** fundir SÓ dentro da mesma loja
+(caso **D1**). NÃO fundir entre lojas — a Coca da TNP e a Coca da LI têm custo e
+preço próprios e continuam cadastros distintos. O código já protege isso
+(`PRODUCT_OTHER_STORE`) e deve continuar protegendo. Ordem de ataque: **D1
+primeiro**, depois **D2** (ligar loja↔BASE), e **D3** (fundir dois BASE) fica
+fora do escopo por ora — só se o José pedir explicitamente no futuro.
 
 ### Os três casos reais
 
