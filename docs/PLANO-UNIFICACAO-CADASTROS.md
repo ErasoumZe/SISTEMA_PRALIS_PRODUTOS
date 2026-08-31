@@ -1,5 +1,30 @@
 # Unificação de cadastros duplicados — plano de ação
 
+## 0. Estado — 31/08/2026
+
+| Fatia | Estado | Commit |
+|---|---|---|
+| 1 — diagnóstico | **feita** | `6196021` |
+| 2 — unificar por código de barras | **feita** | `5b31b95` |
+| 3 — julgar as parecidas | **feita** | `df145f3` |
+| 4 — ligar loja↔BASE | **feita** | `df145f3` |
+| 5 — prevenir (aviso ao digitar) | **feita** | `df145f3` |
+| 5 — prevenir (índice único) | **PENDENTE, de propósito** | — |
+
+O **índice único em `(loja, codigo_barras)` não foi adicionado**: o projeto
+aplica schema com `drizzle-kit push --force` no `start:prod`, então subir o
+índice enquanto ainda existir duplicata **derruba o deploy**. Ele entra
+depois de a limpeza acontecer de verdade na tela, em produção.
+
+Unificar também foi liberado para **mesmo código interno** na mesma loja: é
+tão indiscutível quanto o código de barras. Nome parecido continua sem botão
+de fundir — ali o caminho é recusar ou abrir o produto.
+
+**Correção à seção 3.1:** a colisão temida ao reapontar `produto_creare` NÃO
+existe. `uq_produto_creare_natural` é `(loja, produto_codigo, produto)` e não
+inclui `product_id` — uma venda só pertence a um produto. Há teste guardando
+essa premissa.
+
 > Escrito em 26/08/2026 a partir da leitura do código em
 > `homologacao/cadastro-produtos-2026-08-25` (HEAD `4526c52`).
 > Destinado ao Claude Code. Tudo que está marcado **VERIFICADO** foi lido no

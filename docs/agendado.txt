@@ -1,0 +1,20 @@
+ 
+===== 26/08/2026 16:28:04,24 ===== 
+[2026-08-26T19:28:27.825Z] Empresa: TNP CENTRAL | reprocessando 15 dia(s)
+Abas na planilha secundaria: VENDAS_PRODUTOS
+Celulas (principal): 8.567.451 usadas, 1.432.549 livres (~275 dia(s) no ritmo atual). Maior aba: (TNP) GRUPO VENDAS - FECHAMENTO CAIXA PDV com 602.653.
+Celulas (secundaria): 1.387.630 usadas, 8.612.370 livres (~1656 dia(s) no ritmo atual). Maior aba: VENDAS_PRODUTOS com 1.309.630.
+CREARE_COMPILART/CREARE_COMPILART_FECHAMENTO_CAIXA.sql: data_referencia=2026-08-12, lidos=78, inseridos=3, ignorados=75
+CREARE_COMPILART/CREARE_COMPILART_ITENS_VENDAS_CANCELADAS.sql: data_referencia=2026-08-11, lidos=2, inseridos=0, ignorados=2
+CREARE_COMPILART/CREARE_COMPILART_ITENS_VENDAS_CREDIARIO.sql: data_referencia=2026-08-12, lidos=469, inseridos=1, ignorados=468
+CREARE_COMPILART/CREARE_COMPILART_ITENS_VENDAS_DIARIAS.sql: data_referencia=2026-08-12, lidos=4310, inseridos=94, ignorados=4216
+Sincronizacao concluida. lidos=4859, inseridos=98, ignorados=4761, erros=0
+[2026-08-26T19:28:46.980Z] OK
+ 
+===== 26/08/2026 22:10:00,07 ===== 
+[2026-08-27T01:10:01.785Z] Empresa: TNP CENTRAL | reprocessando 3 dia(s)
+[2026-08-27T01:10:01.791Z] FALHOU: Error: Outra execucao esta em andamento (PID 14952, comecou ha 0 min): C:\Users\Server-Pralis\Documents\bot\.runtime\bot.lock. Espere ela terminar. Se tiver certeza de que aquele processo travou, encerre o PID 14952 e apague o arquivo.
+    at acquireLock (C:\Users\Server-Pralis\Documents\bot\services\lockService.js:53:13)
+    at async withLock (C:\Users\Server-Pralis\Documents\bot\services\lockService.js:111:3)
+    at async executeOnce (C:\Users\Server-Pralis\Documents\bot\index.js:44:3)
+    at async C:\Users\Server-Pralis\Documents\bot\rodar-uma-vez.js:30:5

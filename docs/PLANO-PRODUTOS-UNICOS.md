@@ -1,5 +1,12 @@
 # Lista de produtos únicos vendidos no período — plano de ação
 
+## 0. Estado — 31/08/2026
+
+- Fatia 0 (`produtos-unicos.js`): pronta e agora **versionada** no robô.
+- Fatia 1 (`ID_PRODUTO` ponta a ponta): **feita** — robô `2366b6d`, Pralis `dbd03c3`.
+- Fatia 2 (tela + CSV): **feita** — `dbd03c3`, em `/vendas/produtos`.
+- Pré-requisito da seção 7 (**backfill**): PENDENTE — depende da máquina da loja.
+
 > Escrito em 26/08/2026 a partir da leitura do código em
 > `homologacao/cadastro-produtos-2026-08-25` (HEAD `4526c52`) e das consultas
 > do robô. **VERIFICADO** = lido no código, não suposto.
