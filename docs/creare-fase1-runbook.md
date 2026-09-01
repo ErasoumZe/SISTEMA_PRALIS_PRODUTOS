@@ -98,16 +98,22 @@ no SIA — grupo e alíquota vêm de lá. Ver `creare-aliquota-ecf.md`.
 
 ## 5. Automação das 22:30
 
-O robô da Lisboa lê `C:\cadastro-sia\cadastro-lisboa.txt`. Basta um passo de
-download no começo dele:
+O robô da Lisboa lê `C:\cadastro-sia\cadastro-lisboa.txt`. O passo de download
+está versionado em [`automacao/robo-sia/`](../automacao/robo-sia/README.md):
 
 ```powershell
-Invoke-WebRequest -Headers @{ Authorization = "Bearer $env:CREARE_EXPORT_TOKEN" } `
-  -Uri "https://produtos.cicluzai.com.br/creare/produtos.txt?loja=LI" `
-  -OutFile "C:\cadastro-sia\cadastro-lisboa.txt"
+.\baixar-cadastro.ps1                # catálogo todo
+.\baixar-cadastro.ps1 -Limite 10     # a execução de conferência do passo 3
 ```
 
-O token vive numa variável de ambiente da máquina — **nunca dentro do script**.
+Ele lê `PRALIS_API_BASE` e `CREARE_EXPORT_TOKEN` das **variáveis de ambiente da
+máquina** — nunca de dentro do script, que é versionado. Valida as 363 posições
+antes de trocar o arquivo, e se o download falhar **não mexe no arquivo que já
+existe** (importar o catálogo de ontem é pior que não importar).
+
+`PRALIS_API_BASE` é o domínio da **API** (`API_URL` no Coolify), que é diferente
+do domínio do site (`APP_URL`) — são dois serviços no
+`docker-compose.coolify.yaml`.
 
 ## O que a exportação recusa, e por quê
 
