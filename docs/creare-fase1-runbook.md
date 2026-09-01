@@ -47,17 +47,34 @@ Importe esse arquivo no Criare, aplique ao cadastro e confira no log
 
 ### O que conferir nesses 10 primeiros — não pule
 
-**O custo.** O layout grava o custo com **3 casas decimais**. No TXT do
-fornecedor a SKOL 473ML sai com `0000000100`, que por essa regra é **R$ 0,10** —
-e não R$ 1,00. Pode ser um valor de teste do fornecedor, ou pode ser que o campo
-tenha 2 casas de verdade.
+**O custo — esta é a decisão que só os 10 primeiros respondem.**
 
-Depois de aplicar os 10, **abra um deles no SIA e olhe o custo**. Se entrou
-dividido por 10, o `decimalPlaces.cost` do layout precisa mudar antes de
-liberar o catálogo inteiro. Custo errado contamina margem e precificação.
+O campo sai hoje com **3 casas decimais**. No TXT do fornecedor a SKOL 473ML,
+que vende a R$ 6,90, sai com `0000000100`: isso é **R$ 0,10** a 3 casas e
+**R$ 1,00** a 2. O arquivo do fornecedor não desempata, e adivinhar contamina
+margem e precificação do catálogo inteiro.
+
+O `GET /admin/creare/health` traz `amostraCusto` com até 5 produtos já mostrando
+as duas leituras lado a lado:
+
+```jsonc
+{
+  "nome": "CERVEJA",
+  "custoNoPralis": 1,
+  "casasConfiguradas": 3,
+  "campoGravado": "0000001000",   // o que vai nas posições 143-152
+  "seSiaLerCom2Casas": 10,        // se o SIA mostrar R$ 10,00 -> são 2 casas
+  "seSiaLerCom3Casas": 1          // se mostrar R$ 1,00 -> são 3, está certo
+}
+```
+
+**Depois de aplicar os 10, abra um desses produtos no SIA e veja qual coluna
+bate.** Se bater a de 2 casas, mude `decimalPlaces.cost` para `2` no
+`CREARE_STORE_CONFIG_JSON` — é um valor só, num lugar só, e nada mais no arquivo
+muda (há teste garantindo que preço e estoque não se mexem).
 
 A mesma dúvida vale para `quantity` (no exemplo, `0000000096` com 3 casas seria
-0,096).
+0,096), mas esse campo sai sempre `0` na Fase 1, então não atrapalha agora.
 
 ## 4. Só então ligar
 
@@ -78,6 +95,7 @@ O que a config precisa ter, com os valores que o TXT do fornecedor comprova:
     "groupCodes": {},          // não usado quando há casamento no SIA
     "decimalPlaces": {
       "unitPrice": 2,          // confirmado: 0000000690 = R$ 6,90
+      "cost": 3,               // A CONFERIR nos 10 primeiros (ver passo 3)
       "icmsReduction": 2, "fullTaxRate": 2, "fcpRate": 2,
       "pisRate": 4, "cofinsRate": 4,
       "maximumQuantity": 3, "minimumQuantity": 3

@@ -2,6 +2,17 @@ export type CreareFieldKind = 'alpha' | 'numeric' | 'date';
 
 export interface CreareDecimalPlaces {
   unitPrice: 2 | 3;
+  /**
+   * Casas decimais do CUSTO. Era 3 cravado no layout e virou configuração
+   * porque a evidência não fecha: no TXT do fornecedor a SKOL 473ML, que vende
+   * a R$ 6,90, sai com custo `0000000100` — R$ 0,10 a 3 casas, R$ 1,00 a 2.
+   *
+   * Fica em 3 por padrão (o comportamento de antes). A decisão sai dos 10
+   * primeiros produtos aplicados no SIA: ver `docs/creare-fase1-runbook.md`.
+   * Custo errado contamina margem e precificação, então isto é o único lugar
+   * a mudar quando a resposta aparecer.
+   */
+  cost: number;
   icmsReduction: number;
   fullTaxRate: number;
   fcpRate: number;
@@ -36,7 +47,7 @@ export const CREARE_PRODUCT_LAYOUT = [
   { name: 'supplierManufacturer', length: 40, kind: 'alpha' },
   { name: 'reference', length: 30, kind: 'alpha' },
   { name: 'basketKit', length: 1, kind: 'alpha' },
-  { name: 'cost', length: 10, kind: 'numeric', decimals: 3 },
+  { name: 'cost', length: 10, kind: 'numeric', decimals: 'cost' },
   { name: 'description', length: 50, kind: 'alpha' },
   { name: 'basketCode', length: 6, kind: 'numeric' },
   { name: 'promotionStart', length: 8, kind: 'date' },

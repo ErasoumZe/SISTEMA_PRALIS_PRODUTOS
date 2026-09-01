@@ -251,3 +251,33 @@ describe('o arquivo bate com o exemplo do fornecedor', () => {
     }
   });
 });
+
+describe('amostra de custo — para decidir 2 ou 3 casas olhando o SIA', () => {
+  it('mostra o campo gravado e as DUAS leituras possiveis', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828'); // custo 1.00 na fixture
+    await siaLinha('012345', '7891149100828', '10');
+
+    const d = (await service.health()).lojas[0]!;
+
+    expect(d.amostraCusto).toHaveLength(1);
+    expect(d.amostraCusto[0]).toMatchObject({
+      nome: 'CERVEJA',
+      custoNoPralis: 1,
+      casasConfiguradas: 3,
+      campoGravado: '0000001000',
+      seSiaLerCom2Casas: 10,
+      seSiaLerCom3Casas: 1,
+    });
+  });
+
+  it('nao gasta a amostra com produto de custo zero — nao distingue nada', async () => {
+    await produto('p1', 'SEM CUSTO', '7891149100828');
+    await db.execute(sqlTag`UPDATE products SET custo = 0 WHERE id = 'p1'`);
+    await siaLinha('012345', '7891149100828', '10');
+
+    const d = (await service.health()).lojas[0]!;
+
+    expect(d.casados).toBe(1);
+    expect(d.amostraCusto).toHaveLength(0);
+  });
+});

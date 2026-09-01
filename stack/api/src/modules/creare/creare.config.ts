@@ -11,6 +11,8 @@ const storeConfigSchema = z.object({
   ecfTaxCodesByGroup: z.record(z.string(), z.string()).optional(),
   decimalPlaces: z.object({
     unitPrice: z.union([z.literal(2), z.literal(3)]),
+    // 3 mantém o comportamento anterior; a decisão sai dos 10 primeiros no SIA
+    cost: z.number().int().min(0).max(6).default(3),
     icmsReduction: z.number().int().min(0).max(6),
     fullTaxRate: z.number().int().min(0).max(6),
     fcpRate: z.number().int().min(0).max(6),
