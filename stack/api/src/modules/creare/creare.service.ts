@@ -18,6 +18,26 @@ export interface CreareForaDoArquivo {
   motivo: string;
 }
 
+/**
+ * Uma linha para responder a única pergunta que ainda não tem resposta: o campo
+ * de custo tem 2 ou 3 casas decimais?
+ *
+ * O TXT do fornecedor não resolve — a SKOL 473ML, que vende a R$ 6,90, sai com
+ * `0000000100`, que é R$ 0,10 a 3 casas e R$ 1,00 a 2. Em vez de adivinhar,
+ * mostramos o que VAI no arquivo e as duas leituras possíveis. Depois de aplicar
+ * os 10 primeiros no SIA, basta abrir um produto lá e ver qual coluna bate.
+ */
+export interface CreareAmostraCusto {
+  codigo: string;
+  nome: string;
+  custoNoPralis: number;
+  /** Exatamente o que vai nas posições 143-152 com a configuração de hoje. */
+  campoGravado: string;
+  casasConfiguradas: number;
+  seSiaLerCom2Casas: number;
+  seSiaLerCom3Casas: number;
+}
+
 export interface CreareLojaDiagnostico {
   loja: CreareStore;
   configurada: boolean;
@@ -37,6 +57,8 @@ export interface CreareLojaDiagnostico {
   colisoesCoditem: Array<{ coditem: string; produtos: string[] }>;
   /** Quantos registros sairiam com cada código de ECF. Confira antes de importar. */
   distribuicaoEcf: Record<string, number>;
+  /** Amostra para decidir as casas decimais do custo — ver `CreareAmostraCusto`. */
+  amostraCusto: CreareAmostraCusto[];
 }
 
 export interface CreareHealth {
@@ -131,6 +153,30 @@ export class CreareService {
     };
   }
 
+  /**
+   * Pega produtos com custo de verdade (custo zero não distingue 2 de 3 casas)
+   * e mostra o campo gravado ao lado das duas leituras possíveis.
+   */
+  private amostraCusto(lote: Lote, config: Creare.CreareStoreConfig): CreareAmostraCusto[] {
+    const casas = config.decimalPlaces.cost;
+    return lote.casados
+      .filter(({ produto }) => (produto.custo ?? 0) > 0)
+      .slice(0, 5)
+      .map(({ produto }) => {
+        const campoGravado = Creare.formatCreareNumber(produto.custo, 10, casas);
+        const bruto = Number(campoGravado);
+        return {
+          codigo: produto.codigo,
+          nome: produto.nome,
+          custoNoPralis: produto.custo ?? 0,
+          campoGravado,
+          casasConfiguradas: casas,
+          seSiaLerCom2Casas: bruto / 100,
+          seSiaLerCom3Casas: bruto / 1000,
+        };
+      });
+  }
+
   private configuracao(store: CreareStore): Creare.CreareStoreConfig {
     const parsed = parseCreareConfigs(env.CREARE_STORE_CONFIG_JSON);
     if (parsed.errors.length) {
@@ -172,6 +218,7 @@ export class CreareService {
         exemplosInvalidos: lote.invalidos.slice(0, 10),
         colisoesCoditem: lote.colisoesCoditem,
         distribuicaoEcf,
+        amostraCusto: this.amostraCusto(lote, config),
       });
     }
 

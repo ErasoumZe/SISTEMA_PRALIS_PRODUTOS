@@ -22,7 +22,7 @@ const config: CreareStoreConfig = {
   units: { UN: 'UN', KG: 'KG', G: 'UN', LT: 'LT', ML: 'UN' },
   ecfTaxCodesByGroup: { 'PRODUTOS DA CASA': '01' },
   decimalPlaces: {
-    unitPrice: 2, icmsReduction: 2, fullTaxRate: 2, fcpRate: 2,
+    unitPrice: 2, cost: 3, icmsReduction: 2, fullTaxRate: 2, fcpRate: 2,
     pisRate: 4, cofinsRate: 4, maximumQuantity: 3, minimumQuantity: 3,
   },
   barcodeField: 'automatic',
@@ -267,5 +267,51 @@ describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
     expect(parseCreareRecord(linhas[0]!).internalCode).toBe('012345');
     expect(parseCreareRecord(linhas[1]!).internalCode).toBe('067890');
     expect(parseCreareRecord(linhas[1]!).ecfTaxCode).toBe('03');
+  });
+});
+
+/*
+ * O custo era 3 casas cravado no layout. Virou configuracao porque a evidencia
+ * nao fecha: no TXT do fornecedor a SKOL 473ML, que vende a R$ 6,90, sai com
+ * custo 0000000100 - R$ 0,10 a 3 casas, R$ 1,00 a 2.
+ */
+describe('casas decimais do custo sao configuracao, num lugar so', () => {
+  it('com 3 casas, R$ 1,00 vira 0000001000', () => {
+    const parsed = parseCreareRecord(
+      generateCreareRecord(bread({ custo: 1 }), { ...config, decimalPlaces: { ...config.decimalPlaces, cost: 3 } }),
+    );
+
+    expect(parsed.cost).toBe('0000001000');
+  });
+
+  it('com 2 casas, R$ 1,00 vira 0000000100 — o mesmo do TXT do fornecedor', () => {
+    const parsed = parseCreareRecord(
+      generateCreareRecord(bread({ custo: 1 }), { ...config, decimalPlaces: { ...config.decimalPlaces, cost: 2 } }),
+    );
+
+    expect(parsed.cost).toBe('0000000100');
+  });
+
+  it('trocar as casas do custo NAO mexe em preco nem em estoque', () => {
+    const comDois = parseCreareRecord(
+      generateCreareRecord(bread({ custo: 1 }), { ...config, decimalPlaces: { ...config.decimalPlaces, cost: 2 } }),
+    );
+    const comTres = parseCreareRecord(
+      generateCreareRecord(bread({ custo: 1 }), { ...config, decimalPlaces: { ...config.decimalPlaces, cost: 3 } }),
+    );
+
+    expect(comDois.unitPrice).toBe(comTres.unitPrice);
+    expect(comDois.maximumQuantity).toBe(comTres.maximumQuantity);
+    expect(comDois.minimumQuantity).toBe(comTres.minimumQuantity);
+    expect(comDois.cost).not.toBe(comTres.cost);
+  });
+
+  it('o registro continua com 363 bytes com qualquer das duas', () => {
+    for (const casas of [2, 3]) {
+      const registro = generateCreareRecord(
+        bread({ custo: 1 }), { ...config, decimalPlaces: { ...config.decimalPlaces, cost: casas } },
+      );
+      expect(registro).toHaveLength(363);
+    }
   });
 });
