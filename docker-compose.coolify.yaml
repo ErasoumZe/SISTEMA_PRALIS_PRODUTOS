@@ -51,6 +51,14 @@ services:
       GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
       # Token exclusivo do robô para POST /vendas/importar (mínimo 32 caracteres).
       VENDAS_IMPORT_TOKEN: ${VENDAS_IMPORT_TOKEN}
+      # Criare/SIA — exportação posicional de produtos. Mantenha ENABLED=false até
+      # o de-para do SIA estar importado e o GET /admin/creare/health conferido.
+      # Variável não definida chega vazia, e vazio já significa desligado.
+      CREARE_EXPORT_ENABLED: ${CREARE_EXPORT_ENABLED}
+      CREARE_STORE_CONFIG_JSON: ${CREARE_STORE_CONFIG_JSON}
+      # Token do robô da loja para GET /creare/produtos.txt (mínimo 32 caracteres).
+      # Ausente ou curto desabilita o download por máquina; só sessão de admin exporta.
+      CREARE_EXPORT_TOKEN: ${CREARE_EXPORT_TOKEN}
     depends_on:
       postgres:
         condition: service_healthy
