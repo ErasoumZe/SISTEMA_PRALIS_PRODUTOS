@@ -94,6 +94,12 @@ export const env = {
   CREARE_EXPORT_ENABLED: envBool('CREARE_EXPORT_ENABLED', false),
   /** JSON por loja. Sem fallback: de-para fiscal e defaults precisam ser decisão explícita. */
   CREARE_STORE_CONFIG_JSON: envVar('CREARE_STORE_CONFIG_JSON', ''),
+  /**
+   * Token para o robô da loja baixar o arquivo sem sessão web (o agendamento
+   * das 22:30 roda sem ninguém logado). Sem fallback: ausente ou curto demais
+   * deixa o download por máquina desabilitado, e só sessão de admin exporta.
+   */
+  CREARE_EXPORT_TOKEN: envVar('CREARE_EXPORT_TOKEN', ''),
 
   // ---- Ingestão de vendas pelo robô (TNP/Lisboa) ----
   // Sem fallback: token ausente deixa a autenticação de máquina desabilitada.
