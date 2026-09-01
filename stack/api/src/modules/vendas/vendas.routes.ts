@@ -12,13 +12,15 @@ import { vendasImportAuth } from './vendas.auth';
 import { authMiddleware } from '@/middlewares/auth-handler';
 import { VendasReportController } from './vendas-report.controller';
 import { VendasDeParaController } from './vendas-depara.controller';
+import { VendasUnicosController } from './vendas-unicos.controller';
 import { z } from 'zod/v4';
-import { VendasSchemas, VendasDePara } from '@pralis/shared';
+import { VendasSchemas, VendasDePara, VendasUnicos } from '@pralis/shared';
 
 export async function vendasRoutes(app: FastifyInstance) {
   const controller = container.resolve(VendasController);
   const reportController = container.resolve(VendasReportController);
   const deParaController = container.resolve(VendasDeParaController);
+  const unicosController = container.resolve(VendasUnicosController);
   const typed = app.withTypeProvider<ZodTypeProvider>();
 
   typed.post<{ Body: ImportarVendasBody }>(
@@ -76,5 +78,33 @@ export async function vendasRoutes(app: FastifyInstance) {
       },
     },
     deParaController.vincular.bind(deParaController),
+  );
+
+  typed.get<{ Querystring: VendasUnicos.ProdutosUnicosQuery }>(
+    '/vendas/produtos-unicos',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: VendasUnicos.produtosUnicosQuerySchema,
+        response: { 200: apiResponseSchema(VendasUnicos.produtosUnicosSchema) },
+        summary: 'Produtos únicos vendidos no período (uma linha por produto)',
+        tags: ['VENDAS'],
+      },
+    },
+    unicosController.listar.bind(unicosController),
+  );
+
+  // CSV do período INTEIRO. Sem schema de resposta: devolve texto, não envelope.
+  typed.get<{ Querystring: VendasUnicos.ProdutosUnicosCsvQuery }>(
+    '/vendas/produtos-unicos.csv',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: VendasUnicos.produtosUnicosCsvQuerySchema,
+        summary: 'Exportar os produtos vendidos no período em CSV para Excel',
+        tags: ['VENDAS'],
+      },
+    },
+    unicosController.csv.bind(unicosController),
   );
 }

@@ -1,5 +1,12 @@
 # Lista de produtos únicos vendidos no período — plano de ação
 
+## 0. Estado — 31/08/2026
+
+- Fatia 0 (`produtos-unicos.js`): pronta e agora **versionada** no robô.
+- Fatia 1 (`ID_PRODUTO` ponta a ponta): **feita** — robô `2366b6d`, Pralis `dbd03c3`.
+- Fatia 2 (tela + CSV): **feita** — `dbd03c3`, em `/vendas/produtos`.
+- Pré-requisito da seção 7 (**backfill**): PENDENTE — depende da máquina da loja.
+
 > Escrito em 26/08/2026 a partir da leitura do código em
 > `homologacao/cadastro-produtos-2026-08-25` (HEAD `4526c52`) e das consultas
 > do robô. **VERIFICADO** = lido no código, não suposto.
@@ -170,19 +177,21 @@ O `produtos-unicos.js` da fatia 0 **não depende disso**: ele lê o Creare diret
 
 ---
 
-## 8. Perguntas para o José
+## 8. Decisões do José — FECHADAS em 31/08/2026
 
-1. **A lista é por loja ou somando as três?** Somar exige decidir o que fazer
-   quando o mesmo produto tem códigos diferentes em cada loja.
-2. **Entram produtos com venda cancelada ou devolvida?** Hoje a consulta usa
-   `TOTAL_ITEM_LIQUIDO_RATEIO`, que já é líquido, mas cancelamento tem consulta
-   própria (`ITENS_VENDAS_CANCELADAS`) e ninguém definiu se abate.
-3. **Só a lista, ou lista com quanto vendeu?** O plano assume com — é o que
-   torna a lista ordenável e útil. Se for só o nome, a tela fica mais simples.
-4. **Isso vira relatório recorrente ou é uma pergunta de uma vez?** Se for de
-   uma vez, a fatia 0 basta e as fatias 1 e 2 podem esperar.
+Respondidas pelo José; não perguntar de novo, implementar assim:
 
----
+1. **Por loja.** A lista é de uma loja por vez (usuário escolhe TNP, LI ou HORA).
+   Não somar as três — cada loja tem código e `ID_PRODUTO` próprios e o modelo
+   mantém as lojas separadas.
+2. **Só o líquido.** Usar `TOTAL_ITEM_LIQUIDO_RATEIO` como já é. Não abater
+   canceladas/devolvidas por consulta separada — os números têm que bater com o
+   relatório de vendas atual.
+3. **Nome + quanto vendeu.** Colunas: produto, quantidade, faturamento e dias
+   com venda. Ordenável por faturamento (padrão), quantidade e nome.
+4. **Fatia 0 já, tela depois.** Entregar HOJE a lista via `produtos-unicos.js`
+   (CSV, sem deploy). As Fatias 1 e 2 (a tela fixa) entram na sequência, não
+   são pré-requisito da entrega imediata.
 
 ## 9. Regras que continuam valendo
 

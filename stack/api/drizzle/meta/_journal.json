@@ -64,6 +64,27 @@
       "when": 1787766533860,
       "tag": "0008_flimsy_midnight",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788214006311,
+      "tag": "0009_blue_leopardon",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788215581891,
+      "tag": "0010_famous_captain_britain",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788216388352,
+      "tag": "0011_silly_speed_demon",
+      "breakpoints": true
     }
   ]
 }

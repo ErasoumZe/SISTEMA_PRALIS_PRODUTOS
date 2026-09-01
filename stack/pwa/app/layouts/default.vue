@@ -34,6 +34,8 @@ const nav = computed<NavItem[]>(() => {
   if (isAdmin.value || lojaComVendas) {
     items.push({ title: 'Vendas', icon: 'payments', to: '/vendas', section: 'Geral' });
   }
+  // Diagnóstico de duplicados: leitura para quem tem loja, admin vê qualquer catálogo.
+  items.push({ title: 'Duplicados', icon: 'content_copy', to: '/produtos/duplicados', section: 'Administração' });
   if (isAdmin.value) items.push({ title: 'Usuários', icon: 'group', to: '/usuarios', section: 'Administração' });
   return items;
 });
@@ -45,6 +47,8 @@ const titulo = computed(() => {
     '/dashboard': 'Dashboard',
     '/vendas': 'Relatório de vendas',
     '/vendas/de-para': 'Produtos do PDV sem cadastro',
+    '/vendas/produtos': 'Produtos vendidos no período',
+    '/produtos/duplicados': 'Cadastros duplicados',
     '/usuarios': 'Usuários',
     '/importar': 'Importar da base',
     '/produtos/novo': 'Novo produto',

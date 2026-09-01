@@ -1,5 +1,30 @@
 # Unificação de cadastros duplicados — plano de ação
 
+## 0. Estado — 31/08/2026
+
+| Fatia | Estado | Commit |
+|---|---|---|
+| 1 — diagnóstico | **feita** | `6196021` |
+| 2 — unificar por código de barras | **feita** | `5b31b95` |
+| 3 — julgar as parecidas | **feita** | `df145f3` |
+| 4 — ligar loja↔BASE | **feita** | `df145f3` |
+| 5 — prevenir (aviso ao digitar) | **feita** | `df145f3` |
+| 5 — prevenir (índice único) | **PENDENTE, de propósito** | — |
+
+O **índice único em `(loja, codigo_barras)` não foi adicionado**: o projeto
+aplica schema com `drizzle-kit push --force` no `start:prod`, então subir o
+índice enquanto ainda existir duplicata **derruba o deploy**. Ele entra
+depois de a limpeza acontecer de verdade na tela, em produção.
+
+Unificar também foi liberado para **mesmo código interno** na mesma loja: é
+tão indiscutível quanto o código de barras. Nome parecido continua sem botão
+de fundir — ali o caminho é recusar ou abrir o produto.
+
+**Correção à seção 3.1:** a colisão temida ao reapontar `produto_creare` NÃO
+existe. `uq_produto_creare_natural` é `(loja, produto_codigo, produto)` e não
+inclui `product_id` — uma venda só pertence a um produto. Há teste guardando
+essa premissa.
+
 > Escrito em 26/08/2026 a partir da leitura do código em
 > `homologacao/cadastro-produtos-2026-08-25` (HEAD `4526c52`).
 > Destinado ao Claude Code. Tudo que está marcado **VERIFICADO** foi lido no
@@ -33,9 +58,12 @@ if (produto.loja !== loja) {
 }
 ```
 
-**Antes de escrever qualquer linha, confirme esse entendimento com o José.**
-Se ele quiser mesmo fundir cadastros entre lojas, o pedido é outro (unificar o
-catálogo BASE) e o plano muda.
+**DECISÃO DO JOSÉ — FECHADA em 31/08/2026:** fundir SÓ dentro da mesma loja
+(caso **D1**). NÃO fundir entre lojas — a Coca da TNP e a Coca da LI têm custo e
+preço próprios e continuam cadastros distintos. O código já protege isso
+(`PRODUCT_OTHER_STORE`) e deve continuar protegendo. Ordem de ataque: **D1
+primeiro**, depois **D2** (ligar loja↔BASE), e **D3** (fundir dois BASE) fica
+fora do escopo por ora — só se o José pedir explicitamente no futuro.
 
 ### Os três casos reais
 
@@ -226,21 +254,28 @@ manter"*.
 
 ---
 
-## 6. Perguntas para o José, antes de codar
+## 6. Decisões do José — FECHADAS em 31/08/2026
 
-Nenhuma dessas deve ser adivinhada.
+Todas respondidas. Não perguntar de novo.
 
-1. **Fundir entre lojas está fora, certo?** TNP e LI mantêm cadastros próprios;
-   o que se unifica é o vínculo com o BASE. Confirmar antes de tudo.
-2. **Custo diferente entre os dois cadastros: qual vence?** Recomendação: o do
-   vencedor escolhido, com a diferença mostrada na tela antes de confirmar.
-3. **Unificar muda o histórico de vendas já fechado?** Reapontar `produto_creare`
-   muda a margem retroativa dos relatórios. Se isso for problema, a unificação
-   precisa valer só daqui para frente — e aí o desenho muda.
-4. **Quem pode unificar?** Recomendação: só admin, como já é a exclusão.
-5. **Isso precisa refletir no Creare?** Hoje não reflete nada (`CREARE_EXPORT_ENABLED=false`,
-   travado na alíquota ECF). Se um dia refletir, unificar vira mais uma coisa a
-   espelhar lá.
+1. **Fundir entre lojas: FORA.** DECIDIDO. Só duplicatas dentro da mesma loja
+   (D1). TNP e LI mantêm cadastros próprios; o código continua barrando com
+   `PRODUCT_OTHER_STORE`.
+2. **Custo diferente: vence o do cadastro vencedor.** DECIDIDO (seguindo a
+   recomendação). A diferença aparece na tela, em vermelho, antes de confirmar.
+3. **Vigência: RETROATIVO, vale para todo o histórico.** DECIDIDO. Justificativa
+   verificada no código: a margem já é recalculada na hora a partir do custo
+   atual do cadastro (`vendas-margem.ts` lê `produto.custo` no momento do
+   relatório; não há custo gravado na linha da venda). Logo, editar um custo hoje
+   já move a margem de meses passados — unificar é a MESMA classe de mudança, não
+   um risco novo. O que se move é a margem POR PRODUTO, não o fechamento de caixa
+   (receita por PDV/operador, que independe do cadastro). Desenho SIMPLES: tabela
+   de vínculo SEM data de vigência. NÃO implementar vigência por data.
+4. **Quem unifica: só admin.** DECIDIDO (seguindo a recomendação), como já é a
+   exclusão.
+5. **Refletir no Creare: NÃO por ora.** `CREARE_EXPORT_ENABLED=false`, travado na
+   alíquota ECF. Quando destravar, unificar entra na lista do que espelhar lá —
+   mas isso é trabalho de outra fase, não desta.
 
 ---
 

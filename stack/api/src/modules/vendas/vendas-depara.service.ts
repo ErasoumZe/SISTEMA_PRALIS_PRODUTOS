@@ -6,13 +6,33 @@ import { AppError } from '@/config/api.replies';
 import { produtoCreare } from './vendas.table';
 import { VendasReportRepository } from './vendas-report.repository';
 import { indexarPorCodigo, resolverProduto, semelhanca, type ProdutoCadastro } from './vendas-margem';
+import { barcodeCandidates } from '@/modules/apoio/tax-rule.service';
 
 type Loja = 'TNP' | 'LI';
 
 /** Quantos candidatos oferecer. Mais que isso vira lista, não sugestão. */
 const MAX_SUGESTOES = 5;
-/** Abaixo disso o nome não se parece o bastante para valer o clique. */
-const SEMELHANCA_MINIMA = 25;
+/**
+ * Abaixo disso o nome não se parece o bastante para valer o clique.
+ *
+ * Era 25 e isso se mostrou perigoso na prática: "PAO DE SAL PRALIS" recebia
+ * "BOLO PRALIS LIMAO 250 G" com 50% — as duas frases dividem "PRALIS" e várias
+ * sílabas. Numa tela de confirmação, sugestão ruim não é neutra: ela convida ao
+ * clique errado, e vincular errado calcula a margem com o custo de outro
+ * produto. Lista vazia é melhor que lista enganosa.
+ */
+const SEMELHANCA_MINIMA = 55;
+
+/**
+ * Código curto e numérico é PLU de balança, não EAN (que tem 8, 12, 13 ou 14).
+ * Isso muda o conselho na tela: não adianta procurar parecido, o produto
+ * precisa ser cadastrado com o EAN de balança para casar sozinho.
+ */
+const pluDeBalanca = (produtoCodigo: string): string | null => {
+  const [normalizado] = barcodeCandidates(produtoCodigo);
+  if (!normalizado) return null;
+  return normalizado.length >= 3 && normalizado.length <= 6 ? normalizado : null;
+};
 
 const descricao = (p: ProdutoCadastro): string =>
   ProductRules.montarDescricao(p.nome, p.quantidade ?? 0, p.medidaBase ?? '');
@@ -46,6 +66,7 @@ export class VendasDeParaService {
         produto: venda.produto,
         quantidade: venda.quantidade,
         faturamento: venda.faturamento,
+        codigoPlu: pluDeBalanca(venda.produtoCodigo),
         sugestoes: this.sugerir(venda.produto, cadastro),
       });
     }

@@ -31,6 +31,12 @@ export const pendenteSchema = z.object({
   quantidade: z.number(),
   /** Ordena a fila: resolver primeiro o que mais pesa no faturamento. */
   faturamento: z.number(),
+  /**
+   * Preenchido quando o código do PDV é um PLU de balança (curto e numérico),
+   * não um EAN. Nesse caso não existe produto parecido para vincular: o certo
+   * é cadastrar o produto com o EAN de balança, e aí ele casa sozinho.
+   */
+  codigoPlu: z.string().nullable(),
   sugestoes: z.array(sugestaoSchema),
 });
 

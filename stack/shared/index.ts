@@ -12,3 +12,5 @@ export * as CreareLayout from './src/creare/creare.layout';
 export * as VendasSchemas from './src/vendas/vendas-report.schemas';
 export * as VendasDatas from './src/vendas/vendas.datas';
 export * as VendasDePara from './src/vendas/vendas-depara.schemas';
+export * as VendasUnicos from './src/vendas/vendas-unicos.schemas';
+export * as ProductDuplicados from './src/product/product-duplicados.schemas';

@@ -287,3 +287,66 @@ describe('margem, cobertura e de-para (Postgres real)', () => {
       .rejects.toMatchObject({ code: 'DESCRIPTION_REQUIRED' });
   });
 });
+
+/**
+ * Caso real observado em produção em 01/09/2026: a fila de de-para oferecia
+ * "BOLO PRALIS LIMAO 250 G" (custo R$ 5,00) para "PAO DE SAL PRALIS"
+ * (R$ 46.856 de faturamento) com 50% de semelhança — as duas frases dividem
+ * "PRALIS" e várias sílabas. Confirmar isso calcularia a margem de 2.103 kg de
+ * pão com o custo de um bolo.
+ *
+ * Isolado em LI e num dia próprio: a sequência de TNP acima é encadeada.
+ */
+describe('sugestão ruim é pior que sugestão nenhuma', () => {
+  const DIA = '2026-11-11';
+
+  beforeAll(async () => {
+    await db.execute(sqlTag`
+      INSERT INTO venda_produto_dia (id, loja, data, produto_codigo, produto, quantidade,
+                                     valor_unitario, total, hash, origem_atualizada_em)
+      VALUES ('vp-pao', 'LI', ${DIA}, '00000000012862', 'PAO DE SAL PRALIS', 100,
+              10.00, 1000.00, 'h-pao', now())
+      ON CONFLICT DO NOTHING`);
+
+    // único produto do catálogo: um bolo, que NÃO é pão de sal
+    await db.execute(sqlTag`
+      INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade,
+                            qt_cad, habilitar_ajuda, auto, codigo_barras, custo)
+      VALUES ('li-bolo', 'LI', 'PR-BOLO', 'BOLO PRALIS LIMAO', 'G', 'revenda', 'ativo', 250,
+              1, false, false, '2128050024901', 5.00)
+      ON CONFLICT (id) DO NOTHING`);
+  });
+
+  it('não oferece o bolo para o pão — e nenhuma sugestão abaixo do piso', async () => {
+    const lista = await deParaService.pendentes('LI', DIA, DIA);
+    const pao = lista.pendentes.find((p) => p.produto === 'PAO DE SAL PRALIS')!;
+
+    expect(pao).toBeDefined();
+    expect(pao.sugestoes.map((s) => s.nome)).not.toContain('BOLO PRALIS LIMAO');
+    // trava o piso: qualquer sugestão exibida precisa se parecer de verdade
+    expect(pao.sugestoes.every((s) => s.semelhanca >= 55)).toBe(true);
+  });
+
+  it('marca o código curto como PLU de balança, que é a causa real', async () => {
+    const lista = await deParaService.pendentes('LI', DIA, DIA);
+    const pao = lista.pendentes.find((p) => p.produto === 'PAO DE SAL PRALIS')!;
+
+    expect(pao.codigoPlu).toBe('12862');
+  });
+
+  it('cadastrar com o EAN de balança tira da fila SOZINHO — sem vínculo manual', async () => {
+    await db.execute(sqlTag`
+      INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade,
+                            qt_cad, habilitar_ajuda, auto, codigo_barras, custo)
+      VALUES ('li-pao', 'LI', 'PR-PAO', 'PAO DE SAL', 'KG', 'revenda', 'ativo', 1,
+              1, false, false, '2128620150003', 8.00)
+      ON CONFLICT (id) DO NOTHING`);
+
+    const lista = await deParaService.pendentes('LI', DIA, DIA);
+
+    expect(lista.pendentes.map((p) => p.produto)).not.toContain('PAO DE SAL PRALIS');
+    const vinculos = await db.execute(sqlTag`
+      SELECT count(*)::int c FROM produto_creare WHERE loja = 'LI'`);
+    expect(vinculos.rows[0]!.c).toBe(0); // casou pelo código, ninguém confirmou nada
+  });
+});

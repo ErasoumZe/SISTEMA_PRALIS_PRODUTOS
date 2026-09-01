@@ -1,4 +1,4 @@
-import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara } from '@pralis/shared';
+import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, ProductDuplicados } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
@@ -8,6 +8,12 @@ export type VendasReportQuery = VendasSchemas.VendasReportQuery;
 export type DeParaLista = VendasDePara.DeParaLista;
 export type DeParaQuery = VendasDePara.DeParaQuery;
 export type VincularBody = VendasDePara.VincularBody;
+export type ProdutosUnicos = VendasUnicos.ProdutosUnicos;
+export type ProdutosUnicosQuery = VendasUnicos.ProdutosUnicosQuery;
+export type Duplicados = ProductDuplicados.Duplicados;
+export type GrupoDuplicado = ProductDuplicados.GrupoDuplicado;
+export type ProdutoDuplicado = ProductDuplicados.ProdutoDuplicado;
+export type UnificarBody = ProductDuplicados.UnificarBody;
 export interface GroupTaxRule {
   grupo: string;
   cstPisCofins: string;
@@ -100,6 +106,35 @@ export function useApi() {
     /** Confirma (ou desfaz, com productId nulo) o vínculo. */
     vincularDePara: (body: VincularBody) =>
       $fetch('/vendas/de-para', { ...base, method: 'POST', body }),
+
+    /** Uma linha por produto vendido no período. */
+    produtosUnicos: (query: ProdutosUnicosQuery) =>
+      unwrap($fetch<{ data: ProdutosUnicos }>('/vendas/produtos-unicos', { ...base, query })),
+
+    /**
+     * URL do CSV do período INTEIRO. É link direto (não fetch) para o
+     * navegador baixar o arquivo com o nome que o servidor manda.
+     */
+    produtosUnicosCsvUrl: (query: Record<string, string>) =>
+      `${base.baseURL}/vendas/produtos-unicos.csv?${new URLSearchParams(query).toString()}`,
+
+    /** Diagnóstico de cadastros duplicados. Só leitura — não funde nada. */
+    produtosDuplicados: (query: { loja?: string; semelhancaMinima?: number }) =>
+      unwrap($fetch<{ data: Duplicados }>('/products/duplicados', { ...base, query })),
+
+    /** Funde dois cadastros da mesma loja. Não apaga: aposenta o perdedor. */
+    unificarProdutos: (body: UnificarBody) =>
+      unwrap($fetch<{ data: ProductDuplicados.UnificarResult }>('/products/unificar', {
+        ...base, method: 'POST', body,
+      })),
+
+    /** "Não são o mesmo produto": o par não volta a ser sugerido. */
+    recusarDuplicidade: (body: { produtoAId: string; produtoBId: string }) =>
+      $fetch('/products/duplicados/recusar', { ...base, method: 'POST', body }),
+
+    /** Liga um produto de loja ao catálogo Base. Não copia custo nem preço. */
+    ligarBase: (body: { productId: string; baseProductId: string }) =>
+      $fetch('/products/ligar-base', { ...base, method: 'POST', body }),
 
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),

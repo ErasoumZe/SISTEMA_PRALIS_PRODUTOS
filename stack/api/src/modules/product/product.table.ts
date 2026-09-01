@@ -1,4 +1,14 @@
-import { pgTable, text, boolean, integer, numeric, timestamp, index } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  numeric,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 import { uuidv7 } from 'uuidv7';
 import { users } from '@/modules/user/user.table';
 
@@ -15,6 +25,13 @@ export const products = pgTable(
     codigo: text('codigo').notNull(),
     // proveniência
     baseProductId: text('base_product_id'),
+    /**
+     * Quando este cadastro foi unificado em outro, aponta para o VENCEDOR.
+     * Unificar não apaga: o perdedor fica com `status = 'unificado'` e some
+     * das listagens, mas continua no banco — sem isso o primeiro clique errado
+     * seria permanente, e quem clica é uma pessoa cansada às seis da tarde.
+     */
+    unificadoEmProductId: text('unificado_em_product_id'),
     createdByUserId: text('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
     createdByName: text('created_by_name'),
     // identidade
@@ -99,3 +116,50 @@ export const promocoes = pgTable('promocoes', {
   dom: boolean('dom').notNull().default(false),
   descontoAte: text('desconto_ate'),
 });
+
+/**
+ * Auditoria da unificacao — e o que torna o desfazer possivel.
+ *
+ * Guarda um SNAPSHOT da linha inteira do perdedor (produto + fiscal +
+ * transformacao + promocoes) antes de ele ser aposentado. Sem isso, unificar
+ * errado nao teria volta: o `onDelete: 'cascade'` de product_fiscal,
+ * product_transformacao, promocoes e produto_creare levaria tudo junto se um
+ * dia alguem apagasse de verdade.
+ */
+export const productMerge = pgTable(
+  'product_merge',
+  {
+    id: text('id').primaryKey().$defaultFn(() => uuidv7()),
+    loja: text('loja').notNull(),
+    vencedorProductId: text('vencedor_product_id').notNull(),
+    perdedorProductId: text('perdedor_product_id').notNull(),
+    /** Linha inteira do perdedor no momento da unificacao. */
+    snapshot: jsonb('snapshot').notNull(),
+    confirmadoPor: text('confirmado_por'),
+    confirmadoEm: timestamp('confirmado_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('idx_product_merge_vencedor').on(t.vencedorProductId),
+    uniqueIndex('uq_product_merge_perdedor').on(t.perdedorProductId),
+  ],
+);
+
+/**
+ * "Estes dois NAO sao o mesmo produto."
+ *
+ * Sem isto, um par recusado por semelhanca de nome volta a ser sugerido toda
+ * semana e a tela perde a confianca de quem usa. O par e guardado ORDENADO
+ * (menor id primeiro) para que A-B e B-A sejam a mesma recusa.
+ */
+export const productMergeRecusa = pgTable(
+  'product_merge_recusa',
+  {
+    id: text('id').primaryKey().$defaultFn(() => uuidv7()),
+    loja: text('loja').notNull(),
+    produtoAId: text('produto_a_id').notNull(),
+    produtoBId: text('produto_b_id').notNull(),
+    recusadoPor: text('recusado_por'),
+    recusadoEm: timestamp('recusado_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('uq_product_merge_recusa_par').on(t.produtoAId, t.produtoBId)],
+);

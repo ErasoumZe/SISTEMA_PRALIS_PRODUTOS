@@ -55,6 +55,7 @@ export class VendasRepository {
     const values = {
       loja: store, data: row.DATA_VENDA, produtoCodigo: row.PRODUTO_CODIGO, produto: row.PRODUTO,
       quantidade: row.QUANTIDADE, valorUnitario: row.VALOR_UNITARIO, total: row.TOTAL,
+      produtoIdErp: row.PRODUTO_ID_ERP ?? '',
       hash: row.HASH, origemAtualizadaEm: row.ATUALIZADO_EM,
     };
     if (!existing) {
