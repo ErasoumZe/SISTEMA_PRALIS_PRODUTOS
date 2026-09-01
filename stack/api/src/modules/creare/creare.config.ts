@@ -6,7 +6,9 @@ const storeConfigSchema = z.object({
   groupCodes: z.record(z.string(), z.string()),
   categoryCodes: z.record(z.string(), z.string()),
   units: z.record(z.string(), z.string()),
-  ecfTaxCodesByGroup: z.record(z.string(), z.string()),
+  // legado: o grupo comercial não determina a alíquota do ECF, que agora vem do
+  // casamento no SIA. Opcional só para não invalidar configuração existente.
+  ecfTaxCodesByGroup: z.record(z.string(), z.string()).optional(),
   decimalPlaces: z.object({
     unitPrice: z.union([z.literal(2), z.literal(3)]),
     icmsReduction: z.number().int().min(0).max(6),

@@ -16,7 +16,13 @@ export interface CreareStoreConfig {
   groupCodes: Record<string, string>;
   categoryCodes: Record<string, string>;
   units: Record<string, string>;
-  ecfTaxCodesByGroup: Record<string, string>;
+  /**
+   * Legado: alíquota de ECF por grupo comercial. Não é mais usado quando há
+   * casamento no SIA — e não deveria ser usado nunca, porque o grupo não
+   * determina a alíquota. Mantido opcional só para não quebrar configuração
+   * antiga. Ver `docs/creare-aliquota-ecf.md`.
+   */
+  ecfTaxCodesByGroup?: Record<string, string>;
   decimalPlaces: CreareDecimalPlaces;
   barcodeField: 'short' | 'extended' | 'automatic';
   lineEnding: 'CRLF' | 'LF';
@@ -25,6 +31,30 @@ export interface CreareStoreConfig {
   ipptByProductType: Record<ProductType, 'P' | 'T'>;
   weighableByMeasure: Record<Measure, YesNo>;
   stockControlledByProductType: Record<ProductType, YesNo>;
+}
+
+/**
+ * O que o produto JÁ É no cadastro do SIA, casado por código de barras.
+ *
+ * O importador do Criare decide inserir ou ATUALIZAR pelo `coditem`. Mandar um
+ * código próprio faz ele inserir — e duplicar o catálogo. Por isso, na Fase 1,
+ * exportar sem este casamento não é permitido.
+ *
+ * `codGrupo` e `ncm` também vêm daqui porque o banco do SIA tem foreign keys
+ * (`produto.GRUPO` -> `grupo.CODGRUPO`): reaproveitar o valor que o produto já
+ * tem garante que a trava nunca dispare.
+ *
+ * `aliqSaidaEcf` NÃO é derivado da situação fiscal. Ver
+ * `docs/creare-aliquota-ecf.md`: sobre 4.186 produtos reais, produtos
+ * fiscalmente idênticos têm códigos de ECF diferentes, então o código não é
+ * função da situação fiscal. Copiar o do SIA reafirma o que o PDV já tem, em
+ * vez de reescrever tributação como efeito colateral.
+ */
+export interface CreareSiaMatch {
+  coditem: string;
+  codGrupo: string;
+  aliqSaidaEcf: string;
+  ncm: string;
 }
 
 export class CreareValidationError extends Error {
@@ -137,7 +167,31 @@ function requiredFixedDigits(value: unknown, length: number, label: string): str
   return digits.padStart(length, '0');
 }
 
-function productCodes(product: ProductEntity): Pick<CreareValues, 'internalCode' | 'extendedInternalCode'> {
+function productCodes(
+  product: ProductEntity,
+  sia?: CreareSiaMatch,
+): Pick<CreareValues, 'internalCode' | 'extendedInternalCode'> {
+  if (sia) {
+    const coditem = digitsOnly(sia.coditem, 'Coditem do SIA');
+    if (coditem.length > 9) throw new CreareValidationError('Coditem do SIA excede 9 digitos.');
+    /*
+     * A recusa que o plano pede: se o produto do Pralis já carrega um código
+     * interno numérico e ele é OUTRO, o casamento por barras está apontando
+     * para um produto diferente do que se pretende escrever. Parar aqui é o
+     * certo — seguir gravaria por cima do cadastro alheio no PDV.
+     */
+    const proprio = String(product.codigoInterno ?? '').replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+    if (proprio && proprio !== coditem.replace(/^0+(?=\d)/, '')) {
+      throw new CreareValidationError(
+        `Codigo interno do Pralis (${proprio}) diverge do coditem do SIA (${coditem}) para o mesmo codigo de barras.`,
+      );
+    }
+    // o TXT do fornecedor preenche OS DOIS campos com o mesmo código; espelhar
+    // isso deixa o importador achar a chave independente de qual ele leia
+    return coditem.length <= 6
+      ? { internalCode: coditem, extendedInternalCode: coditem }
+      : { internalCode: 0, extendedInternalCode: coditem };
+  }
   const code = digitsOnly(product.codigoInterno, 'Codigo interno');
   if (code.length > 9) throw new CreareValidationError('Codigo interno excede 9 digitos.');
   return code.length <= 6
@@ -180,7 +234,11 @@ function salePrice(product: ProductEntity): number {
   });
 }
 
-export function valuesFromProduct(product: ProductEntity, config: CreareStoreConfig): CreareValues {
+export function valuesFromProduct(
+  product: ProductEntity,
+  config: CreareStoreConfig,
+  sia?: CreareSiaMatch,
+): CreareValues {
   if (product.promocoes.length > 0) {
     throw new CreareValidationError('Promocao nao pode ser exportada: o Pralis nao possui as duas datas exigidas pelo layout.');
   }
@@ -188,10 +246,17 @@ export function valuesFromProduct(product: ProductEntity, config: CreareStoreCon
   if (product.custo == null) throw new CreareValidationError('Custo ausente.');
   const fiscal = product.fiscal;
   const description = montarDescricao(product.nome, product.quantidade, product.medidaBase);
-  const groupCode = requiredMapping(config.groupCodes, product.grupo, 'Codigo do grupo');
+  // Com casamento no SIA, grupo/ECF/NCM vêm de lá: são os valores que o
+  // produto JÁ tem no PDV, e as foreign keys do SIA aceitam só o que existe.
+  const groupCode = sia
+    ? sia.codGrupo
+    : requiredMapping(config.groupCodes, product.grupo, 'Codigo do grupo');
   const categoryCode = requiredMapping(config.categoryCodes, fiscal.categoria, 'Categoria Criare');
   const unit = requiredMapping(config.units, product.medidaBase, 'Unidade');
-  const ecfTaxCode = requiredMapping(config.ecfTaxCodesByGroup, product.grupo, 'Aliquota ECF');
+  const ecfTaxCode = sia
+    ? sia.aliqSaidaEcf
+    : requiredMapping(config.ecfTaxCodesByGroup ?? {}, product.grupo, 'Aliquota ECF');
+  const ncm = sia?.ncm?.trim() ? sia.ncm : fiscal.ncm;
   const ippt = config.ipptByProductType[product.tipo];
   const weighable = config.weighableByMeasure[product.medidaBase];
   const stockControlled = config.stockControlledByProductType[product.tipo];
@@ -200,7 +265,7 @@ export function valuesFromProduct(product: ProductEntity, config: CreareStoreCon
   }
 
   return {
-    ...productCodes(product),
+    ...productCodes(product, sia),
     ...barcodeCodes(product.codigoBarras, config.barcodeField),
     groupCode: requiredFixedDigits(groupCode, 4, 'Codigo do grupo'),
     shortDescription: description,
@@ -219,7 +284,7 @@ export function valuesFromProduct(product: ProductEntity, config: CreareStoreCon
     quantity: 0,
     iat: config.iat,
     ippt,
-    ncm: requiredFixedDigits(fiscal.ncm, 8, 'NCM'),
+    ncm: requiredFixedDigits(ncm, 8, 'NCM'),
     reserved: '',
     weighable,
     scaleKey: 0,
@@ -241,9 +306,13 @@ export function valuesFromProduct(product: ProductEntity, config: CreareStoreCon
   };
 }
 
-export function generateCreareRecord(product: ProductEntity, config: CreareStoreConfig): string {
+export function generateCreareRecord(
+  product: ProductEntity,
+  config: CreareStoreConfig,
+  sia?: CreareSiaMatch,
+): string {
   try {
-    return serializeCreareRecord(valuesFromProduct(product, config), config.decimalPlaces);
+    return serializeCreareRecord(valuesFromProduct(product, config, sia), config.decimalPlaces);
   } catch (error) {
     if (error instanceof CreareValidationError) {
       throw new CreareValidationError(`Produto ${product.codigo} (${product.nome}): ${error.message}`, error.field);
@@ -252,9 +321,19 @@ export function generateCreareRecord(product: ProductEntity, config: CreareStore
   }
 }
 
-export function generateCreareFile(products: ProductEntity[], config: CreareStoreConfig): string {
+/**
+ * `resolverSia` entrega o casamento de cada produto. Quem decide o que entra é
+ * quem chama: a Fase 1 só manda produtos já casados, e conta os de fora.
+ */
+export function generateCreareFile(
+  products: ProductEntity[],
+  config: CreareStoreConfig,
+  resolverSia?: (product: ProductEntity) => CreareSiaMatch | undefined,
+): string {
   const ending = config.lineEnding === 'CRLF' ? '\r\n' : '\n';
-  return products.map((product) => generateCreareRecord(product, config)).join(ending) + (products.length ? ending : '');
+  return products
+    .map((product) => generateCreareRecord(product, config, resolverSia?.(product)))
+    .join(ending) + (products.length ? ending : '');
 }
 
 export function parseCreareRecord(record: string): CreareRawRecord {

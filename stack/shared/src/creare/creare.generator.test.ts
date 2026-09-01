@@ -190,3 +190,82 @@ describe('gerador Criare estrito', () => {
     }
   });
 });
+
+describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
+  const sia = {
+    coditem: '012345',
+    codGrupo: '0042',
+    aliqSaidaEcf: '10',
+    ncm: '22030000',
+  };
+
+  /*
+   * O importador decide inserir ou ATUALIZAR pelo coditem. O TXT real do
+   * fornecedor preenche os dois campos com o mesmo codigo; espelhar isso faz
+   * ele achar a chave independente de qual campo leia.
+   */
+  it('grava o coditem do SIA nos DOIS campos de codigo interno', () => {
+    const parsed = parseCreareRecord(generateCreareRecord(bread({ codigoInterno: null }), config, sia));
+
+    expect(parsed.internalCode).toBe('012345');
+    expect(parsed.extendedInternalCode).toBe('000012345');
+  });
+
+  it('usa a aliquota de ECF do SIA e IGNORA o de-para por grupo', () => {
+    // a config mapeia o grupo para 01; o SIA diz 10, e o SIA e quem manda
+    const parsed = parseCreareRecord(generateCreareRecord(bread({ codigoInterno: null }), config, sia));
+
+    expect(parsed.ecfTaxCode).toBe('10');
+    expect(config.ecfTaxCodesByGroup?.['PRODUTOS DA CASA']).toBe('01');
+  });
+
+  it('usa o grupo e o NCM do SIA — sao os valores que as foreign keys aceitam', () => {
+    const parsed = parseCreareRecord(generateCreareRecord(bread({ codigoInterno: null }), config, sia));
+
+    expect(parsed.groupCode).toBe('0042');
+    expect(parsed.ncm).toBe('22030000');
+  });
+
+  it('cai no NCM do proprio produto quando o SIA nao tem', () => {
+    const parsed = parseCreareRecord(
+      generateCreareRecord(bread({ codigoInterno: null }), config, { ...sia, ncm: '' }),
+    );
+
+    expect(parsed.ncm).toBe('19059090');
+  });
+
+  /*
+   * A recusa que protege o catalogo do PDV: o importador zera o codbarra de
+   * quem ja o tinha antes de gravar. Se o casamento por barras apontar para
+   * um produto diferente do que se pretende escrever, parar e o certo.
+   */
+  it('RECUSA quando o codigo interno do Pralis diverge do coditem do SIA', () => {
+    expect(() => generateCreareRecord(bread({ codigoInterno: '999999' }), config, sia))
+      .toThrow(/diverge do coditem/);
+  });
+
+  it('aceita quando os dois codigos sao o mesmo numero com zeros a esquerda', () => {
+    const parsed = parseCreareRecord(generateCreareRecord(bread({ codigoInterno: '12345' }), config, sia));
+
+    expect(parsed.internalCode).toBe('012345');
+  });
+
+  it('o registro continua com 363 bytes ASCII', () => {
+    const registro = generateCreareRecord(bread({ codigoInterno: null }), config, sia);
+
+    expect(registro).toHaveLength(363);
+    expect(/^[\x20-\x7e]+$/.test(registro)).toBe(true);
+  });
+
+  it('generateCreareFile entrega o casamento produto a produto', () => {
+    const a = bread({ id: 'a', codigo: 'A', codigoInterno: null });
+    const b = bread({ id: 'b', codigo: 'B', codigoInterno: null });
+    const porId = new Map([['a', sia], ['b', { ...sia, coditem: '067890', aliqSaidaEcf: '03' }]]);
+
+    const linhas = generateCreareFile([a, b], config, (p) => porId.get(p.id)).split(String.fromCharCode(13) + String.fromCharCode(10));
+
+    expect(parseCreareRecord(linhas[0]!).internalCode).toBe('012345');
+    expect(parseCreareRecord(linhas[1]!).internalCode).toBe('067890');
+    expect(parseCreareRecord(linhas[1]!).ecfTaxCode).toBe('03');
+  });
+});
