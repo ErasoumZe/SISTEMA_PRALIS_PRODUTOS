@@ -140,11 +140,29 @@ const mostrarFlash = computed({
             <div class="text-body-1 font-weight-bold">{{ brl(p.faturamento) }}</div>
           </div>
 
-          <div v-if="!p.sugestoes.length" class="text-caption text-medium-emphasis">
-            Nenhum produto do cadastro tem nome parecido. Cadastre o produto na loja e volte aqui.
+          <!--
+            Pesável sem cadastro é a causa mais comum desta fila, e a saída NÃO é
+            vincular um a um: é cadastrar com o EAN de balança, que faz o
+            casamento automático valer para todos de uma vez.
+          -->
+          <v-alert
+            v-if="p.codigoPlu"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="text-caption mb-3"
+          >
+            Código de <strong>balança</strong> (PLU {{ p.codigoPlu }}), não código de barras.
+            Vincular por nome aqui resolve um item só. Cadastre o produto com o código de
+            barras de balança — que começa com <strong>2{{ p.codigoPlu }}</strong> — e ele passa
+            a casar sozinho, junto com os outros pesáveis.
+          </v-alert>
+
+          <div v-else-if="!p.sugestoes.length" class="text-caption text-medium-emphasis">
+            Nenhum produto do cadastro tem nome parecido o bastante. Cadastre o produto na loja e volte aqui.
           </div>
 
-          <template v-else>
+          <template v-if="p.sugestoes.length">
             <v-radio-group v-model="escolha[chave(p)]" density="compact" hide-details class="mb-2">
               <v-radio v-for="s in p.sugestoes" :key="s.productId" :value="s.productId">
                 <template #label>
