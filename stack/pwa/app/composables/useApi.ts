@@ -13,6 +13,46 @@ export type ProdutosUnicosQuery = VendasUnicos.ProdutosUnicosQuery;
 export type Duplicados = ProductDuplicados.Duplicados;
 export type GrupoDuplicado = ProductDuplicados.GrupoDuplicado;
 export type ProdutoDuplicado = ProductDuplicados.ProdutoDuplicado;
+
+/** Uma linha de fonte dentro do grupo, como veio do staging. */
+export interface ItemUnificacao {
+  fonte: string; loja: string; codInterno: string | null; codBarras: string | null;
+  nome: string | null; ativo: boolean | null; grupo: string | null;
+  custo: string | null; venda: string | null; ncm: string | null; cst: string | null;
+}
+
+export interface CandidatoUnificacao {
+  nome: string; nomeDe: string; grupo: string | null; grupoDe: string | null;
+  custo: number | null; custoDe: string | null; venda: number | null; vendaDe: string | null;
+  ativo: boolean;
+  fiscalLi: { ncm: string | null; cst: string | null; csosn: string | null; aliqEcf: string | null; reducao: number | null } | null;
+  fiscalTnp: { ncm: string | null; cst: string | null; icmsEfetivo: number | null } | null;
+}
+
+export interface GrupoUnificacao {
+  id: string; chave: string; motivo: string; fontes: string[]; lojas: string[];
+  nome: string; grupo: string | null; ativo: boolean;
+  candidato: CandidatoUnificacao; itens: ItemUnificacao[];
+  flagNomesDivergentes: boolean; flagSemFiscalTnp: boolean; flagSemBarras: boolean;
+  flagBarrasConflitante: boolean; flagSemGrupo: boolean; flagJaNoPralis: boolean;
+  decisao: string | null; decididoPor: string | null;
+}
+
+export interface PaginaGrupos {
+  total: number; pagina: number; tamanho: number; paginas: number; grupos: GrupoUnificacao[];
+}
+
+export interface TotaisUnificacao {
+  grupos: number; porMotivo: Record<string, number>; jaNoPralis: number; aCriar: number;
+  semFiscalTnp: number; semGrupo: number; nomesDivergentes: number; barrasConflitante: number;
+  pendentes: number; decididos: number;
+}
+
+export interface FiltrosUnificacao {
+  filtro?: string; loja?: string; status?: string; revisar?: boolean;
+  semFiscalTnp?: boolean; semGrupo?: boolean; q?: string; decisao?: string;
+  pagina?: number; tamanho?: number;
+}
 export type UnificarBody = ProductDuplicados.UnificarBody;
 export interface GroupTaxRule {
   grupo: string;
@@ -135,6 +175,22 @@ export function useApi() {
     /** Liga um produto de loja ao catálogo Base. Não copia custo nem preço. */
     ligarBase: (body: { productId: string; baseProductId: string }) =>
       $fetch('/products/ligar-base', { ...base, method: 'POST', body }),
+
+    // ---- Central de Produtos (unificação) ----
+    /** Recarrega as fontes e reagrupa. Não toca no catálogo vivo. */
+    unificacaoCarregar: () =>
+      $fetch('/admin/unificacao/carregar', { ...base, method: 'POST' }),
+    unificacaoHealth: () =>
+      unwrap($fetch<{ data: { totais: TotaisUnificacao } }>('/admin/unificacao/health', { ...base })),
+    /** Os filtros vão para o SERVIDOR: a tela nunca peneira 4.300 no navegador. */
+    unificacaoGrupos: (query: FiltrosUnificacao) =>
+      unwrap($fetch<{ data: PaginaGrupos }>('/admin/unificacao/grupos', { ...base, query })),
+    unificacaoUnificar: (id: string, forcar = false) =>
+      $fetch(`/admin/unificacao/grupos/${id}/unificar`, { ...base, method: 'POST', body: { forcar } }),
+    unificacaoMarcar: (id: string, acao: 'nao_e_o_mesmo' | 'ignorado') =>
+      $fetch(`/admin/unificacao/grupos/${id}/marcar`, { ...base, method: 'POST', body: { acao } }),
+    unificacaoReabrir: (id: string) =>
+      $fetch(`/admin/unificacao/grupos/${id}/reabrir`, { ...base, method: 'POST' }),
 
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),

@@ -61,6 +61,45 @@ export async function unificacaoRoutes(app: FastifyInstance) {
     controller.listarGrupos.bind(controller),
   );
 
+  // ---- ações: escrevem no catálogo mestre, uma por clique humano ----
+  typed.post<{ Params: { id: string }; Body: { forcar?: boolean } }>(
+    '/admin/unificacao/grupos/:id/unificar',
+    {
+      schema: {
+        params: z.object({ id: z.string().min(1) }),
+        body: z.object({ forcar: z.boolean().optional() }).optional(),
+        summary: 'Criar o produto BASE do grupo e as cópias das lojas presentes (admin)',
+        tags: ['ADMIN', 'UNIFICACAO'],
+      },
+    },
+    controller.unificar.bind(controller),
+  );
+
+  typed.post<{ Params: { id: string }; Body: { acao: 'nao_e_o_mesmo' | 'ignorado' } }>(
+    '/admin/unificacao/grupos/:id/marcar',
+    {
+      schema: {
+        params: z.object({ id: z.string().min(1) }),
+        body: z.object({ acao: z.enum(['nao_e_o_mesmo', 'ignorado']) }),
+        summary: 'Tirar o grupo da fila sem criar nada (admin)',
+        tags: ['ADMIN', 'UNIFICACAO'],
+      },
+    },
+    controller.marcar.bind(controller),
+  );
+
+  typed.post<{ Params: { id: string } }>(
+    '/admin/unificacao/grupos/:id/reabrir',
+    {
+      schema: {
+        params: z.object({ id: z.string().min(1) }),
+        summary: 'Devolver o grupo para a fila (não apaga produto já criado)',
+        tags: ['ADMIN', 'UNIFICACAO'],
+      },
+    },
+    controller.reabrir.bind(controller),
+  );
+
   typed.get(
     '/admin/unificacao/health',
     {

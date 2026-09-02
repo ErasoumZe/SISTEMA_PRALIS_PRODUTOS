@@ -4,6 +4,7 @@ import { AppError, buildResponse } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
 import { UnificacaoService } from './unificacao.service';
 import { UnificacaoGruposService, type FiltrosGrupos } from './unificacao.grupos.service';
+import { UnificacaoAplicarService } from './unificacao.aplicar.service';
 
 function exigirAdmin(request: FastifyRequest): CurrentUser {
   const user = request.currentUser;
@@ -17,6 +18,7 @@ export class UnificacaoController {
   constructor(
     @inject(UnificacaoService) private service: UnificacaoService,
     @inject(UnificacaoGruposService) private grupos: UnificacaoGruposService,
+    @inject(UnificacaoAplicarService) private aplicar: UnificacaoAplicarService,
   ) {}
 
   /** Apaga o staging, recarrega as 5 fontes e reconstrói os grupos. */
@@ -46,5 +48,30 @@ export class UnificacaoController {
     exigirAdmin(request);
     const pagina = await this.grupos.listar(request.query);
     return reply.status(200).send(buildResponse(pagina, 'Grupos de reconciliação'));
+  }
+
+  /** Escreve no catálogo mestre. Só por clique humano. */
+  async unificar(
+    request: FastifyRequest<{ Params: { id: string }; Body?: { forcar?: boolean } }>,
+    reply: FastifyReply,
+  ) {
+    const user = exigirAdmin(request);
+    const r = await this.aplicar.unificar(user, request.params.id, request.body?.forcar ?? false);
+    return reply.status(201).send(buildResponse(r, 'Produto criado no cadastro do Pralis'));
+  }
+
+  async marcar(
+    request: FastifyRequest<{ Params: { id: string }; Body: { acao: 'nao_e_o_mesmo' | 'ignorado' } }>,
+    reply: FastifyReply,
+  ) {
+    const user = exigirAdmin(request);
+    await this.aplicar.marcar(user, request.params.id, request.body.acao);
+    return reply.status(200).send(buildResponse(null, 'Decisão registrada'));
+  }
+
+  async reabrir(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const user = exigirAdmin(request);
+    await this.aplicar.reabrir(user, request.params.id);
+    return reply.status(200).send(buildResponse(null, 'Grupo devolvido para a fila'));
   }
 }
