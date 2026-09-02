@@ -84,8 +84,14 @@ export const baseProductSchema = z.object({
   vVendaPontual: z.number().nullable(),
   auto: z.boolean().default(false),
   /** Setor de VENDA — diferente de `setorEstoque`, que e onde o produto fica guardado. */
-  setorVenda1: z.string().nullable(),
-  setorVenda2: z.string().nullable(),
+  /*
+   * `.default(null)` e NAO so `.nullable()`: coluna nova nao pode ser
+   * obrigatoria no payload. Sem o default, todo cliente e todo arquivo antigo
+   * (inclusive o base-products.json do seed) passa a falhar a validacao — foi
+   * o que derrubou a producao em 02/09/2026, 149 produtos x 2 campos.
+   */
+  setorVenda1: z.string().nullable().default(null),
+  setorVenda2: z.string().nullable().default(null),
   localVenda1: z.string().nullable(),
   localVenda2: z.string().nullable(),
 });

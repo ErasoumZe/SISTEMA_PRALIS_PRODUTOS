@@ -66,7 +66,18 @@ export function validarEstoquePorEmbalagem(
     });
   }
 }
-export const createProductSchema = baseProductSchema
+/**
+ * A forma do produto na criação, SEM a regra de estoque por embalagem.
+ *
+ * Existe separado porque a regra de múltiplos é validação de ENTRADA — ela
+ * existe para impedir alguém de digitar 15 quando a caixa tem 10. Ela não é
+ * invariante do dado que já existe: a base legada tem cadastros antigos que a
+ * violam, e eles não podem impedir a importação.
+ *
+ * Use este schema para importar dado legado (`seed-base`). Para requisição de
+ * usuário, use `createProductSchema`, que é este mais a regra.
+ */
+const formaDoProdutoNaCriacao = baseProductSchema
   .extend({
     promocoes: z.array(promocaoSchema).default([]),
     transformacao: transformacaoSchema.nullable().optional(),
@@ -80,7 +91,21 @@ export const createProductSchema = baseProductSchema
   .refine((d) => d.tipo !== 'transformacao' || !!d.transformacao, {
     message: 'Produto de transformação exige o bloco de transformação.',
     path: ['transformacao'],
-  })
+  });
+
+/**
+ * Importação de dado legado (seed da base). Mesma forma e mesmos defaults do
+ * `createProductSchema`, sem a regra de estoque.
+ *
+ * Não é uma brecha: nada aqui vem de requisição HTTP. É o caminho de leitura de
+ * um arquivo que já existe, e um cadastro antigo torto não pode impedir a API
+ * de subir — foi exatamente o que derrubou a produção em 02/09/2026.
+ */
+export const importProductSchema = formaDoProdutoNaCriacao;
+export type ImportProductRequest = z.infer<typeof importProductSchema>;
+
+/** Requisição de usuário: a forma acima MAIS a regra de estoque por embalagem. */
+export const createProductSchema = formaDoProdutoNaCriacao
   .superRefine(validarEstoquePorEmbalagem);
 export type CreateProductRequest = z.infer<typeof createProductSchema>;
 

@@ -65,8 +65,18 @@ async function main() {
 
 // só roda automaticamente quando executado como script (não quando importado por um teste)
 if (!process.env.VITEST) {
+  /*
+   * SAI COM 0 MESMO FALHANDO — mesma razão do seed: este script roda no
+   * `start:prod` encadeado com `&&` antes do servidor, e numerar código interno
+   * é manutenção, não é o serviço. Falhar aqui não pode custar o login da
+   * empresa. Ver a nota em `seed-base.ts`.
+   */
   main().catch((e) => {
-    console.error('Falha no backfill de código interno:', e);
-    process.exit(1);
+    console.error('=====================================================');
+    console.error('  BACKFILL DE CÓDIGO INTERNO FALHOU.');
+    console.error('  A API VAI SUBIR MESMO ASSIM; rode de novo depois.');
+    console.error('=====================================================');
+    console.error(e);
+    process.exit(0);
   });
 }
