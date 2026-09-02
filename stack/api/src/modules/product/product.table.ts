@@ -58,6 +58,12 @@ export const products = pgTable(
     margemPontual: numeric('margem_pontual', { precision: 6, scale: 4 }),
     vVendaPontual: numeric('v_venda_pontual', { precision: 12, scale: 2 }),
     auto: boolean('auto').notNull().default(false),
+    /**
+     * Onde o produto e VENDIDO. Nao confundir com `setorEstoque`, que e onde
+     * ele fica guardado — sao coisas diferentes e coexistem.
+     */
+    setorVenda1: text('setor_venda_1'),
+    setorVenda2: text('setor_venda_2'),
     localVenda1: text('local_venda_1'),
     localVenda2: text('local_venda_2'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

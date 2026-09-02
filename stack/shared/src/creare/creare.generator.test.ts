@@ -59,6 +59,8 @@ const bread = (overrides: Partial<ProductEntity> = {}): ProductEntity => ({
   estoqueMin: 0,
   estoqueMax: 0,
   setorEstoque: null,
+  setorVenda1: null,
+  setorVenda2: null,
   custo: 0.1,
   margemPontual: null,
   vVendaPontual: 21.99,

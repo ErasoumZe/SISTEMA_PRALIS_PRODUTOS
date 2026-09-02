@@ -83,6 +83,9 @@ export const baseProductSchema = z.object({
   margemPontual: z.number().nullable(),
   vVendaPontual: z.number().nullable(),
   auto: z.boolean().default(false),
+  /** Setor de VENDA — diferente de `setorEstoque`, que e onde o produto fica guardado. */
+  setorVenda1: z.string().nullable(),
+  setorVenda2: z.string().nullable(),
   localVenda1: z.string().nullable(),
   localVenda2: z.string().nullable(),
 });

@@ -336,7 +336,8 @@ export class ProductService {
       marca: p.marca, embalagem: p.embalagem, cDe: p.cDe, qtCad: p.qtCad, medidaCompra: p.medidaCompra,
       codigoInterno: p.codigoInterno, fotoUrl: p.fotoUrl, grupo: p.grupo, tipo: p.tipo, status: p.status,
       habilitarAjuda: p.habilitarAjuda, estoqueMin: p.estoqueMin, estoqueMax: p.estoqueMax,
-      setorEstoque: p.setorEstoque, custo: p.custo, margemPontual: p.margemPontual,
+      setorEstoque: p.setorEstoque, setorVenda1: p.setorVenda1, setorVenda2: p.setorVenda2,
+      custo: p.custo, margemPontual: p.margemPontual,
       vVendaPontual: p.vVendaPontual, auto: p.auto, localVenda1: p.localVenda1, localVenda2: p.localVenda2,
       promocoes: p.promocoes, transformacao: p.transformacao, fiscal: p.fiscal,
     };

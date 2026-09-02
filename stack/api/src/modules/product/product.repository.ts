@@ -64,6 +64,8 @@ function mapProduct(row: typeof products.$inferSelect): Omit<ProductEntity, 'pro
     margemPontual: num(row.margemPontual),
     vVendaPontual: num(row.vVendaPontual),
     auto: row.auto,
+    setorVenda1: row.setorVenda1,
+    setorVenda2: row.setorVenda2,
     localVenda1: row.localVenda1,
     localVenda2: row.localVenda2,
   };
@@ -298,6 +300,8 @@ export class ProductRepository {
     assign('margemPontual', p.margemPontual !== undefined ? toDb(p.margemPontual) : undefined);
     assign('vVendaPontual', p.vVendaPontual !== undefined ? toDb(p.vVendaPontual) : undefined);
     assign('auto', p.auto);
+    assign('setorVenda1', p.setorVenda1);
+    assign('setorVenda2', p.setorVenda2);
     assign('localVenda1', p.localVenda1);
     assign('localVenda2', p.localVenda2);
     return set;
