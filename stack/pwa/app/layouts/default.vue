@@ -35,6 +35,7 @@ const nav = computed<NavItem[]>(() => {
     items.push({ title: 'Vendas', icon: 'payments', to: '/vendas', section: 'Geral' });
   }
   // Diagnóstico de duplicados: leitura para quem tem loja, admin vê qualquer catálogo.
+  if (isAdmin.value) items.push({ title: 'Central de Produtos', icon: 'merge_type', to: '/produtos/central', section: 'Administração' });
   items.push({ title: 'Duplicados', icon: 'content_copy', to: '/produtos/duplicados', section: 'Administração' });
   if (isAdmin.value) items.push({ title: 'Usuários', icon: 'group', to: '/usuarios', section: 'Administração' });
   return items;
@@ -48,6 +49,7 @@ const titulo = computed(() => {
     '/vendas': 'Relatório de vendas',
     '/vendas/de-para': 'Produtos do PDV sem cadastro',
     '/vendas/produtos': 'Produtos vendidos no período',
+    '/produtos/central': 'Central de Produtos',
     '/produtos/duplicados': 'Cadastros duplicados',
     '/usuarios': 'Usuários',
     '/importar': 'Importar da base',
