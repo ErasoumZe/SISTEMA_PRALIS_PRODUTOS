@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ProductRules } from '@pralis/shared';
+import { ProductRules, ProductRequests as Requests } from '@pralis/shared';
 import type { ProductRequests } from '@pralis/shared';
 import type { FiscalClassification, GroupTaxRule } from '~/composables/useApi';
 
@@ -75,6 +75,31 @@ const CAMPOS_HERANCA: Array<{ campo: string; label: string }> = [
   { campo: 'localVenda1', label: 'Local de venda 1' },
   { campo: 'localVenda2', label: 'Local de venda 2' },
 ];
+
+/**
+ * Validação viva do estoque, reusando a MESMA função do contrato compartilhado.
+ *
+ * Reusar em vez de reescrever é o ponto: uma segunda cópia da regra aqui
+ * divergiria da do servidor no primeiro ajuste, e a tela passaria a aceitar o
+ * que a API recusa — ou o contrário, que é pior.
+ */
+const errosEstoque = computed<Record<string, string>>(() => {
+  const achados: Record<string, string> = {};
+  Requests.validarEstoquePorEmbalagem(
+    {
+      qtCad: Number(form.qtCad) || null,
+      estoqueMin: Number(form.estoqueMin) || null,
+      estoqueMax: Number(form.estoqueMax) || null,
+    },
+    {
+      addIssue: (issue: { path?: PropertyKey[]; message?: string }) => {
+        const campo = String(issue.path?.[0] ?? '');
+        if (campo && !achados[campo]) achados[campo] = issue.message ?? '';
+      },
+    } as never,
+  );
+  return achados;
+});
 
 const mesmoValor = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
@@ -671,10 +696,10 @@ onMounted(async () => {
             <v-select v-model="form.setorEstoque" :items="SETORES" label="Setor de estoque" variant="outlined" density="comfortable" clearable :hint="ajuda('setorEstoque')" />
           </v-col>
           <v-col cols="6" sm="3">
-            <v-text-field v-model.number="form.estoqueMin" type="number" label="Estoque mín." variant="outlined" density="comfortable" :hint="ajuda('estoqueMin')" />
+            <v-text-field v-model.number="form.estoqueMin" type="number" label="Estoque mín." variant="outlined" density="comfortable" :hint="ajuda('estoqueMin')" :error-messages="errosEstoque.estoqueMin" />
           </v-col>
           <v-col cols="6" sm="3">
-            <v-text-field v-model.number="form.estoqueMax" type="number" label="Estoque máx." variant="outlined" density="comfortable" :hint="ajuda('estoqueMax')" />
+            <v-text-field v-model.number="form.estoqueMax" type="number" label="Estoque máx." variant="outlined" density="comfortable" :hint="ajuda('estoqueMax')" :error-messages="errosEstoque.estoqueMax" />
           </v-col>
           <v-col cols="6" sm="3">
             <v-text-field v-model.number="form.custo" type="number" label="Custo (R$)" variant="outlined" density="comfortable" :hint="ajuda('custo')" />
