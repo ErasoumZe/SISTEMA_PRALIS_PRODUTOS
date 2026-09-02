@@ -4,6 +4,7 @@ import { container } from 'tsyringe';
 import { z } from 'zod/v4';
 import { ProductController } from './product.controller';
 import { ProductDuplicadosController } from './product-duplicados.controller';
+import { ProductExportController } from './product-export.controller';
 import { ProductDuplicados } from '@pralis/shared';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { apiResponseSchema } from '@/config/api.replies';
@@ -12,6 +13,7 @@ import { authMiddleware } from '@/middlewares/auth-handler';
 export async function productRoutes(app: FastifyInstance) {
   const controller = container.resolve(ProductController);
   const duplicadosController = container.resolve(ProductDuplicadosController);
+  const exportController = container.resolve(ProductExportController);
   const a = app.withTypeProvider<ZodTypeProvider>();
 
   // todas as rotas exigem autenticação
@@ -115,5 +117,18 @@ export async function productRoutes(app: FastifyInstance) {
       },
     },
     duplicadosController.ligarBase.bind(duplicadosController),
+  );
+
+  // Só leitura. A resposta é o CSV cru, então a rota não declara `response`
+  // (o schema de resposta padrão embrulharia o arquivo num envelope JSON).
+  a.get(
+    '/admin/produtos/export.csv',
+    {
+      schema: {
+        summary: 'Exportar a base de produtos de TODAS as lojas em CSV (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    exportController.exportar.bind(exportController),
   );
 }
