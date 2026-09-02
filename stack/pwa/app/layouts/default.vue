@@ -34,9 +34,13 @@ const nav = computed<NavItem[]>(() => {
   if (isAdmin.value || lojaComVendas) {
     items.push({ title: 'Vendas', icon: 'payments', to: '/vendas', section: 'Geral' });
   }
-  // Diagnóstico de duplicados: leitura para quem tem loja, admin vê qualquer catálogo.
   if (isAdmin.value) items.push({ title: 'Central de Produtos', icon: 'merge_type', to: '/produtos/central', section: 'Administração' });
-  items.push({ title: 'Duplicados', icon: 'content_copy', to: '/produtos/duplicados', section: 'Administração' });
+  /*
+   * "Duplicados" saiu do MENU: a Central de Produtos faz o que ele fazia e mais,
+   * sobre a base inteira em vez de só o catálogo vivo. A página e o endpoint
+   * continuam no código como rede de segurança, e `/produtos/duplicados` segue
+   * abrindo por URL — só o atalho saiu.
+   */
   if (isAdmin.value) items.push({ title: 'Usuários', icon: 'group', to: '/usuarios', section: 'Administração' });
   return items;
 });
