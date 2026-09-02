@@ -98,7 +98,9 @@ export class UnificacaoAplicarService {
     };
     if (loja === 'LI') {
       if (!c.fiscalLi) return null;
-      // o SIA entrega redução e alíquota interna; o NCM vem vazio na exportação atual
+      // o SIA entrega NCM e redução. `icms` fica nulo porque a alíquota interna
+      // do SIA não é a mesma coisa que o ICMS efetivo da contabilidade — cada
+      // loja grava o que a SUA fonte diz, e nenhuma preenche a lacuna da outra.
       return { ...vazio, ncm: c.fiscalLi.ncm, reducaoIcms: c.fiscalLi.reducao, icms: null };
     }
     if (!c.fiscalTnp) return null;

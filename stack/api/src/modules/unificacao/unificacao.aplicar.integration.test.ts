@@ -136,6 +136,26 @@ describe('unificar — grava no catalogo mestre', () => {
     expect(Number(tnp.icms)).toBe(3.69);
   });
 
+  /*
+   * A exportacao do SIA passou a trazer NCM (4.186 linhas, 8 digitos). Este
+   * teste trava o caminho: o NCM da LI vem do SIA, com o zero a esquerda.
+   */
+  it('o NCM do SIA chega na LI, com o zero a esquerda', async () => {
+    await fonte({ id: 's2', fonte: 'sia_li', barras: '00000000020000', interno: '20000',
+      nome: 'ABACATE KG', grupo: 'MAT. PRIMA (FARINHA)', ncm: '08043000', reducao: 0 });
+    await fonte({ id: 'c2', fonte: 'compilart_tnp', barras: '00000000020000', interno: '77',
+      nome: 'ABACATE KG', custo: 4 });
+    await grupos.recalcular();
+    const g = (await grupos.listar({ q: 'ABACATE' })).grupos[0]!;
+
+    await aplicar.unificar(admin, g.id);
+
+    const r = await db.execute(sqlTag`
+      SELECT f.ncm FROM products p JOIN product_fiscal f ON f.product_id = p.id
+      WHERE p.loja = 'LI'`);
+    expect(r.rows[0]!.ncm).toBe('08043000');
+  });
+
   it('NAO copia o fiscal de uma loja para a outra', async () => {
     const g = await cenarioCompleto();
     await aplicar.unificar(admin, g.id);
