@@ -138,6 +138,8 @@ export class UnificacaoAplicarService {
       estoqueMin: null,
       estoqueMax: null,
       setorEstoque: null,
+      setorVenda1: null,
+      setorVenda2: null,
       custo: c.custo,
       margemPontual: null,
       vVendaPontual: c.venda,

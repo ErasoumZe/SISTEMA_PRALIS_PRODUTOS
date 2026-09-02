@@ -97,6 +97,10 @@ function rowToPayload(get: (col: string) => unknown): ProductRequests.CreateProd
     estoqueMin: num(get('AE')),
     estoqueMax: num(get('AG')),
     setorEstoque: orNull(get('AI')),
+    // A planilha base não tem coluna para setor de venda: entra nulo em vez de
+    // reaproveitar o setor de estoque, que é outra coisa.
+    setorVenda1: null,
+    setorVenda2: null,
     custo: num(get('AJ')),
     margemPontual: num(get('AL')),
     vVendaPontual: num(get('AM')),

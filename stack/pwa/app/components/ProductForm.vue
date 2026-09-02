@@ -29,6 +29,7 @@ const form = reactive({
   // comercial (revenda) — a loja vem do usuário logado
   custo: 0, margemPct: 0, auto: true, vVendaPontual: 0,
   estoqueMin: 0, estoqueMax: 0, setorEstoque: '', localVenda1: '', localVenda2: '',
+  setorVenda1: '', setorVenda2: '',
   // transformação
   precisao: 'EXATOS', qtdTransf: 0, unidadeTransf: 'G', produtoReceituario: '', refReceituario: '',
   // promoção (revenda)
@@ -72,6 +73,8 @@ const CAMPOS_HERANCA: Array<{ campo: string; label: string }> = [
   { campo: 'margemPontual', label: 'Margem' },
   { campo: 'vVendaPontual', label: 'V. venda pontual' },
   { campo: 'auto', label: 'Cálculo automático' },
+  { campo: 'setorVenda1', label: 'Setor de venda 1' },
+  { campo: 'setorVenda2', label: 'Setor de venda 2' },
   { campo: 'localVenda1', label: 'Local de venda 1' },
   { campo: 'localVenda2', label: 'Local de venda 2' },
 ];
@@ -103,6 +106,8 @@ function voltarAHerdar() {
     auto: base.auto, vVendaPontual: base.vVendaPontual ?? 0,
     estoqueMin: base.estoqueMin ?? 0, estoqueMax: base.estoqueMax ?? 0,
     setorEstoque: base.setorEstoque ?? '',
+    setorVenda1: base.setorVenda1 ?? '',
+    setorVenda2: base.setorVenda2 ?? '',
   });
 }
 
@@ -264,6 +269,10 @@ const dicas: Record<string, string> = {
   qtCad: 'Quantas unidades/medidas vêm na embalagem de compra.',
   medidaCompra: 'Unidade da embalagem de compra (UN, KG, LT).',
   setorEstoque: 'Onde o produto fica armazenado.',
+  setorVenda1: 'Setor em que o produto é vendido. Não é o setor de estoque.',
+  setorVenda2: 'Segundo setor de venda, quando o produto é vendido em mais de um.',
+  localVenda1: 'Onde o produto é exposto para venda.',
+  localVenda2: 'Segundo local de exposição, quando houver.',
   estoqueMin: 'Quantidade mínima desejada em estoque.',
   estoqueMax: 'Quantidade máxima desejada em estoque.',
   custo: 'Preço de custo do produto (R$).',
@@ -356,6 +365,8 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
     estoqueMin: Number(form.estoqueMin) || null,
     estoqueMax: Number(form.estoqueMax) || null,
     setorEstoque: form.setorEstoque || null,
+    setorVenda1: form.setorVenda1 || null,
+    setorVenda2: form.setorVenda2 || null,
     custo: Number(form.custo) || null,
     margemPontual: form.margemPct ? Number(form.margemPct) / 100 : null,
     vVendaPontual: Number(form.vVendaPontual) || null,
@@ -456,6 +467,7 @@ onMounted(async () => {
       auto: p.auto, vVendaPontual: p.vVendaPontual ?? 0,
       estoqueMin: p.estoqueMin ?? 0, estoqueMax: p.estoqueMax ?? 0, setorEstoque: p.setorEstoque ?? '',
       localVenda1: p.localVenda1 ?? '', localVenda2: p.localVenda2 ?? '',
+      setorVenda1: p.setorVenda1 ?? '', setorVenda2: p.setorVenda2 ?? '',
     });
     if (p.transformacao) Object.assign(form, {
       precisao: p.transformacao.precisao, qtdTransf: p.transformacao.qtd, unidadeTransf: p.transformacao.unidade,
@@ -675,6 +687,18 @@ onMounted(async () => {
           </v-col>
           <v-col cols="6" sm="3">
             <v-text-field v-model.number="form.estoqueMax" type="number" label="Estoque máx." variant="outlined" density="comfortable" :hint="ajuda('estoqueMax')" />
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="form.localVenda1" label="Local de venda primário" variant="outlined" density="comfortable" clearable :hint="ajuda('localVenda1')" />
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="form.localVenda2" label="Local de venda secundário" variant="outlined" density="comfortable" clearable :hint="ajuda('localVenda2')" />
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="form.setorVenda1" label="Setor de venda primário" variant="outlined" density="comfortable" clearable :hint="ajuda('setorVenda1')" />
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="form.setorVenda2" label="Setor de venda secundário" variant="outlined" density="comfortable" clearable :hint="ajuda('setorVenda2')" />
           </v-col>
           <v-col cols="6" sm="3">
             <v-text-field v-model.number="form.custo" type="number" label="Custo (R$)" variant="outlined" density="comfortable" :hint="ajuda('custo')" />
