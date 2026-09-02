@@ -39,6 +39,15 @@ export const unifFonteProduto = pgTable(
     nomeNormalizado: text('nome_normalizado').notNull().default(''),
     /** Nulo quando a fonte não diz (o fiscal da contabilidade não tem status). */
     ativo: boolean('ativo'),
+    /**
+     * Grupo de mercadoria COMO VEIO. Só o SIA e o Pralis têm; as fontes da TNP
+     * não trazem, e nulo aqui significa "a fonte não diz" — nunca é chutado.
+     *
+     * O grupo NÃO participa do fiscal: alíquota, CST e NCM continuam vindo por
+     * produto (SIA para LI, contabilidade para TNP). Ele serve para classificar
+     * o cadastro, não para deduzir imposto.
+     */
+    grupo: text('grupo'),
 
     custo: numeric('custo', { precision: 16, scale: 4 }),
     venda: numeric('venda', { precision: 16, scale: 4 }),

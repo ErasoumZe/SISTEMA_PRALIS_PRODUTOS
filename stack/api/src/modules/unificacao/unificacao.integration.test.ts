@@ -158,3 +158,23 @@ describe('o que o staging preserva do arquivo', () => {
     expect(sia.barrasConflitantes).toEqual([]);
   });
 });
+
+describe('grupo vindo do SIA', () => {
+  beforeEach(async () => { await service.carregar(); });
+
+  it('todos os 4.186 do SIA tem grupo — os 17 grupos reais', async () => {
+    const sia = (await service.health()).fontes.find((f) => f.fonte === 'sia_li')!;
+
+    expect(sia.comGrupo).toBe(4186);
+    expect(sia.grupos).toHaveLength(17);
+    expect(sia.grupos[0]).toMatchObject({ grupo: 'PRODUTOS DA CASA', produtos: 1016 });
+  });
+
+  it('as fontes da TNP entram SEM grupo — e isso fica visivel', async () => {
+    const health = await service.health();
+    const compilart = health.fontes.find((f) => f.fonte === 'compilart_tnp')!;
+
+    expect(compilart.comGrupo).toBe(0);
+    expect(compilart.grupos).toEqual([]);
+  });
+});

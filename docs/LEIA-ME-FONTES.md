@@ -5,7 +5,7 @@ barras — código interno é por loja e não cruza.
 
 | Arquivo | Loja | Chave | O que traz |
 |---|---|---|---|
-| `fonte_sia_lisboa.csv` | LI | COD_BARRAS / CODITEM | fiscal Lisboa: ALIQ_ECF, CST, CSOSN, NCM, REDUCAO |
+| `fonte_sia_lisboa.csv` | LI | COD_BARRAS / CODITEM | fiscal Lisboa: ALIQ_ECF, CST, CSOSN, NCM, REDUCAO + **GRUPO** |
 | `fonte_compilart_tnp.csv` | TNP | COD_BARRAS / COD_INTERNO | catálogo TNP: custo, venda, ativo |
 | `fonte_planilha_antiga_tnp.csv` | TNP | COD_INTERNO | nome + ativo (sem barras) |
 | `fonte_fiscal_tnp_contabilidade.csv` | TNP | COD_INTERNO | fiscal TNP da contabilidade: NCM, CST, ICMS efetivo (940 produtos) |
@@ -39,6 +39,27 @@ Outro dado do mesmo levantamento: dos "códigos de barras", só ~860 são EAN de
 verdade; ~3.300 são o código curto do Creare guardado na coluna de barras.
 Casar por eles une 4.126 pares SIA↔Compilart, **99,81% com o mesmo nome** — e
 dá 4.369 produtos únicos, que bate com a conta de ~4.368.
+
+## Grupo de mercadoria (02/09/2026)
+
+O `fonte_sia_lisboa.csv` passou a trazer `GRUPO`: **17 grupos, 100% das 4.186
+linhas preenchidas**, sem nenhum vazio.
+
+```
+1016 PRODUTOS DA CASA      302 BOMBONIERI     229 BISCOITO        143 MATERIAL DE LIMPEZA
+ 866 MAT. PRIMA (FARINHA)  293 MERCEARIA      200 SUCO, ISOT E AGUA  111 GERAL
+                           276 LATICINIOS     158 SORVETES          46 TERC. SALGADOS
+                           273 EMBALAGENS     147 REFRI. E CERVEJA   45 FRIOS
+                                                                     43 CIGARRO
+                                                                     22 LEITE
+                                                                     16 POLPA DE FRUTA
+```
+
+As fontes da TNP **não trazem grupo** — entram com nulo, nunca chutado. Produto
+que só existe na TNP fica "A CLASSIFICAR".
+
+O grupo classifica o cadastro e **não deduz fiscal**: alíquota, CST e NCM
+continuam vindo por produto (SIA para LI, contabilidade para TNP).
 
 Regras de campo (decididas pelo José):
 - Fiscal LI vem do SIA; fiscal TNP vem da contabilidade (por código interno TNP).

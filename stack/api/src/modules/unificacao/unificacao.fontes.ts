@@ -121,6 +121,11 @@ export interface LinhaFonte {
   nome: string;
   nomeNormalizado: string;
   ativo: boolean | null;
+  /**
+   * Só o SIA (e o Pralis) trazem. Nulo = a fonte não diz — nunca chutado.
+   * O grupo classifica o cadastro; NÃO deduz fiscal.
+   */
+  grupo: string | null;
   custo: number | null;
   venda: number | null;
   ncm: string | null;
@@ -146,6 +151,7 @@ const base = (fonte: Fonte, raw: Record<string, string>): LinhaFonte => ({
   nome: limparProtecao(raw.NOME ?? ''),
   nomeNormalizado: normalizarNome(raw.NOME ?? ''),
   ativo: paraAtivo(raw.ATIVO),
+  grupo: null,
   custo: null,
   venda: null,
   ncm: null,
@@ -162,6 +168,7 @@ const base = (fonte: Fonte, raw: Record<string, string>): LinhaFonte => ({
 export const MAPEADORES: Record<Exclude<Fonte, 'pralis'>, (raw: Record<string, string>) => LinhaFonte> = {
   sia_li: (raw) => ({
     ...base('sia_li', raw),
+    grupo: texto(raw.GRUPO),
     ncm: texto(raw.NCM),
     cst: texto(raw.CST),
     csosn: texto(raw.CSOSN),

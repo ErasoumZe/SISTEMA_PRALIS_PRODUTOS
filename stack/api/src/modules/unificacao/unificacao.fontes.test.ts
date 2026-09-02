@@ -103,8 +103,8 @@ describe('nome normalizado — chave FRACA', () => {
 
 describe('mapeamento por fonte', () => {
   it('SIA traz o fiscal da Lisboa e nada de custo', () => {
-    const csv = 'CODITEM;COD_BARRAS;NOME;ATIVO;ALIQ_ECF;CST;CSOSN;NCM;REDUCAO;ALIQ_INTERNA\n'
-      + '10000;00000000010000;ABACAXI UNID;A;3;"=""040""";102;08043000;0;18';
+    const csv = 'CODITEM;COD_BARRAS;NOME;ATIVO;ALIQ_ECF;CST;CSOSN;NCM;REDUCAO;ALIQ_INTERNA;GRUPO\n'
+      + '10000;00000000010000;ABACAXI UNID;A;3;"=""040""";102;08043000;0;18;PRODUTOS DA CASA';
 
     expect(lerFonte('sia_li', csv)[0]).toMatchObject({
       fonte: 'sia_li',
@@ -116,6 +116,7 @@ describe('mapeamento por fonte', () => {
       cst: '040',
       csosn: '102',
       ncm: '08043000',
+      grupo: 'PRODUTOS DA CASA',
       custo: null,
     });
   });
@@ -165,5 +166,31 @@ describe('codigo de barras ambiguo dentro da mesma fonte', () => {
 
   it('linha sem barras nunca vira ambiguidade', () => {
     expect(barrasAmbiguas([linha('', 'A'), linha('', 'B')])).toEqual([]);
+  });
+});
+
+describe('grupo de mercadoria', () => {
+  /*
+   * O grupo classifica o cadastro. Ele NAO deduz fiscal: aliquota, CST e NCM
+   * continuam vindo por produto (SIA para LI, contabilidade para TNP).
+   */
+  it('so o SIA traz grupo; as fontes da TNP entram com nulo, nao chutado', () => {
+    const doSia = lerFonte('sia_li',
+      'CODITEM;COD_BARRAS;NOME;ATIVO;GRUPO\n1;789;X;A;BOMBONIERI')[0]!;
+    const doCompilart = lerFonte('compilart_tnp',
+      'COD_INTERNO;COD_BARRAS;NOME;CUSTO;VENDA;ATIVO\n1;789;X;1;2;Sim')[0]!;
+    const daPlanilha = lerFonte('planilha_tnp', 'COD_INTERNO;NOME;ATIVO\n1;X;SIM')[0]!;
+    const doFiscal = lerFonte('fiscal_tnp', 'COD_INTERNO;NCM;CST;ICMS_EFETIVO\n1;123;6;0')[0]!;
+
+    expect(doSia.grupo).toBe('BOMBONIERI');
+    expect(doCompilart.grupo).toBeNull();
+    expect(daPlanilha.grupo).toBeNull();
+    expect(doFiscal.grupo).toBeNull();
+  });
+
+  it('grupo vazio no SIA vira nulo em vez de string vazia', () => {
+    const linha = lerFonte('sia_li', 'CODITEM;COD_BARRAS;NOME;ATIVO;GRUPO\n1;789;X;A;')[0]!;
+
+    expect(linha.grupo).toBeNull();
   });
 });

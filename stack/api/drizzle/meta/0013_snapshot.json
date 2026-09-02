@@ -1,5 +1,5 @@
 {
-  "id": "839f62e0-fcf9-4d7a-8eb4-ca2d1496f5c2",
+  "id": "760e5ac8-ceaa-4fe6-ba01-6a712b95be93",
   "prevId": "8e0cab4e-2c0b-4f1f-96d8-4b570ebcf8aa",
   "version": "7",
   "dialect": "postgresql",
@@ -1204,6 +1204,12 @@
         "ativo": {
           "name": "ativo",
           "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "grupo": {
+          "name": "grupo",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

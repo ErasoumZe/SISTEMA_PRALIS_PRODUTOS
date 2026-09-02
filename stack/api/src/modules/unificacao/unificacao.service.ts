@@ -26,6 +26,10 @@ export interface ResumoFonte {
   ativos: number;
   inativos: number;
   semStatus: number;
+  /** Quantos vêm com grupo de mercadoria. Só o SIA e o Pralis têm. */
+  comGrupo: number;
+  /** Grupos distintos que a fonte trouxe, com quantos produtos cada um. */
+  grupos: Array<{ grupo: string; produtos: number }>;
   /** Códigos de barras que cobrem produtos diferentes DENTRO da mesma fonte. */
   barrasConflitantes: Array<{ chave: string; nomes: string[] }>;
 }
@@ -68,6 +72,7 @@ export class UnificacaoService {
       nome: p.nome,
       nomeNormalizado: normalizarNome(p.nome),
       ativo: p.status === 'ativo',
+      grupo: p.grupo,
       custo: p.custo,
       venda: p.vVendaPontual,
       ncm: p.fiscal?.ncm ?? null,
@@ -115,6 +120,7 @@ export class UnificacaoService {
             nome: l.nome,
             nomeNormalizado: l.nomeNormalizado,
             ativo: l.ativo,
+            grupo: l.grupo,
             custo: l.custo == null ? null : String(l.custo),
             venda: l.venda == null ? null : String(l.venda),
             ncm: l.ncm,
@@ -140,6 +146,7 @@ export class UnificacaoService {
         chaveBarras: unifFonteProduto.chaveBarras,
         nome: unifFonteProduto.nome,
         ativo: unifFonteProduto.ativo,
+        grupo: unifFonteProduto.grupo,
         carregadoEm: unifFonteProduto.carregadoEm,
       })
       .from(unifFonteProduto);
@@ -150,6 +157,14 @@ export class UnificacaoService {
       porFonte.set(f, [...(porFonte.get(f) ?? []), l]);
     }
 
+    const contarGrupos = (ls: typeof linhas) => {
+      const m = new Map<string, number>();
+      for (const l of ls) if (l.grupo) m.set(l.grupo, (m.get(l.grupo) ?? 0) + 1);
+      return [...m.entries()]
+        .map(([grupo, produtos]) => ({ grupo, produtos }))
+        .sort((a, b) => b.produtos - a.produtos);
+    };
+
     const fontes: ResumoFonte[] = [...porFonte.entries()].map(([fonte, ls]) => ({
       fonte,
       linhas: ls.length,
@@ -158,6 +173,8 @@ export class UnificacaoService {
       ativos: ls.filter((l) => l.ativo === true).length,
       inativos: ls.filter((l) => l.ativo === false).length,
       semStatus: ls.filter((l) => l.ativo == null).length,
+      comGrupo: ls.filter((l) => !!l.grupo).length,
+      grupos: contarGrupos(ls),
       barrasConflitantes: barrasAmbiguas(
         ls.map((l) => ({ chaveBarras: l.chaveBarras, nome: l.nome }) as LinhaFonte),
       ),

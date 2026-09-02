@@ -7,6 +7,7 @@ CREATE TABLE "unif_fonte_produto" (
 	"nome" text DEFAULT '' NOT NULL,
 	"nome_normalizado" text DEFAULT '' NOT NULL,
 	"ativo" boolean,
+	"grupo" text,
 	"custo" numeric(16, 4),
 	"venda" numeric(16, 4),
 	"ncm" text,
