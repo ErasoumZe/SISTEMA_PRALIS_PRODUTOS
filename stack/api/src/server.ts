@@ -21,6 +21,7 @@ import { adminRoutes } from '@/modules/admin/admin.routes';
 import { productSheetRoutes } from '@/modules/google-sheets/product-sheet.routes';
 import { apoioRoutes } from '@/modules/apoio/apoio.routes';
 import { creareRoutes } from '@/modules/creare/creare.routes';
+import { unificacaoRoutes } from '@/modules/unificacao/unificacao.routes';
 import { vendasRoutes } from '@/modules/vendas/vendas.routes';
 
 const app = Fastify({
@@ -70,6 +71,7 @@ app.register(adminRoutes);
 app.register(productSheetRoutes);
 app.register(apoioRoutes);
 app.register(creareRoutes);
+app.register(unificacaoRoutes);
 app.register(vendasRoutes);
 
 app.get('/health', async () => ({ ok: true }));

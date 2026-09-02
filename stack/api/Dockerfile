@@ -16,6 +16,9 @@ RUN npm ci
 # código
 COPY stack/shared ./stack/shared
 COPY stack/api ./stack/api
+# Fontes da unificação: o carregador lê estes CSVs em tempo de execução, então
+# eles precisam existir na imagem. São catálogo de produto, não segredo.
+COPY docs/fonte_*.csv ./docs/
 
 WORKDIR /app/stack/api
 ENV NODE_ENV=production

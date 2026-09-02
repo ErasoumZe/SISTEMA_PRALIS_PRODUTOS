@@ -101,6 +101,13 @@ export const env = {
    */
   CREARE_EXPORT_TOKEN: envVar('CREARE_EXPORT_TOKEN', ''),
 
+  /**
+   * Pasta com os CSVs das fontes da unificação. Vazio cai em `../../docs`
+   * relativo ao workspace da API — que é onde eles ficam no repositório e,
+   * pelo Dockerfile, também na imagem.
+   */
+  UNIFICACAO_FONTES_DIR: envVar('UNIFICACAO_FONTES_DIR', ''),
+
   // ---- Ingestão de vendas pelo robô (TNP/Lisboa) ----
   // Sem fallback: token ausente deixa a autenticação de máquina desabilitada.
   VENDAS_IMPORT_TOKEN: envVar('VENDAS_IMPORT_TOKEN', ''),
