@@ -210,14 +210,23 @@ describe('unificar — grava no catalogo mestre', () => {
 });
 
 describe('unificar — o que ele recusa', () => {
-  it('recusa quando ja existe produto com o mesmo nome ou barras na BASE', async () => {
+  /*
+   * Unificar um grupo que ja esta no Pralis nunca foi "criar de novo": e
+   * completar aquele cadastro. Antes isso dava UNIF_DUPLICADO e travava os 147.
+   */
+  it('produto ja existente na BASE e ATUALIZADO, nao recusado', async () => {
     const g = await cenarioCompleto();
     await db.execute(sqlTag`
       INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
                             habilitar_ajuda, auto, codigo_barras)
       VALUES ('ja', 'BASE', 'PR-JA', 'ABACAXI UNID', 'UN', 'revenda', 'ativo', 1, 1, false, false, '00000000010000')`);
 
-    await expect(aplicar.unificar(admin, g.id)).rejects.toMatchObject({ code: 'UNIF_DUPLICADO' });
+    const r = await aplicar.unificar(admin, g.id);
+
+    expect(r.modo).toBe('atualizado');
+    expect(r.productId).toBe('ja');
+    const base = await db.execute(sqlTag`SELECT count(*)::int c FROM products WHERE loja = 'BASE'`);
+    expect(base.rows[0]!.c).toBe(1); // nao criou um segundo BASE
   });
 
   it('com forcar, cria mesmo assim — a decisao continua sendo humana', async () => {
@@ -297,5 +306,145 @@ describe('marcar e reabrir', () => {
 
     const feitas = await grupos.listar({ decisao: 'feita' });
     expect(feitas.total).toBe(1);
+  });
+});
+
+/**
+ * Os 147 produtos que ja existem no Pralis. Unificar aqui e COMPLETAR o
+ * cadastro com o fiscal e o que as outras fontes trazem — nunca recriar.
+ */
+describe('modo atualizacao — grupo que ja esta no Pralis', () => {
+  /** BASE + espelho da LI ja no catalogo, e a linha `pralis` no staging. */
+  const jaNoPralis = async (opcoes: { comEspelhoLi?: boolean; nomeCurado?: string } = {}) => {
+    await db.execute(sqlTag`
+      INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
+                            habilitar_ajuda, auto, codigo_barras, codigo_interno, custo, v_venda_pontual, grupo)
+      VALUES ('base1', 'BASE', 'PR-B1', ${opcoes.nomeCurado ?? 'ABACAXI UNID'}, 'UN', 'revenda', 'ativo',
+              1, 1, false, false, '00000000010000', '00042', 99.00, 199.00, 'GRUPO CURADO')`);
+    if (opcoes.comEspelhoLi) {
+      await db.execute(sqlTag`
+        INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
+                              habilitar_ajuda, auto, codigo_barras, codigo_interno, base_product_id)
+        VALUES ('li1', 'LI', 'PR-L1', 'ABACAXI UNID', 'UN', 'revenda', 'ativo', 1, 1, false, false,
+                '00000000010000', '00042', 'base1')`);
+      await db.execute(sqlTag`
+        INSERT INTO product_fiscal (product_id, cst_pis_cofins) VALUES ('li1', '06')`);
+    }
+    // a linha `pralis` do staging carrega o id do produto no `raw`
+    await db.execute(sqlTag`
+      INSERT INTO unif_fonte_produto (id, fonte, cod_interno, cod_barras, chave_barras, nome,
+                                      nome_normalizado, ativo, raw)
+      VALUES ('p1', 'pralis', '00042', '00000000010000', '10000', 'ABACAXI UNID',
+              'ABACAXI UNID', true, ${JSON.stringify({ id: 'base1', loja: 'BASE' })}::jsonb)`);
+  };
+
+  it('atualiza o fiscal do espelho existente com o da fonte da loja', async () => {
+    await jaNoPralis({ comEspelhoLi: true });
+    const g = await cenarioCompleto();
+
+    const r = await aplicar.unificar(admin, g.id);
+
+    expect(r.modo).toBe('atualizado');
+    expect(r.lojasAtualizadas).toContain('LI');
+    const li = await db.execute(sqlTag`
+      SELECT f.reducao_icms, f.cst_pis_cofins FROM product_fiscal f WHERE f.product_id = 'li1'`);
+    expect(Number(li.rows[0]!.reducao_icms)).toBe(53.33); // veio do SIA
+    expect(li.rows[0]!.cst_pis_cofins).toBe('06'); // o que ja existia NAO foi jogado fora
+  });
+
+  it('cria o espelho que FALTA em vez de recriar o BASE', async () => {
+    await jaNoPralis({ comEspelhoLi: true });
+    const g = await cenarioCompleto();
+
+    const r = await aplicar.unificar(admin, g.id);
+
+    expect(r.lojasCriadas).toContain('TNP'); // nao existia
+    expect(r.lojasAtualizadas).toContain('LI'); // existia
+    const tnp = await db.execute(sqlTag`
+      SELECT f.ncm FROM products p JOIN product_fiscal f ON f.product_id = p.id WHERE p.loja = 'TNP'`);
+    expect(tnp.rows[0]!.ncm).toBe('08043000'); // da contabilidade
+  });
+
+  /* Decisao do dono: o Compilart e o catalogo vivo e manda no preco. */
+  it('puxa custo e venda do Compilart POR CIMA do que o Pralis tinha', async () => {
+    await jaNoPralis();
+    const g = await cenarioCompleto();
+
+    await aplicar.unificar(admin, g.id);
+
+    const r = await db.execute(sqlTag`SELECT custo, v_venda_pontual FROM products WHERE id = 'base1'`);
+    expect(Number(r.rows[0]!.custo)).toBe(2.5); // era 99, virou o do Compilart
+    expect(Number(r.rows[0]!.v_venda_pontual)).toBe(6.9); // era 199
+  });
+
+  it('NAO sobrescreve nome nem grupo que o Jose curou', async () => {
+    await jaNoPralis({ nomeCurado: 'ABACAXI PEROLA CURADO' });
+    await fonte({ id: 's1', fonte: 'sia_li', barras: '00000000010000', interno: '10000',
+      nome: 'ABACAXI UNID', grupo: 'MAT. PRIMA (FARINHA)', reducao: 53.33 });
+    await grupos.recalcular();
+    const g = (await grupos.listar({ q: 'ABACAXI' })).grupos[0]!;
+
+    await aplicar.unificar(admin, g.id);
+
+    const r = await db.execute(sqlTag`SELECT nome, grupo FROM products WHERE id = 'base1'`);
+    expect(r.rows[0]).toMatchObject({ nome: 'ABACAXI PEROLA CURADO', grupo: 'GRUPO CURADO' });
+  });
+
+  it('reenfileira o espelho da planilha para a atualizacao chegar no Sheets', async () => {
+    await jaNoPralis();
+    const g = await cenarioCompleto();
+
+    await aplicar.unificar(admin, g.id);
+
+    const s = await db.execute(sqlTag`
+      SELECT count(*)::int c FROM product_sheet_sync WHERE product_id = 'base1'`);
+    expect(s.rows[0]!.c).toBe(1);
+  });
+
+  it('registra modo=atualizado na auditoria, com o caminho usado', async () => {
+    await jaNoPralis();
+    const g = await cenarioCompleto();
+
+    await aplicar.unificar(admin, g.id);
+
+    const r = await db.execute(sqlTag`SELECT detalhe, product_id FROM unif_decisao`);
+    expect(r.rows[0]!.product_id).toBe('base1');
+    expect(r.rows[0]!.detalhe).toMatchObject({ modo: 'atualizado', encontradoPor: 'fonte_pralis' });
+  });
+
+  /* O caso real que travava: 5STAR ja no Pralis e com nomes divergentes. */
+  it('5STAR (ja no Pralis, nomes divergentes) atualiza em vez de dar erro', async () => {
+    await db.execute(sqlTag`
+      INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
+                            habilitar_ajuda, auto, codigo_barras, codigo_interno)
+      VALUES ('b5', 'BASE', 'PR-B5', '5STAR', 'UN', 'revenda', 'ativo', 1, 1, false, false,
+              '00000000010365', '00365')`);
+    await db.execute(sqlTag`
+      INSERT INTO unif_fonte_produto (id, fonte, cod_interno, cod_barras, chave_barras, nome,
+                                      nome_normalizado, ativo, raw)
+      VALUES ('pp5', 'pralis', '00365', '00000000010365', '10365', '5STAR', '5STAR', true,
+              ${JSON.stringify({ id: 'b5', loja: 'BASE' })}::jsonb)`);
+    await fonte({ id: 'ss5', fonte: 'sia_li', barras: '00000000010365', interno: '10365',
+      nome: '5STAR 40G', grupo: 'BOMBONIERI', ncm: '18069000' });
+    await fonte({ id: 'cc5', fonte: 'compilart_tnp', barras: '00000000010365', interno: '9',
+      nome: '5 STAR CHOCOLATE 40G', custo: 1.9, venda: 3.5 });
+    await grupos.recalcular();
+    const g = (await grupos.listar({ q: '5STAR' })).grupos.find((x) => x.chave === '10365')!;
+
+    expect(g.flagNomesDivergentes).toBe(true);
+    const r = await aplicar.unificar(admin, g.id);
+
+    expect(r.modo).toBe('atualizado');
+    expect(r.productId).toBe('b5');
+  });
+
+  it('forcar continua criando um separado, mesmo existindo', async () => {
+    await jaNoPralis();
+    const g = await cenarioCompleto();
+
+    const r = await aplicar.unificar(admin, g.id, true);
+
+    expect(r.modo).toBe('criado');
+    expect(r.productId).not.toBe('base1');
   });
 });

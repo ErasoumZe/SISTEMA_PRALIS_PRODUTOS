@@ -116,11 +116,29 @@ describe('candidato consolidado — cada campo com dono', () => {
     fonte: 'fiscal_tnp', loja: 'TNP', codInterno: '10000', ncm: '08043000', cst: '6', icmsEfetivo: 3.69,
   });
 
-  it('nome e custo vem do Pralis quando existe', () => {
+  it('o NOME vem do Pralis — e o que o Jose curou manda', () => {
     const c = montarCandidato([doSia, doCompilart, doPralis]);
 
     expect(c.nome).toBe('ABACAXI PRALIS');
     expect(c.nomeDe).toBe('pralis');
+  });
+
+  /*
+   * Custo e venda seguem a ordem CONTRARIA: o Compilart e o catalogo vivo da
+   * loja e o Pralis pode estar com valor velho. Vale para criar e atualizar.
+   */
+  it('CUSTO e VENDA vem do Compilart, mesmo com o Pralis presente', () => {
+    const c = montarCandidato([doSia, doCompilart, doPralis]);
+
+    expect(c.custo).toBe(2);
+    expect(c.custoDe).toBe('compilart_tnp');
+    expect(c.venda).toBe(5);
+    expect(c.vendaDe).toBe('compilart_tnp');
+  });
+
+  it('sem Compilart, custo e venda ficam com o que o Pralis tem', () => {
+    const c = montarCandidato([doSia, doPralis]);
+
     expect(c.custo).toBe(3);
     expect(c.custoDe).toBe('pralis');
   });

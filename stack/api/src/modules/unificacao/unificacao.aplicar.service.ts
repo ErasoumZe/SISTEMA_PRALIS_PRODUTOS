@@ -22,10 +22,13 @@ type LojaDestino = (typeof LOJAS_DESTINO)[number];
 export type AcaoUnificacao = 'unificado' | 'nao_e_o_mesmo' | 'criado' | 'ignorado';
 
 export interface ResultadoUnificar {
+  /** `criado` = não existia no Pralis; `atualizado` = já existia e foi completado. */
+  modo: 'criado' | 'atualizado';
   productId: string;
   codigo: string;
   codigoInterno: string;
   lojasCriadas: LojaDestino[];
+  lojasAtualizadas: LojaDestino[];
   sheetSync: string;
 }
 
@@ -71,6 +74,8 @@ export class UnificacaoAplicarService {
         codBarras: unifFonteProduto.codBarras,
         nome: unifFonteProduto.nome,
         ativo: unifFonteProduto.ativo,
+        /** Para a fonte `pralis`, o `raw` guarda o id do produto que já existe. */
+        raw: unifFonteProduto.raw,
       })
       .from(unifGrupoItem)
       .leftJoin(unifFonteProduto, eq(unifGrupoItem.fonteProdutoId, unifFonteProduto.id))
@@ -167,10 +172,80 @@ export class UnificacaoAplicarService {
   }
 
   /**
-   * Cria o produto BASE e as cópias das lojas presentes no grupo.
+   * O produto BASE que este grupo já tem no Pralis, se tiver.
    *
-   * Só por clique humano. Recusa se o grupo já foi decidido, para dois cliques
-   * não gerarem dois cadastros.
+   * Prefere o vínculo EXATO: a linha da fonte `pralis` carrega o id do produto.
+   * Só cai no `findDuplicate` quando não há essa linha — ele casa por nome OU
+   * barras, o que é mais frouxo, então fica como segunda opção e o caminho
+   * usado vai registrado na auditoria.
+   */
+  private async acharBaseExistente(
+    itens: Array<{ fonte: string; loja: string; raw: unknown }>,
+    nome: string,
+    barras: string | null,
+  ): Promise<{ id: string; por: 'fonte_pralis' | 'duplicado' } | null> {
+    const doPralis = itens.find((i) => i.fonte === 'pralis' && i.loja === 'BASE');
+    const id = (doPralis?.raw as { id?: string } | null)?.id;
+    if (id && (await this.repo.findById(id))) return { id, por: 'fonte_pralis' };
+
+    const dup = await this.repo.findDuplicate('BASE', nome, barras);
+    return dup ? { id: dup.id, por: 'duplicado' } : null;
+  }
+
+  /**
+   * O que a atualização pode mexer no cadastro.
+   *
+   * Nome e grupo: só preenche o que estiver VAZIO. O que o José curou no Pralis
+   * é dele — a divergência continua marcada em vermelho na tela para ele
+   * decidir, e não é apagada por trás.
+   *
+   * Custo e venda: o Compilart SOBRESCREVE, porque é o catálogo vivo da loja e
+   * o Pralis pode estar com valor velho. Sem Compilart no grupo, não mexe.
+   */
+  private patchCadastro(
+    atual: { nome: string; grupo: string | null },
+    c: CandidatoUnificado,
+    temCompilart: boolean,
+  ): ProductRequests.UpdateProductRequest {
+    return {
+      ...(atual.nome?.trim() ? {} : { nome: c.nome }),
+      ...(atual.grupo?.trim() ? {} : { grupo: c.grupo ?? 'A CLASSIFICAR' }),
+      ...(temCompilart && c.custo != null ? { custo: c.custo } : {}),
+      ...(temCompilart && c.venda != null ? { vVendaPontual: c.venda } : {}),
+    };
+  }
+
+  /**
+   * Fiscal existente + o que a fonte da loja diz.
+   *
+   * Mescla em vez de substituir: `replaceRelations` apaga e regrava o bloco
+   * inteiro, e mandar só os campos da fonte jogaria fora o resto (o
+   * `cstPisCofins` que veio da regra do grupo quando o produto foi cadastrado
+   * pelo caminho normal, por exemplo).
+   */
+  private fiscalMesclado(
+    atual: ProductSchemas.ProductEntity['fiscal'],
+    loja: LojaDestino,
+    c: CandidatoUnificado,
+  ): ProductSchemas.ProductEntity['fiscal'] {
+    const daFonte = this.fiscalDaLoja(loja, c);
+    if (!daFonte) return atual; // a fonte não tem fiscal para esta loja: não mexe
+    if (!atual) return daFonte;
+    return {
+      ...atual,
+      ncm: daFonte.ncm ?? atual.ncm,
+      reducaoIcms: daFonte.reducaoIcms ?? atual.reducaoIcms,
+      icms: daFonte.icms ?? atual.icms,
+    };
+  }
+
+  /**
+   * Unifica o grupo: ATUALIZA quando o produto já existe no Pralis, CRIA quando
+   * não existe.
+   *
+   * Unificar um grupo que já está no Pralis nunca foi "criar de novo" — é
+   * completar aquele cadastro com o fiscal e o que as outras fontes trazem.
+   * `forcar` continua existindo como escape para criar um separado mesmo assim.
    */
   async unificar(user: CurrentUser, grupoId: string, forcar = false): Promise<ResultadoUnificar> {
     if (user.role !== 'admin') {
@@ -187,17 +262,91 @@ export class UnificacaoAplicarService {
     }
     const barras = this.barrasReal(itens);
 
-    if (!forcar) {
-      const dup = await this.repo.findDuplicate('BASE', candidato.nome, barras);
-      if (dup) {
-        throw new AppError(
-          `Já existe "${dup.nome}" na base. Confira antes de criar de novo.`,
-          409,
-          'UNIF_DUPLICADO',
-        );
+    const existente = forcar ? null : await this.acharBaseExistente(itens, candidato.nome, barras);
+    if (existente) {
+      return this.atualizar(user, grupo, itens, candidato, existente);
+    }
+    return this.criar(user, grupo, itens, candidato, barras);
+  }
+
+  /** Completa um cadastro que já existe. Não recria nada. */
+  private async atualizar(
+    user: CurrentUser,
+    grupo: typeof unifGrupo.$inferSelect,
+    itens: Array<{ fonte: string; loja: string; ativo: boolean | null; codBarras: string | null }>,
+    candidato: CandidatoUnificado,
+    existente: { id: string; por: 'fonte_pralis' | 'duplicado' },
+  ): Promise<ResultadoUnificar> {
+    const base = await this.repo.findById(existente.id);
+    if (!base) throw new AppError('Produto do Pralis não encontrado.', 404, 'PRODUCT_NOT_FOUND');
+    const temCompilart = grupo.fontes.includes('compilart_tnp');
+    const barras = this.barrasReal(itens) ?? base.codigoBarras;
+
+    await this.repo.update(base.id, this.patchCadastro(base, candidato, temCompilart));
+    // reenfileira: sem isto a atualização não chega ao Sheets nem ao Criare
+    await this.sheets.registerPending(base.id);
+
+    const espelhos = await this.repo.listByBaseProductId(base.id);
+    const lojasCriadas: LojaDestino[] = [];
+    const lojasAtualizadas: LojaDestino[] = [];
+
+    for (const loja of LOJAS_DESTINO) {
+      if (!grupo.lojas.includes(loja)) continue;
+      const espelho = espelhos.find((e) => e.loja === loja);
+      const ativoNaLoja = itens.some((i) => i.loja === loja && i.ativo === true);
+
+      if (espelho) {
+        await this.repo.update(espelho.id, {
+          ...this.patchCadastro(espelho, candidato, temCompilart),
+          fiscal: this.fiscalMesclado(espelho.fiscal, loja, candidato),
+        });
+        lojasAtualizadas.push(loja);
+        continue;
       }
+      await this.repo.create(
+        this.payload(candidato, barras, ativoNaLoja, this.fiscalDaLoja(loja, candidato)),
+        {
+          loja,
+          codigo: await this.novoCodigo(),
+          codigoInterno: base.codigoInterno,
+          createdByUserId: user.id,
+          createdByName: user.name,
+          baseProductId: base.id,
+        },
+      );
+      lojasCriadas.push(loja);
     }
 
+    await this.registrar(grupo.chave, 'unificado', user, {
+      modo: 'atualizado',
+      encontradoPor: existente.por,
+      nome: base.nome,
+      custoVendaDoCompilart: temCompilart,
+      lojasAtualizadas,
+      lojasCriadas,
+      fontes: grupo.fontes,
+    }, base.id);
+
+    const sync = await this.sheets.syncProduct(base.id).catch(() => ({ outcome: 'failed' as const }));
+    return {
+      modo: 'atualizado',
+      productId: base.id,
+      codigo: base.codigo,
+      codigoInterno: base.codigoInterno ?? '',
+      lojasCriadas,
+      lojasAtualizadas,
+      sheetSync: sync.outcome,
+    };
+  }
+
+  /** Cria o produto BASE e as cópias das lojas presentes no grupo. */
+  private async criar(
+    user: CurrentUser,
+    grupo: typeof unifGrupo.$inferSelect,
+    itens: Array<{ loja: string; ativo: boolean | null }>,
+    candidato: CandidatoUnificado,
+    barras: string | null,
+  ): Promise<ResultadoUnificar> {
     const codigo = await this.novoCodigo();
     const codigoInterno = await this.repo.proximoCodigoInterno();
 
@@ -229,6 +378,7 @@ export class UnificacaoAplicarService {
     }
 
     await this.registrar(grupo.chave, 'unificado', user, {
+      modo: 'criado',
       nome: candidato.nome, grupo: candidato.grupo, barras, lojasCriadas, fontes: grupo.fontes,
     }, base.id);
 
@@ -236,7 +386,15 @@ export class UnificacaoAplicarService {
     // `failed` e aparece como pendente, nunca como erro que peça recadastro.
     const sync = await this.sheets.syncProduct(base.id).catch(() => ({ outcome: 'failed' as const }));
 
-    return { productId: base.id, codigo, codigoInterno, lojasCriadas, sheetSync: sync.outcome };
+    return {
+      modo: 'criado',
+      productId: base.id,
+      codigo,
+      codigoInterno,
+      lojasCriadas,
+      lojasAtualizadas: [],
+      sheetSync: sync.outcome,
+    };
   }
 
   /** Tira o grupo da fila sem criar nada. */
