@@ -126,8 +126,16 @@ const primeiroPor = <T>(
  */
 export function montarCandidato(itens: ItemFonte[]): CandidatoUnificado {
   const nome = primeiroPor(itens, ORDEM_NOME, (i) => i.nome);
-  const custo = primeiroPor(itens, ['pralis', 'compilart_tnp'], (i) => i.custo);
-  const venda = primeiroPor(itens, ['pralis', 'compilart_tnp'], (i) => i.venda);
+  /*
+   * Custo e venda vêm do Compilart ANTES do Pralis, de propósito: o Compilart é
+   * o catálogo vivo da loja, e o Pralis pode estar com valor velho. Isso vale
+   * para criar E para atualizar — se a ordem fosse diferente nos dois, o "Vai
+   * gravar" mostraria um valor e a atualização gravaria outro.
+   *
+   * Nome e grupo NÃO seguem essa regra: ali o que o José curou no Pralis manda.
+   */
+  const custo = primeiroPor(itens, ['compilart_tnp', 'pralis'], (i) => i.custo);
+  const venda = primeiroPor(itens, ['compilart_tnp', 'pralis'], (i) => i.venda);
   // grupo só existe no SIA e no Pralis; sem eles fica "A CLASSIFICAR"
   const grupo = primeiroPor(itens, ['sia_li', 'pralis'], (i) => i.grupo);
 

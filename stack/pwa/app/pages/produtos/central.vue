@@ -72,9 +72,9 @@ async function acao(g: GrupoUnificacao, tipo: 'unificar' | 'nao_e_o_mesmo' | 'ig
     if (tipo === 'unificar') await api.unificacaoUnificar(g.id);
     else await api.unificacaoMarcar(g.id, tipo);
     flash.value = {
-      texto: tipo === 'unificar'
-        ? `"${g.candidato.nome}" criado no cadastro do Pralis.`
-        : 'Decisão registrada.',
+      texto: tipo !== 'unificar'
+        ? 'Decisão registrada.'
+        : `"${g.candidato.nome}" ${g.flagJaNoPralis ? 'atualizado' : 'criado'} no cadastro do Pralis.`,
       tipo: 'success',
     };
     await carregar();
@@ -330,13 +330,18 @@ const nomesDoGrupo = (g: GrupoUnificacao) =>
           </div>
 
           <div v-else class="d-flex flex-wrap ga-2 mt-3">
+            <!--
+              Grupo que já existe no Pralis é ATUALIZADO, não recriado. O rótulo
+              precisa dizer isso: "criar" num produto que já existe assusta, e
+              foi justamente o que gerava o erro de duplicado.
+            -->
             <v-btn
               size="small"
               color="primary"
               variant="flat"
               :loading="agindo === g.id"
               @click="acao(g, 'unificar')"
-            >Unificar e criar no Pralis</v-btn>
+            >{{ g.flagJaNoPralis ? 'Unificar e atualizar no Pralis' : 'Unificar e criar no Pralis' }}</v-btn>
             <v-btn
               v-if="g.itens.length > 1"
               size="small"
