@@ -21,7 +21,9 @@ const genCodigo = () => `PR-${rand4()}-${rand4()}`;
 
 async function main() {
   const raw = JSON.parse(readFileSync(JSON_PATH, 'utf8'));
-  const produtos = ProductRequests.createProductSchema.array().parse(raw);
+  // importProductSchema: mesma forma, SEM a regra de estoque. Cadastro legado
+  // torto vira problema de dado, nunca queda da API.
+  const produtos = ProductRequests.importProductSchema.array().parse(raw);
   const repo = new ProductRepository();
 
   let imported = 0;
@@ -51,7 +53,23 @@ async function main() {
   process.exit(0);
 }
 
+/*
+ * SAI COM 0 MESMO FALHANDO, de propósito.
+ *
+ * Este script roda no `start:prod` encadeado com `&&` ANTES do servidor. Sair
+ * com erro aqui não deixa a API subir, e a empresa inteira perde o login por
+ * causa de um dado ruim no arquivo de seed.
+ *
+ * Aconteceu em 02/09/2026: seis produtos da base com estoque máximo <= mínimo
+ * pararam o seed e o container reiniciou 33 vezes. Semear a base é
+ * conveniência; servir a API é o serviço. Dado ruim vira alarme no log — não
+ * derruba o login de ninguém.
+ */
 main().catch((e) => {
-  console.error('Falha no seed BASE:', e);
-  process.exit(1);
+  console.error('=====================================================');
+  console.error('  SEED DA BASE FALHOU. A API VAI SUBIR MESMO ASSIM.');
+  console.error('  Nenhum produto novo foi semeado nesta subida.');
+  console.error('=====================================================');
+  console.error(e);
+  process.exit(0);
 });
