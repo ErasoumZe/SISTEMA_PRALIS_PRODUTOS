@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { env } from '@/config/env';
 import type { SheetsGateway } from '@/modules/google-sheets/google-sheets.client';
-import { barcodeCandidates, normalizeGroup, parseSheetPercent, TaxRuleService } from './tax-rule.service';
+import { barcodeCandidates, ncmCode, normalizeGroup, parseSheetPercent, TaxRuleService } from './tax-rule.service';
 
 const previous = {
   id: env.GOOGLE_SHEETS_SPREADSHEET_ID,
@@ -124,5 +124,53 @@ describe('TaxRuleService — aba fiscal encolhida (faixa de grupos fora da grade
     const service = new TaxRuleService(gateway);
 
     await expect(service.list()).rejects.toMatchObject({ code: 'TAX_RULES_SOURCE_INVALID' });
+  });
+});
+
+/*
+ * NCM tem 8 digitos FIXOS e o zero a esquerda faz parte do codigo. O `code()`
+ * usado para codigo de barras comia esse zero, e a propria planilha ja chega
+ * sem ele em 77 dos 940 produtos porque o Excel trata NCM como numero.
+ */
+describe('NCM nao perde o zero a esquerda', () => {
+  it('completa o que veio curto ate 8 digitos', () => {
+    expect(ncmCode('4051000')).toBe('04051000');
+    expect(ncmCode('4061090')).toBe('04061090');
+    expect(ncmCode('123')).toBe('00000123');
+  });
+
+  it('deixa intacto o que ja tem 8 digitos', () => {
+    expect(ncmCode('19059090')).toBe('19059090');
+    expect(ncmCode('04051000')).toBe('04051000');
+  });
+
+  it('NAO inventa nada em vazio nem corta o que tem mais de 8', () => {
+    expect(ncmCode('')).toBe('');
+    expect(ncmCode('   ')).toBe('');
+    expect(ncmCode('123456789')).toBe('123456789');
+  });
+
+  it('tira pontuacao antes de completar', () => {
+    expect(ncmCode('0405.10.00')).toBe('04051000');
+    expect(ncmCode('405.10.00')).toBe('04051000');
+  });
+
+  it('o produto sai com o NCM completo e a reforma continua casando', async () => {
+    const gateway = {
+      batchGetValues: async () => [
+        [['GRUPO A', '1', 'TRIBUTADO', '11,28%', '3,69%', 'Regra']],
+        [['10220', '4051000', '6', '0,00%', 'MANTEIGA C/SAL UBARI 500G']],
+        [['4051000', '', '200', 'classe-x', '0,10%', '0,90%']],
+        [],
+      ],
+    } as unknown as SheetsGateway;
+    const service = new TaxRuleService(gateway);
+
+    const c = await service.classify('GRUPO A', '10220');
+
+    expect(c.ncm).toBe('04051000');
+    // a reforma e indexada pelo MESMO normalizador, entao o casamento sobrevive
+    expect(c.cstReforma).toBe('200');
+    expect(c.cClassTrib).toBe('classe-x');
   });
 });
