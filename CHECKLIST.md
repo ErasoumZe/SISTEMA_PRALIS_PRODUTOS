@@ -67,26 +67,35 @@ campos, grupo e ECF vindos do SIA, NCM com zero à esquerda.
 
 ---
 
-## 🔴 Ligar a ingestão de vendas
+## 🟢 Ingestão de vendas — JÁ ESTAVA LIGADA
 
-O código está no ar desde 26/08; o robô não está mandando.
+Corrigido em 03/09: o checklist estava errado. Os logs de 31/08 a 02/09
+mostram lotes enviados ao Pralis, URL e token configurados, fila zerada.
 
-- [ ] No Coolify: `VENDAS_IMPORT_TOKEN` = token forte, 32+ caracteres
-- [ ] No `.env` do robô: `PRALIS_VENDAS_API_URL` = domínio da API
+- [x] ~~`VENDAS_IMPORT_TOKEN` no Coolify~~ — já estava configurado
+- [x] ~~`PRALIS_VENDAS_API_URL` no robô~~ — já estava configurado
+- [x] ~~Devolver `DIAS_REPROCESSAR` de 5 para 3~~ — feito nos dois arquivos
+
+Ainda falta:
+
+- [ ] **Copiar a pasta do robô** da Área de Trabalho para o servidor real,
+      em `Documents\bot` do usuário `Server-Pralis` — o `DIAS_REPROCESSAR: 3`
+      só passa a valer lá depois disso
 - [ ] **Backfill** desde 2025, na máquina da loja, com `--so-contar` antes
       (ninguém verificou se o histórico do Creare alcança 2025)
-- [ ] Devolver **`DIAS_REPROCESSAR` de 5 para 3** em `config.TNP.yaml` e
-      `config.yaml` — marcado temporário em 21/08
 
 ---
 
 ## 🟡 Dados que eu preciso de você
 
-- [ ] **Margem por grupo.** A aba
-      `(TNP/LI/HORA - EXP.) GRUPOS/REF. - VLD SAIDA` está com **`#REF!`** — a
-      fórmula quebrou e a aba está vazia inteira. Conserte lá, ou me mande a
-      lista grupo → margem %. A canalização já existe no código
-      (`calcularVVenda` cai em `margemGrupo`); falta só a fonte.
+- [x] ~~**Margem por grupo**~~ — **FEITO em 03/09.** Eu tinha lido a planilha
+      errada: a de homologação tem a aba `#REF!`, a de produção está sã. Os
+      grupos estão na coluna `M` e a margem na `N`. O sistema já aplica
+      sozinho ao trocar o grupo.
+- [ ] **Preencher as margens que faltam.** Só **3 dos 76 grupos** têm margem
+      hoje (CIGARROS: 0,2 / 0,1 / 0,3). Nos outros 73 o campo continua em
+      branco para ser digitado. Preencher na coluna `N` da aba
+      `(TNP/LI/HORA - EXP.) GRUPOS/REF. - VLD SAIDA` e o sistema passa a usar.
 - [ ] **Espelho nas abas de loja.** Precisa de uma decisão sua — ver
       [`docs/espelho-abas-loja.md`](docs/espelho-abas-loja.md).
 - [ ] **Listas oficiais** de setor e local de venda (hoje são texto livre;
@@ -102,8 +111,8 @@ O código está no ar desde 26/08; o robô não está mandando.
 - [ ] **Índice único** em `(loja, codigo_barras)` — só depois da limpeza real.
       O `start:prod` roda `drizzle-kit push --force`: subir o índice com
       duplicata existente **derruba o deploy**.
-- [ ] **Versionar o `ROBO-SIA-AUTO.ps1`** — existe só na máquina da Lisboa, e a
-      cópia do Desktop pode não ser a mesma.
+- [x] ~~Versionar o `ROBO-SIA-AUTO.ps1`~~ — **FEITO**, junto com o `.bat` e o
+      instalador do agendamento, em `automacao/robo-sia/`.
 - [ ] **CREARE/SIA leitura direta** — depende de acesso ao `bdsia`.
 - [ ] **Promoção no Criare** — o layout exige data de início e fim; o Pralis tem
       uma só.
@@ -118,6 +127,17 @@ O código está no ar desde 26/08; o robô não está mandando.
       endpoint continuam no código como rede de segurança).
 
 ---
+
+## ⚠️ Existem DUAS planilhas
+
+| | ID |
+|---|---|
+| Produção | `1C0FsFMZelHN...` (Coolify, e o link que você mandou) |
+| Homologação | `1OrJScm9YiRL...` (`.env` local de desenvolvimento) |
+
+Elas divergem de verdade: na de homologação a aba de grupos está `#REF!` e a
+BASE tem 74 colunas; na de produção a aba está sã e a BASE tem 158. Foi o que
+me fez errar o diagnóstico da margem. **Conferir sempre qual está sendo lida.**
 
 ## ✅ Duas coisas para não esquecer
 
