@@ -96,7 +96,11 @@ Ainda falta:
       hoje (CIGARROS: 0,2 / 0,1 / 0,3). Nos outros 73 o campo continua em
       branco para ser digitado. Preencher na coluna `N` da aba
       `(TNP/LI/HORA - EXP.) GRUPOS/REF. - VLD SAIDA` e o sistema passa a usar.
-- [ ] **Espelho nas abas de loja.** Precisa de uma decisão sua — ver
+- [ ] **Espelho nas abas de loja — aprovar o teste de 1 produto.** As colunas
+      já entraram, o espelho de TNP e LI está construído e o modo de conferência
+      roda sem gravar nada (`GET /admin/sheets/loja/previsualizar`). Falta você
+      olhar a conferência de um produto e liberar a primeira gravação de
+      verdade. HORA continua fora, de propósito. Ver
       [`docs/espelho-abas-loja.md`](docs/espelho-abas-loja.md).
 - [ ] **Listas oficiais** de setor e local de venda (hoje são texto livre;
       viram lista fechada quando você passar).

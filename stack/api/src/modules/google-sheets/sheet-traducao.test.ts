@@ -88,7 +88,7 @@ describe('traducao entre abas', () => {
 describe('a aba de destino esta pronta?', () => {
   /*
    * Sem `ID` o espelho nao sabe qual linha atualizar: criaria uma nova a cada
-   * sincronismo, e 9.930 linhas virariam 19.860 na segunda rodada.
+   * sincronismo, duplicando o mesmo produto a cada rodada.
    */
   it('recusa aba sem ID', () => {
     const semId = colunasPorCabecalho(['NOME', 'CUSTO'], letra);

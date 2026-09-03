@@ -33,7 +33,7 @@ apagada.
 
 **As abas por loja (TNP/LI/HORA) não são espelhadas.** Elas têm outro leiaute e
 não têm coluna de ID; escrever nelas por posição corromperia uma planilha de
-~9.930 linhas. Só entra depois que ganharem uma coluna de ID alinhada com a BASE.
+Só entra depois que ganharem uma coluna de ID alinhada com a BASE.
 
 ---
 
