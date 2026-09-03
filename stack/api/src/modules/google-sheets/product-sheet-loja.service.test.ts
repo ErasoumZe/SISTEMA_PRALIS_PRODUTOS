@@ -5,17 +5,24 @@ import type { ProductSchemas } from '@pralis/shared';
 import type { SheetsGateway } from './google-sheets.client';
 import { ProductSheetLojaService } from './product-sheet-loja.service';
 
-const anterior = { id: env.GOOGLE_SHEETS_SPREADSHEET_ID, base: env.GOOGLE_SHEETS_BASE_TAB, tabs: env.GOOGLE_SHEETS_LOJA_TABS };
+const anterior = {
+  id: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+  base: env.GOOGLE_SHEETS_BASE_TAB,
+  tabs: env.GOOGLE_SHEETS_LOJA_TABS,
+  auto: env.GOOGLE_SHEETS_LOJA_ESPELHO_AUTO,
+};
 
 beforeEach(() => {
   env.GOOGLE_SHEETS_SPREADSHEET_ID = 'planilha-teste';
   env.GOOGLE_SHEETS_BASE_TAB = '(BASE) CADASTRO PRODUTOS';
   env.GOOGLE_SHEETS_LOJA_TABS = '';
+  env.GOOGLE_SHEETS_LOJA_ESPELHO_AUTO = false;
 });
 afterEach(() => {
   env.GOOGLE_SHEETS_SPREADSHEET_ID = anterior.id;
   env.GOOGLE_SHEETS_BASE_TAB = anterior.base;
   env.GOOGLE_SHEETS_LOJA_TABS = anterior.tabs;
+  env.GOOGLE_SHEETS_LOJA_ESPELHO_AUTO = anterior.auto;
 });
 
 const produto = (over: Partial<ProductSchemas.ProductEntity> = {}) => ({
@@ -225,5 +232,93 @@ describe('conferência não grava', () => {
 
     expect(escritas.length).toBeGreaterThan(0);
     expect(escritas[0]!.values[0]![0]).toBe('uuid-do-produto'); // a reserva vem primeiro
+  });
+});
+
+describe('espelho automático em lote', () => {
+  /** Linhas tocadas por uma escrita, lidas dos ranges (ex.: "'(TNP)...'!F13"). */
+  const linhasDe = (escritas: Array<{ range: string }>) =>
+    [...new Set(escritas.map((e) => Number(/!.*?([0-9]+)$/.exec(e.range)?.[1])))].sort((a, b) => a - b);
+
+  it('desligado por padrão: não escreve NADA', async () => {
+    const escritas: Array<{ range: string; values: string[][] }> = [];
+    const s = new ProductSheetLojaService(gateway({ escritas }));
+
+    const r = await s.espelharVarios([produto()], 'TNP');
+
+    expect(r).toBe('desligado');
+    expect(escritas).toEqual([]);
+  });
+
+  /*
+   * O caso que o lote existe para resolver. Relendo a planilha por produto, os
+   * dois novos veriam a MESMA primeira linha livre e o segundo gravaria em cima
+   * do primeiro — dentro da mesma importação, sem ninguém perceber.
+   */
+  it('dois produtos NOVOS no mesmo lote ficam em linhas diferentes', async () => {
+    env.GOOGLE_SHEETS_LOJA_ESPELHO_AUTO = true;
+    const escritas: Array<{ range: string; values: string[][] }> = [];
+    const s = new ProductSheetLojaService(gateway({ escritas, ids: ['ja-existe'], nomes: ['OUTRO'] }));
+
+    const r = await s.espelharVarios(
+      [produto({ id: 'novo-1' }), produto({ id: 'novo-2' })],
+      'TNP',
+    );
+
+    expect(r).toBe('espelhado');
+    expect(linhasDe(escritas)).toEqual([12, 13]); // 11 está ocupada
+  });
+
+  /*
+   * Mesma ideia, mas nos BURACOS do meio — que e onde o lote pode se atropelar
+   * de verdade. A primeira versao deste teste nao pegava o bug: sem buraco
+   * nenhum, todo mundo caia no fim da aba e as linhas saiam diferentes por
+   * acidente.
+   */
+  it('dois produtos NOVOS ocupam buracos DIFERENTES do meio da aba', async () => {
+    env.GOOGLE_SHEETS_LOJA_ESPELHO_AUTO = true;
+    const escritas: Array<{ range: string; values: string[][] }> = [];
+    const s = new ProductSheetLojaService(gateway({
+      escritas,
+      ids: ['a', '', '', 'd'], //   11 ocupada, 12 e 13 livres, 14 ocupada
+      nomes: ['X', '', '', 'Y'],
+    }));
+
+    await s.espelharVarios([produto({ id: 'novo-1' }), produto({ id: 'novo-2' })], 'TNP');
+
+    expect(linhasDe(escritas)).toEqual([12, 13]);
+  });
+
+  it('produto que já tem linha ATUALIZA a dele, sem consumir linha nova', async () => {
+    env.GOOGLE_SHEETS_LOJA_ESPELHO_AUTO = true;
+    const escritas: Array<{ range: string; values: string[][] }> = [];
+    const s = new ProductSheetLojaService(gateway({
+      escritas, ids: ['outro', 'uuid-do-produto'], nomes: ['X', 'ARROZ TIPO 1'],
+    }));
+
+    await s.espelharVarios([produto()], 'TNP');
+
+    expect(linhasDe(escritas)).toEqual([12]); // a linha que já era dele
+  });
+
+  /* O produto JÁ está salvo no Postgres quando isto roda. */
+  it('falha do Google vira "falhou" — nunca estoura para quem cadastrou', async () => {
+    env.GOOGLE_SHEETS_LOJA_ESPELHO_AUTO = true;
+    const quebrado = {
+      ...gateway({}),
+      batchGetValues: async () => { throw new Error('quota exceeded'); },
+    } as unknown as SheetsGateway;
+    const s = new ProductSheetLojaService(quebrado);
+
+    await expect(s.espelharVarios([produto()], 'TNP')).resolves.toBe('falhou');
+  });
+
+  it('lote vazio não chama o Google', async () => {
+    env.GOOGLE_SHEETS_LOJA_ESPELHO_AUTO = true;
+    const escritas: Array<{ range: string; values: string[][] }> = [];
+    const s = new ProductSheetLojaService(gateway({ escritas }));
+
+    expect(await s.espelharVarios([], 'TNP')).toBe('espelhado');
+    expect(escritas).toEqual([]);
   });
 });

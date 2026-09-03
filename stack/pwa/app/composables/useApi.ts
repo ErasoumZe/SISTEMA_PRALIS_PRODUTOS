@@ -1,4 +1,4 @@
-import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, ProductDuplicados } from '@pralis/shared';
+import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
@@ -10,9 +10,6 @@ export type DeParaQuery = VendasDePara.DeParaQuery;
 export type VincularBody = VendasDePara.VincularBody;
 export type ProdutosUnicos = VendasUnicos.ProdutosUnicos;
 export type ProdutosUnicosQuery = VendasUnicos.ProdutosUnicosQuery;
-export type Duplicados = ProductDuplicados.Duplicados;
-export type GrupoDuplicado = ProductDuplicados.GrupoDuplicado;
-export type ProdutoDuplicado = ProductDuplicados.ProdutoDuplicado;
 
 /** Uma linha de fonte dentro do grupo, como veio do staging. */
 export interface ItemUnificacao {
@@ -53,7 +50,6 @@ export interface FiltrosUnificacao {
   semFiscalTnp?: boolean; semGrupo?: boolean; q?: string; decisao?: string;
   pagina?: number; tamanho?: number;
 }
-export type UnificarBody = ProductDuplicados.UnificarBody;
 export interface GroupTaxRule {
   grupo: string;
   cstPisCofins: string;
@@ -101,7 +97,7 @@ export function useApi() {
       unwrap($fetch<{ data: Product[] }>('/products/base', { ...base, query: q ? { q } : undefined })),
 
     importBase: (baseIds: string[]) =>
-      unwrap($fetch<{ data: { imported: number; skipped: number } }>('/products/import', { ...base, method: 'POST', body: { baseIds } })),
+      unwrap($fetch<{ data: { imported: number; skipped: number; espelhoLoja: string } }>('/products/import', { ...base, method: 'POST', body: { baseIds } })),
 
     getProduct: (id: string) =>
       unwrap($fetch<{ data: Product }>(`/products/${id}`, { ...base })),
@@ -162,24 +158,6 @@ export function useApi() {
      */
     produtosUnicosCsvUrl: (query: Record<string, string>) =>
       `${base.baseURL}/vendas/produtos-unicos.csv?${new URLSearchParams(query).toString()}`,
-
-    /** Diagnóstico de cadastros duplicados. Só leitura — não funde nada. */
-    produtosDuplicados: (query: { loja?: string; semelhancaMinima?: number }) =>
-      unwrap($fetch<{ data: Duplicados }>('/products/duplicados', { ...base, query })),
-
-    /** Funde dois cadastros da mesma loja. Não apaga: aposenta o perdedor. */
-    unificarProdutos: (body: UnificarBody) =>
-      unwrap($fetch<{ data: ProductDuplicados.UnificarResult }>('/products/unificar', {
-        ...base, method: 'POST', body,
-      })),
-
-    /** "Não são o mesmo produto": o par não volta a ser sugerido. */
-    recusarDuplicidade: (body: { produtoAId: string; produtoBId: string }) =>
-      $fetch('/products/duplicados/recusar', { ...base, method: 'POST', body }),
-
-    /** Liga um produto de loja ao catálogo Base. Não copia custo nem preço. */
-    ligarBase: (body: { productId: string; baseProductId: string }) =>
-      $fetch('/products/ligar-base', { ...base, method: 'POST', body }),
 
     // ---- Central de Produtos (unificação) ----
     /** Recarrega as fontes e reagrupa. Não toca no catálogo vivo. */

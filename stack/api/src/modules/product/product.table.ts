@@ -156,6 +156,11 @@ export const productMerge = pgTable(
  * Sem isto, um par recusado por semelhanca de nome volta a ser sugerido toda
  * semana e a tela perde a confianca de quem usa. O par e guardado ORDENADO
  * (menor id primeiro) para que A-B e B-A sejam a mesma recusa.
+ *
+ * A tela de Duplicados que escrevia aqui foi apagada (a Central tem decisao
+ * propria), mas ESTA TABELA FICA: o `start:prod` roda `drizzle-kit push
+ * --force`, entao tirar a definicao dropa a tabela e leva junto as recusas ja
+ * registradas. So sai quando alguem decidir descartar esse historico.
  */
 export const productMergeRecusa = pgTable(
   'product_merge_recusa',

@@ -3,16 +3,13 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { container } from 'tsyringe';
 import { z } from 'zod/v4';
 import { ProductController } from './product.controller';
-import { ProductDuplicadosController } from './product-duplicados.controller';
 import { ProductExportController } from './product-export.controller';
-import { ProductDuplicados } from '@pralis/shared';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { apiResponseSchema } from '@/config/api.replies';
 import { authMiddleware } from '@/middlewares/auth-handler';
 
 export async function productRoutes(app: FastifyInstance) {
   const controller = container.resolve(ProductController);
-  const duplicadosController = container.resolve(ProductDuplicadosController);
   const exportController = container.resolve(ProductExportController);
   const a = app.withTypeProvider<ZodTypeProvider>();
 
@@ -21,7 +18,12 @@ export async function productRoutes(app: FastifyInstance) {
 
   const productReply = apiResponseSchema(ProductSchemas.selectProductSchema);
   const productListReply = apiResponseSchema(z.array(ProductSchemas.selectProductSchema));
-  const importReply = apiResponseSchema(z.object({ imported: z.number(), skipped: z.number() }));
+  const importReply = apiResponseSchema(z.object({
+    imported: z.number(),
+    skipped: z.number(),
+    // como terminou o espelho na aba da loja; 'desligado' enquanto a flag estiver off
+    espelhoLoja: z.enum(['desligado', 'sem-aba', 'espelhado', 'falhou']),
+  }));
   const okReply = apiResponseSchema(z.any());
 
   a.post<{ Body: ProductRequests.CreateProductRequest }>(
@@ -64,59 +66,6 @@ export async function productRoutes(app: FastifyInstance) {
     '/products/:id',
     { schema: { params: ProductRequests.productIdParamSchema, response: { 200: okReply }, summary: 'Excluir produto', tags: ['PRODUCTS'] } },
     controller.delete.bind(controller),
-  );
-
-  // SÓ LEITURA: esta fatia diagnostica, não funde nada.
-  a.get<{ Querystring: ProductDuplicados.DuplicadosQuery }>(
-    '/products/duplicados',
-    {
-      schema: {
-        querystring: ProductDuplicados.duplicadosQuerySchema,
-        response: { 200: apiResponseSchema(ProductDuplicados.duplicadosSchema) },
-        summary: 'Cadastros possivelmente duplicados na mesma loja (somente leitura)',
-        tags: ['PRODUTOS'],
-      },
-    },
-    duplicadosController.diagnosticar.bind(duplicadosController),
-  );
-
-  a.post<{ Body: ProductDuplicados.UnificarBody }>(
-    '/products/unificar',
-    {
-      schema: {
-        body: ProductDuplicados.unificarBodySchema,
-        response: { 200: apiResponseSchema(ProductDuplicados.unificarResultSchema) },
-        summary: 'Unificar dois cadastros da mesma loja (não apaga: aposenta o perdedor)',
-        tags: ['PRODUTOS'],
-      },
-    },
-    duplicadosController.unificar.bind(duplicadosController),
-  );
-
-  a.post<{ Body: ProductDuplicados.RecusarBody }>(
-    '/products/duplicados/recusar',
-    {
-      schema: {
-        body: ProductDuplicados.recusarBodySchema,
-        response: { 200: apiResponseSchema(z.null()) },
-        summary: 'Marcar que dois cadastros NÃO são o mesmo produto',
-        tags: ['PRODUTOS'],
-      },
-    },
-    duplicadosController.recusar.bind(duplicadosController),
-  );
-
-  a.post<{ Body: ProductDuplicados.LigarBaseBody }>(
-    '/products/ligar-base',
-    {
-      schema: {
-        body: ProductDuplicados.ligarBaseBodySchema,
-        response: { 200: apiResponseSchema(z.null()) },
-        summary: 'Ligar um produto de loja ao catálogo Base (não copia custo nem preço)',
-        tags: ['PRODUTOS'],
-      },
-    },
-    duplicadosController.ligarBase.bind(duplicadosController),
   );
 
   // Só leitura. A resposta é o CSV cru, então a rota não declara `response`

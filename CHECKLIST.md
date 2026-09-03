@@ -96,11 +96,12 @@ Ainda falta:
       hoje (CIGARROS: 0,2 / 0,1 / 0,3). Nos outros 73 o campo continua em
       branco para ser digitado. Preencher na coluna `N` da aba
       `(TNP/LI/HORA - EXP.) GRUPOS/REF. - VLD SAIDA` e o sistema passa a usar.
-- [ ] **Espelho nas abas de loja — aprovar o teste de 1 produto.** As colunas
-      já entraram, o espelho de TNP e LI está construído e o modo de conferência
-      roda sem gravar nada (`GET /admin/sheets/loja/previsualizar`). Falta você
-      olhar a conferência de um produto e liberar a primeira gravação de
-      verdade. HORA continua fora, de propósito. Ver
+- [ ] **Espelho nas abas de loja — só falta ligar a chave.** Tudo construído:
+      tradução por nome de cabeçalho, linha achada pelo `ID`, conferência sem
+      gravar (`GET /admin/sheets/loja/previsualizar`) e espelho automático em
+      lote na importação e na edição. Falta **uma** coisa sua: pôr
+      `GOOGLE_SHEETS_LOJA_ESPELHO_AUTO=true` no Coolify, depois de olhar a
+      conferência de um produto. HORA continua fora, de propósito. Ver
       [`docs/espelho-abas-loja.md`](docs/espelho-abas-loja.md).
 - [ ] **Listas oficiais** de setor e local de venda (hoje são texto livre;
       viram lista fechada quando você passar).
@@ -127,8 +128,10 @@ Ainda falta:
 ## ⚪ Decisões de arquitetura em aberto
 
 - [ ] Governança do código interno: por loja ou global (backlog).
-- [ ] Apagar de vez a tela de Duplicados (saiu do menu em 02/09; página e
-      endpoint continuam no código como rede de segurança).
+- [x] Apagar de vez a tela de Duplicados — **feito em 03/09**. Saíram a página,
+      as 4 rotas e o `ProductMergeService`. A tabela `product_merge_recusa`
+      FICOU: o `start:prod` roda `drizzle-kit push --force`, e tirar a
+      definição dropava a tabela junto com as recusas já registradas.
 
 ---
 

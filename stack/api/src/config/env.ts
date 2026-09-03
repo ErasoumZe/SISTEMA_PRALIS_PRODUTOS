@@ -95,6 +95,12 @@ export const env = {
    * colunas, mas a loja nao entrou em nenhuma integracao ainda.
    */
   GOOGLE_SHEETS_LOJA_TABS: envVar('GOOGLE_SHEETS_LOJA_TABS', ''),
+  /**
+   * Espelho automatico nas abas de loja (TNP e LI) ao importar da BASE e ao
+   * editar um produto de loja. DESLIGADO por padrao: fica assim ate o Jose
+   * conferir a gravacao de 1 produto pela rota de previsualizacao.
+   */
+  GOOGLE_SHEETS_LOJA_ESPELHO_AUTO: envBool('GOOGLE_SHEETS_LOJA_ESPELHO_AUTO', false),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: envVar('GOOGLE_SERVICE_ACCOUNT_EMAIL', ''),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: normalizePrivateKey(envVar('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', '')),
 

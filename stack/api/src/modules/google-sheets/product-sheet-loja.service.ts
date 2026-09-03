@@ -30,6 +30,9 @@ const ABA_PADRAO: Record<LojaEspelhada, string> = {
   LI: '(LI) CADASTRO PRODUTOS',
 };
 
+/** Como terminou o espelho automatico de um lote. Nunca lanca: o cadastro ja valeu. */
+export type EspelhoLojaResultado = 'desligado' | 'sem-aba' | 'espelhado' | 'falhou';
+
 export interface CelulaPrevista {
   coluna: string;
   valor: string;
@@ -238,6 +241,106 @@ export class ProductSheetLojaService {
     }
 
     return plano;
+  }
+
+  /**
+   * Espelha VÁRIOS produtos de uma loja de uma vez.
+   *
+   * Em lote de propósito: produto a produto, importar 500 itens seriam 1.500
+   * chamadas ao Google e a cota estouraria muito antes do fim. Aqui é 1 leitura
+   * de leiaute + 1 leitura de ocupação + 2 escritas, para o lote inteiro.
+   *
+   * Nunca lança. O produto já está salvo no Postgres quando isto roda, e uma
+   * falha do Google não pode desfazer nem esconder o cadastro — foi assim que a
+   * API entrou em loop de restart uma vez.
+   */
+  async espelharVarios(produtos: Product[], loja: LojaEspelhada): Promise<EspelhoLojaResultado> {
+    if (!env.GOOGLE_SHEETS_LOJA_ESPELHO_AUTO) return 'desligado';
+    if (produtos.length === 0) return 'espelhado';
+    const aba = this.abaDaLoja(loja);
+    if (!aba) return 'sem-aba';
+
+    try {
+      const { origem, destino } = await this.layouts(aba);
+      const colunaId = destino.get('ID')!;
+      const ocupacao = await this.ocupacao(aba, destino);
+
+      const raw: Array<{ range: string; values: string[][] }> = [];
+      const interpretado: Array<{ range: string; values: string[][] }> = [];
+      let maiorLinha = PRIMEIRA_LINHA_DADOS;
+
+      for (const produto of produtos) {
+        const linha = ocupacao.linhaPara(produto.id);
+        maiorLinha = Math.max(maiorLinha, linha);
+        // o ID não vem do mapa da BASE: é escrito à parte, e em RAW para o UUID
+        // não ser reinterpretado pela planilha
+        raw.push({ range: a1(aba, `${colunaId}${linha}`), values: [[produto.id]] });
+        const { celulas } = this.traduzir(produto, origem, destino);
+        for (const [coluna, celula] of Object.entries(celulas)) {
+          const range = a1(aba, `${coluna}${linha}`);
+          if (celula.kind === 'text') raw.push({ range, values: [[String(celula.value)]] });
+          else interpretado.push({ range, values: [[comoTexto(celula)]] });
+        }
+      }
+
+      const abas = await this.sheets.getSheets(this.spreadsheetId);
+      const meta = abas.find((a) => a.title === aba);
+      if (meta) await this.garantirCapacidade(meta, maiorLinha);
+
+      if (raw.length) await this.sheets.batchUpdateValues(this.spreadsheetId, raw, 'RAW');
+      if (interpretado.length) {
+        await this.sheets.batchUpdateValues(this.spreadsheetId, interpretado, 'USER_ENTERED');
+      }
+      return 'espelhado';
+    } catch {
+      return 'falhou';
+    }
+  }
+
+  /**
+   * Estado das linhas da aba, lido UMA vez, para o lote inteiro decidir em
+   * memória. Sem isto, cada produto releria a coluna toda e dois produtos novos
+   * do mesmo lote receberiam a MESMA linha livre — um sobrescrevendo o outro.
+   */
+  private async ocupacao(aba: string, destino: Map<string, string>) {
+    const colunas = [
+      destino.get('ID')!,
+      ...['NOME', 'CODIGO BARRAS', 'CODIGO INT.', 'CADASTRO PRODUTOS ATUALIZADO NOVO']
+        .map((nome) => destino.get(nome))
+        .filter((c): c is string => !!c),
+    ];
+    const lido = await this.sheets.batchGetValues(
+      this.spreadsheetId,
+      colunas.map((c) => a1(aba, `${c}${PRIMEIRA_LINHA_DADOS}:${c}`)),
+      'FORMATTED_VALUE',
+    );
+    const porColuna = colunas.map((_, i) => (lido[i] ?? []).map((r) => (r?.[0] ?? '').trim()));
+    const ids = porColuna[0] ?? [];
+    const total = Math.max(...porColuna.map((c) => c.length), 0);
+
+    const linhaDoId = new Map<string, number>();
+    ids.forEach((id, i) => { if (id) linhaDoId.set(id, PRIMEIRA_LINHA_DADOS + i); });
+
+    const livres: number[] = [];
+    for (let i = 0; i < total; i += 1) {
+      if (porColuna.every((coluna) => vazio(coluna[i]))) livres.push(PRIMEIRA_LINHA_DADOS + i);
+    }
+    let proximaDoFim = PRIMEIRA_LINHA_DADOS + total;
+    let usadas = 0;
+
+    return {
+      linhaPara(produtoId: string): number {
+        const dele = linhaDoId.get(produtoId);
+        if (dele !== undefined) return dele; // já tem linha: atualiza a dele
+        const livre = livres[usadas];
+        usadas += 1;
+        if (livre !== undefined) { linhaDoId.set(produtoId, livre); return livre; }
+        const nova = proximaDoFim;
+        proximaDoFim += 1;
+        linhaDoId.set(produtoId, nova);
+        return nova;
+      },
+    };
   }
 
   /** Acrescenta só as linhas que faltam — escrever fora da grade é erro de range. */
