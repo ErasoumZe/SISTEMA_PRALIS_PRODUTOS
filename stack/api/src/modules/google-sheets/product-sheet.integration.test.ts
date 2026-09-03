@@ -9,6 +9,7 @@ import type { ProductRepository } from '@/modules/product/product.repository';
 import type { ProductService } from '@/modules/product/product.service';
 import type { ProductSheetRepository } from './product-sheet.repository';
 import type { ProductSheetService } from './product-sheet.service';
+import type { ProductSheetLojaService } from '@/modules/google-sheets/product-sheet-loja.service';
 import { FakeSheetsGateway } from './fake-sheets.gateway';
 import type { TaxRuleService } from '@/modules/apoio/tax-rule.service';
 
@@ -98,7 +99,11 @@ beforeAll(async () => {
       cClassTrib: null, aliquotaIbs: null, aliquotaCbs: null, origem: 'grupo' as const,
     }),
   } as TaxRuleService;
-  service = new ProductService(repo, sheetService, taxRules);
+  // espelho das abas de loja desligado: teste de integracao nao fala com o Google
+  const espelhoLoja = {
+    async espelharVarios() { return 'desligado' as const; },
+  } as unknown as ProductSheetLojaService;
+  service = new ProductService(repo, sheetService, espelhoLoja, taxRules);
 
   await db.insert(users).values([
     { id: adminId, name: 'Rodrigo', email: 'admin@test.com', passwordHash: 'x', loja: null, role: 'admin' },

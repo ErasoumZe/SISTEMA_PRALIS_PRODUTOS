@@ -8,6 +8,7 @@ import type { ProductRepository } from './product.repository';
 import type { ProductService } from './product.service';
 import type { ProductRequests } from '@pralis/shared';
 import type { TaxRuleService } from '@/modules/apoio/tax-rule.service';
+import type { ProductSheetLojaService } from '@/modules/google-sheets/product-sheet-loja.service';
 
 let container: StartedPostgreSqlContainer;
 let repo: ProductRepository;
@@ -61,7 +62,11 @@ beforeAll(async () => {
       cClassTrib: null, aliquotaIbs: null, aliquotaCbs: null, origem: 'grupo' as const,
     }),
   } as TaxRuleService;
-  service = new ProductService(repo, sheetService, taxRules);
+  // espelho das abas de loja desligado: teste de integração não fala com o Google
+  const espelhoLoja = {
+    async espelharVarios() { return 'desligado' as const; },
+  } as unknown as ProductSheetLojaService;
+  service = new ProductService(repo, sheetService, espelhoLoja, taxRules);
   backfill = (await import('@/db/backfill-codigo-interno')).backfillCodigoInterno as typeof backfill;
 
   // cria os usuários referenciados pelos produtos (createdByUserId é FK)

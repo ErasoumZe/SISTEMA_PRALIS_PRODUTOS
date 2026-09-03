@@ -3,6 +3,12 @@ import { customAlphabet } from 'nanoid';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { ProductRepository } from './product.repository';
 import { ProductSheetService, type SheetSyncOutcome } from '@/modules/google-sheets/product-sheet.service';
+import {
+  LOJAS_ESPELHADAS,
+  ProductSheetLojaService,
+  type EspelhoLojaResultado,
+  type LojaEspelhada,
+} from '@/modules/google-sheets/product-sheet-loja.service';
 import { AppError } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
 import { TaxRuleService, type FiscalClassification } from '@/modules/apoio/tax-rule.service';
@@ -44,6 +50,7 @@ export class ProductService {
   constructor(
     @inject(ProductRepository) private repo: ProductRepository,
     @inject(ProductSheetService) private sheets: ProductSheetService,
+    @inject(ProductSheetLojaService) private sheetsLoja: ProductSheetLojaService,
     @inject(TaxRuleService) private taxRules: TaxRuleService,
   ) {}
 
@@ -224,7 +231,10 @@ export class ProductService {
         .catch(() => ({ outcome: 'failed' as const }));
       sheetSync = sync.outcome;
     }
-    return { ...updated, sheetSync, lojasAtualizadas };
+    // Produto de loja espelha na ABA DA LOJA. Desligado por padrao
+    // (GOOGLE_SHEETS_LOJA_ESPELHO_AUTO) e nunca derruba a edicao.
+    const espelhoLoja = await this.espelharNaAbaDaLoja([updated]);
+    return { ...updated, sheetSync, lojasAtualizadas, espelhoLoja };
   }
 
   /**
@@ -305,19 +315,23 @@ export class ProductService {
   }
 
   /** Importa produtos da BASE para a loja do usuário (pula os já importados/duplicados). */
-  async importFromBase(user: CurrentUser, baseIds: string[]): Promise<{ imported: number; skipped: number }> {
+  async importFromBase(
+    user: CurrentUser,
+    baseIds: string[],
+  ): Promise<{ imported: number; skipped: number; espelhoLoja: EspelhoLojaResultado }> {
     // importação é da BASE para a loja do usuário; admin (sem loja) não usa este fluxo
     const loja = user.loja;
     if (!loja) throw new AppError('Apenas usuários de loja podem importar da base', 400, 'NO_LOJA');
     let imported = 0;
     let skipped = 0;
+    const criados: ProductSchemas.ProductEntity[] = [];
     for (const baseId of baseIds) {
       const base = await this.repo.findById(baseId);
       if (!base || base.loja !== 'BASE') { skipped++; continue; }
       if (await this.repo.existsByBase(loja, baseId)) { skipped++; continue; }
       if (await this.repo.findDuplicate(loja, base.nome, base.codigoBarras ?? null)) { skipped++; continue; }
       const codigo = await this.novoCodigo();
-      await this.repo.create(this.toCreatePayload(base), {
+      const criado = await this.repo.create(this.toCreatePayload(base), {
         loja,
         codigo,
         codigoInterno: base.codigoInterno, // herda o mesmo código interno da base (igual entre lojas)
@@ -325,9 +339,34 @@ export class ProductService {
         createdByName: user.name,
         baseProductId: baseId,
       });
+      criados.push(criado);
       imported++;
     }
-    return { imported, skipped };
+    // Uma chamada so para o lote inteiro: produto a produto, importar 500 itens
+    // estouraria a cota do Google muito antes do fim.
+    const espelhoLoja = await this.espelharNaAbaDaLoja(criados);
+    return { imported, skipped, espelhoLoja };
+  }
+
+  /**
+   * Espelha produtos de loja na aba da loja, se o espelho automatico estiver
+   * ligado. So TNP e LI: HORA nao entrou em nenhuma integracao.
+   *
+   * Silencioso por contrato — os produtos JA estao salvos quando isto roda, e
+   * uma falha do Google nao pode desfazer nem esconder o cadastro.
+   */
+  private async espelharNaAbaDaLoja(
+    produtos: ProductSchemas.ProductEntity[],
+  ): Promise<EspelhoLojaResultado> {
+    const loja = produtos[0]?.loja;
+    if (!loja || !(LOJAS_ESPELHADAS as readonly string[]).includes(loja)) return 'sem-aba';
+    // try/catch, nao `.catch()`: erro sincrono (dependencia faltando, por
+    // exemplo) escapa do `.catch` e derrubaria o cadastro que ja foi salvo.
+    try {
+      return await this.sheetsLoja.espelharVarios(produtos, loja as LojaEspelhada);
+    } catch {
+      return 'falhou';
+    }
   }
 
   private toCreatePayload(p: ProductSchemas.ProductEntity): ProductRequests.CreateProductRequest {

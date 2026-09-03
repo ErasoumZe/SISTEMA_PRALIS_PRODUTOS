@@ -71,7 +71,29 @@ não está em `LOJAS_ESPELHADAS` nem em `ABA_PADRAO`.
 Ambas as rotas são só para `admin` e recusam produto de outra loja
 (`PRODUCT_OTHER_STORE`, 422).
 
-## 5. O que a conferência pegou antes de qualquer escrita
+## 5. Espelho automático — pronto, e desligado
+
+`GOOGLE_SHEETS_LOJA_ESPELHO_AUTO` (padrão `false`). Ligado, o espelho roda
+sozinho em dois momentos:
+
+- **importação da BASE** para a loja (`POST /products/import`) — o caso do
+  pedido original: quem é da TNP importa e os produtos aparecem na aba dela;
+- **edição** de um produto de loja.
+
+Em **lote**, de propósito: uma leitura de leiaute, uma de ocupação e duas
+escritas para a importação inteira. Produto a produto, importar 500 itens seriam
+~1.500 chamadas ao Google e a cota estouraria muito antes do fim.
+
+O lote decide as linhas **em memória**. Sem isso, dois produtos novos da mesma
+importação leriam a planilha no mesmo estado, veriam a mesma primeira linha
+livre e o segundo gravaria em cima do primeiro — dentro da mesma importação,
+sem ninguém perceber. Travado por teste (`buracos DIFERENTES do meio da aba`).
+
+Falha do Google vira `'falhou'` e **nunca** estoura para quem cadastrou: o
+produto já está salvo no Postgres quando o espelho roda. O resultado volta no
+corpo da resposta da importação, em `espelhoLoja`.
+
+## 6. O que a conferência pegou antes de qualquer escrita
 
 Rodando a conferência com um produto TNP, ela apontou a **linha 11** como livre.
 Não estava: tinha código de barras `1234` e código interno `0011`.
@@ -85,7 +107,7 @@ identidade que a aba já usa (`NOME`, `CODIGO BARRAS`, `CODIGO INT.`,
 `CADASTRO PRODUTOS ATUALIZADO NOVO`) estão vazias. O caso está travado por
 teste: `NÃO toma linha ocupada só pelas colunas antigas`.
 
-## 6. Quanta coisa há nas abas hoje
+## 7. Quanta coisa há nas abas hoje
 
 Medido em 03/09/2026 na planilha de produção:
 
@@ -99,7 +121,7 @@ Medido em 03/09/2026 na planilha de produção:
 **9.930 é o tamanho da grade, não a quantidade de produtos.** Eu troquei as duas
 coisas em análises anteriores; as abas de loja têm 4 linhas de teste cada.
 
-## 7. As 4 linhas antigas não têm `ID`
+## 8. As 4 linhas antigas não têm `ID`
 
 As linhas que já estavam nas abas foram digitadas à mão e não têm `ID`. O
 espelho não tem como saber que o produto X do Pralis é a linha 12 da aba — então
@@ -108,7 +130,7 @@ ele **acrescenta uma linha nova** em vez de atualizar aquela.
 Com 4 linhas de teste isso é irrelevante. Fica registrado porque a mesma
 situação apareceria de novo se a loja digitasse produtos direto na aba.
 
-## 8. Duas planilhas — cuidado ao investigar
+## 9. Duas planilhas — cuidado ao investigar
 
 Existem duas, e elas divergem:
 

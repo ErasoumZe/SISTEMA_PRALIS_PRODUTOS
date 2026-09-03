@@ -35,12 +35,8 @@ const nav = computed<NavItem[]>(() => {
     items.push({ title: 'Vendas', icon: 'payments', to: '/vendas', section: 'Geral' });
   }
   if (isAdmin.value) items.push({ title: 'Central de Produtos', icon: 'merge_type', to: '/produtos/central', section: 'Administração' });
-  /*
-   * "Duplicados" saiu do MENU: a Central de Produtos faz o que ele fazia e mais,
-   * sobre a base inteira em vez de só o catálogo vivo. A página e o endpoint
-   * continuam no código como rede de segurança, e `/produtos/duplicados` segue
-   * abrindo por URL — só o atalho saiu.
-   */
+  // "Duplicados" não existe mais: a Central de Produtos faz o que ela fazia e
+  // mais, sobre a base inteira em vez de só o catálogo vivo.
   if (isAdmin.value) items.push({ title: 'Usuários', icon: 'group', to: '/usuarios', section: 'Administração' });
   return items;
 });
@@ -54,7 +50,6 @@ const titulo = computed(() => {
     '/vendas/de-para': 'Produtos do PDV sem cadastro',
     '/vendas/produtos': 'Produtos vendidos no período',
     '/produtos/central': 'Central de Produtos',
-    '/produtos/duplicados': 'Cadastros duplicados',
     '/usuarios': 'Usuários',
     '/importar': 'Importar da base',
     '/produtos/novo': 'Novo produto',

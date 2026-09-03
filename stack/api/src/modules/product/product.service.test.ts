@@ -4,10 +4,20 @@ import type { ProductSchemas } from '@pralis/shared';
 import { ProductService } from './product.service';
 import type { ProductRepository } from './product.repository';
 import type { ProductSheetService } from '@/modules/google-sheets/product-sheet.service';
+import type { ProductSheetLojaService } from '@/modules/google-sheets/product-sheet-loja.service';
 import type { TaxRuleService } from '@/modules/apoio/tax-rule.service';
 import type { CurrentUser } from '@/types/fastify-jwt';
 
 type Product = ProductSchemas.ProductEntity;
+
+/*
+ * Espelho das abas de loja: desligado em todos os testes deste arquivo. Eles
+ * cuidam de cadastro e fiscal; o espelho tem os proprios testes. O stub existe
+ * so para o servico ter o colaborador na posicao certa do construtor.
+ */
+const espelhoLojaFalso = {
+  async espelharVarios() { return 'desligado' as const; },
+} as unknown as ProductSheetLojaService;
 
 const ID = '0197d7c4-2c9a-7000-8000-000000000001';
 
@@ -49,7 +59,7 @@ function fakes(opts: {
     async syncProduct() { ordem.push('planilha:sync'); return { outcome: 'synced' }; },
   } as unknown as ProductSheetService;
 
-  const service = new ProductService(repo, sheets, {} as TaxRuleService);
+  const service = new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService);
   return { service, ordem };
 }
 
@@ -134,7 +144,7 @@ function fakesUpdate(opts: { syncOutcome?: string; loja?: string; syncThrows?: E
     },
   } as unknown as ProductSheetService;
 
-  return { service: new ProductService(repo, sheets, {} as TaxRuleService), chamadas };
+  return { service: new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService), chamadas };
 }
 
 describe('ProductService.update — o resultado do espelho não pode sumir', () => {
@@ -201,7 +211,7 @@ function fakesPropagacao(antes: Partial<Product>, depois: Partial<Product>, copi
     async syncProduct() { return { outcome: 'synced', rowNumber: 12, message: 'ok' }; },
   } as unknown as ProductSheetService;
 
-  return { service: new ProductService(repo, sheets, {} as TaxRuleService), patches };
+  return { service: new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService), patches };
 }
 
 describe('ProductService.update — herança BASE -> lojas', () => {
@@ -317,7 +327,7 @@ function fakesFiscal(fiscalAtual: Product['fiscal']) {
     },
   } as unknown as TaxRuleService;
 
-  return new ProductService(repo, sheets, taxRules);
+  return new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
 }
 
 describe('ProductService.update — bloco fiscal é do admin', () => {
@@ -367,7 +377,7 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
     const taxRules = {
       async classify() { classificacoes++; throw new Error('não deveria classificar'); },
     } as unknown as TaxRuleService;
-    const service = new ProductService(repo, sheets, taxRules);
+    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
 
     await service.update(admin, ID, {
       grupo: 'MER PADARIA', codigoBarras: null, fiscal: atual, vVendaPontual: 12,
@@ -390,7 +400,7 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
     const taxRules = {
       async classify() { classificacoes++; throw new Error('não deveria classificar'); },
     } as unknown as TaxRuleService;
-    const service = new ProductService(repo, sheets, taxRules);
+    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
 
     await service.update(admin, ID, { grupo: null, fiscal: null, vVendaPontual: 9 });
 
@@ -423,7 +433,7 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
         };
       },
     } as unknown as TaxRuleService;
-    const service = new ProductService(repo, sheets, taxRules);
+    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
 
     await service.update(colaboradorTnp, ID, { grupo: 'NOVO GRUPO', fiscal: fiscalMalicioso });
 
