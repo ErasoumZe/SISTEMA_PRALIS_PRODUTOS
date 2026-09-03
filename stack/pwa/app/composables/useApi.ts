@@ -176,6 +176,11 @@ export function useApi() {
       $fetch(`/admin/unificacao/grupos/${id}/reabrir`, { ...base, method: 'POST' }),
     unificacaoDefinirGrupo: (id: string, grupo: string) =>
       $fetch(`/admin/unificacao/grupos/${id}/grupo`, { ...base, method: 'PATCH', body: { grupo } }),
+    /** Quantos grupos ainda cabem no lote automático (mesmo código de barras). */
+    unificacaoAutoPendentes: () =>
+      unwrap($fetch<{ data: { total: number } }>(
+        '/admin/unificacao/auto-unificar/pendentes', { ...base },
+      )),
     unificacaoAutoUnificar: (limite = 25) =>
       unwrap($fetch<{ data: { selecionados: number; concluidos: number; falhas: number } }>(
         '/admin/unificacao/auto-unificar', { ...base, method: 'POST', body: { limite } },

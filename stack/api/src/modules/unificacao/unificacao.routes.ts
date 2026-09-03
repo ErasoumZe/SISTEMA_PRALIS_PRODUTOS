@@ -113,11 +113,25 @@ export async function unificacaoRoutes(app: FastifyInstance) {
     controller.definirGrupo.bind(controller),
   );
 
+  typed.get(
+    '/admin/unificacao/auto-unificar/pendentes',
+    {
+      schema: {
+        summary: 'Quantos grupos ainda cabem no lote automático (admin)',
+        tags: ['ADMIN', 'UNIFICACAO'],
+      },
+    },
+    controller.pendentesAutomaticos.bind(controller),
+  );
+
   typed.post<{ Body: { limite?: number } }>(
     '/admin/unificacao/auto-unificar',
     {
       schema: {
-        body: z.object({ limite: z.number().int().min(1).max(100).optional() }).optional(),
+        // teto de 200 por chamada: cada unificação escreve na planilha, e um
+        // lote maior estoura o tempo da requisição e a cota do Google. A tela
+        // repete a chamada até acabar.
+        body: z.object({ limite: z.number().int().min(1).max(200).optional() }).optional(),
         summary: 'Unificar lote de correspondências fortes e sem alertas (admin)',
         tags: ['ADMIN', 'UNIFICACAO'],
       },

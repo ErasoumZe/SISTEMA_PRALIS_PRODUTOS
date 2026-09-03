@@ -49,6 +49,7 @@ async function carregar() {
     ]);
     dados.value = pagina;
     totais.value = health.totais;
+    void carregarTotalAutomatico();
   } catch (e: unknown) {
     dados.value = null;
     erro.value = (e as { data?: { message?: string } })?.data?.message
@@ -77,6 +78,20 @@ function alternar<K extends keyof FiltrosUnificacao>(chave: K, valor: FiltrosUni
 
 const agindo = ref('');
 const processandoLote = ref(false);
+
+/** Lote inteiro por código de barras: quantos faltam, quanto já foi, e o pedido de parada. */
+const totalAutomatico = ref<number | null>(null);
+const processandoTodos = ref(false);
+const pararPedido = ref(false);
+const progresso = reactive({ feitos: 0, falhas: 0, alvo: 0 });
+
+async function carregarTotalAutomatico() {
+  try {
+    totalAutomatico.value = (await api.unificacaoAutoPendentes()).total;
+  } catch {
+    totalAutomatico.value = null; // o botão some em vez de mentir um número
+  }
+}
 
 async function definirGrupo(g: GrupoUnificacao) {
   const grupo = grupoEscolhido[g.id]?.trim();
@@ -113,6 +128,64 @@ async function processarLoteSeguro() {
     };
   } finally {
     processandoLote.value = false;
+  }
+}
+
+/**
+ * Unifica TODOS os grupos de mesmo código de barras, em lotes.
+ *
+ * Em lotes e não numa chamada só porque cada unificação escreve na planilha:
+ * milhares de uma vez estouraria o tempo da requisição e a cota do Google. Cada
+ * lote é gravado ao terminar, então fechar a aba no meio não desfaz o que já
+ * passou — é só clicar de novo depois.
+ *
+ * A parada por lote sem NENHUM sucesso é o que impede laço infinito: um grupo
+ * que falha continua sem decisão e voltaria a ser escolhido para sempre.
+ */
+const TAMANHO_DO_LOTE = 100;
+
+async function processarTodosPorBarras() {
+  const total = totalAutomatico.value ?? 0;
+  if (!total) return;
+  const aviso = `Unificar os ${total.toLocaleString('pt-BR')} itens de mesmo código de barras?\n\n`
+    + 'São só os que têm nome igual, grupo conhecido e nenhum conflito — os mesmos '
+    + 'critérios do botão de 25.\n\nCada um grava na planilha, então demora. '
+    + 'Você pode parar no meio; o que já passou fica.';
+  if (!confirm(aviso)) return;
+
+  processandoTodos.value = true;
+  pararPedido.value = false;
+  progresso.feitos = 0;
+  progresso.falhas = 0;
+  progresso.alvo = total;
+
+  try {
+    for (;;) {
+      if (pararPedido.value) break;
+      const r = await api.unificacaoAutoUnificar(TAMANHO_DO_LOTE);
+      if (r.selecionados === 0) break; // acabou
+      progresso.feitos += r.concluidos;
+      progresso.falhas += r.falhas;
+      // lote inteiro falhou: insistir repetiria os mesmos itens para sempre
+      if (r.concluidos === 0) break;
+    }
+    const parou = pararPedido.value;
+    flash.value = {
+      texto: `${progresso.feitos.toLocaleString('pt-BR')} item(ns) unificado(s)`
+        + (progresso.falhas ? `; ${progresso.falhas} falha(s) — abra o filtro "Falta decidir" para ver` : '')
+        + (parou ? '. Parado a seu pedido.' : '.'),
+      tipo: progresso.falhas ? 'warning' : 'success',
+    };
+  } catch (e: unknown) {
+    flash.value = {
+      texto: (e as { data?: { message?: string } })?.data?.message
+        || `Falhou depois de ${progresso.feitos} item(ns). O que passou está gravado.`,
+      tipo: 'error',
+    };
+  } finally {
+    processandoTodos.value = false;
+    pararPedido.value = false;
+    await carregar();
   }
 }
 
@@ -274,12 +347,48 @@ const nomesDoGrupo = (g: GrupoUnificacao) =>
             @click="processarLoteSeguro"
           >Unificar 25 seguros</v-btn>
           <v-btn
+            v-if="totalAutomatico"
+            size="small"
+            color="primary"
+            variant="flat"
+            prepend-icon="done_all"
+            :disabled="processandoLote || processandoTodos"
+            @click="processarTodosPorBarras"
+          >Unificar todos por código de barras ({{ totalAutomatico.toLocaleString('pt-BR') }})</v-btn>
+          <v-btn
             size="small"
             variant="text"
             prepend-icon="refresh"
             :loading="recarregando"
             @click="recarregarFontes"
           >Recarregar fontes</v-btn>
+        </div>
+      </v-card>
+
+      <v-card v-if="processandoTodos" variant="tonal" color="primary" class="pa-4 mb-4">
+        <div class="d-flex align-center flex-wrap ga-4">
+          <div class="flex-grow-1" style="min-width:220px">
+            <div class="text-body-2 mb-1">
+              Unificando por código de barras — {{ progresso.feitos.toLocaleString('pt-BR') }}
+              de {{ progresso.alvo.toLocaleString('pt-BR') }}
+              <span v-if="progresso.falhas">· {{ progresso.falhas }} falha(s)</span>
+            </div>
+            <v-progress-linear
+              :model-value="progresso.alvo ? (progresso.feitos / progresso.alvo) * 100 : 0"
+              height="8"
+              rounded
+            />
+          </div>
+          <v-btn
+            size="small"
+            variant="outlined"
+            :disabled="pararPedido"
+            @click="pararPedido = true"
+          >{{ pararPedido ? 'Parando…' : 'Parar' }}</v-btn>
+        </div>
+        <div class="text-caption mt-2">
+          Cada item grava na planilha, por isso demora. O que já passou está gravado —
+          parar aqui não desfaz nada.
         </div>
       </v-card>
 
