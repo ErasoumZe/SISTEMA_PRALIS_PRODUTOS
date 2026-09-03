@@ -239,5 +239,8 @@ export function agrupar({ itens, barrasConflitantes }: EntradaAgrupamento): Grup
         jaNoPralis: fontes.includes('pralis'),
       },
     };
-  });
+  }).filter((grupo) => !(
+    grupo.candidato.nome.trim() === ''
+    && grupo.fontes.every((fonte) => fonte === 'fiscal_tnp')
+  ));
 }

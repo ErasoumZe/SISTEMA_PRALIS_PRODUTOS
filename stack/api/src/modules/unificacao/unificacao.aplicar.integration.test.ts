@@ -246,12 +246,30 @@ describe('unificar — o que ele recusa', () => {
     await expect(aplicar.unificar(admin, g.id)).rejects.toMatchObject({ code: 'UNIF_JA_DECIDIDO' });
   });
 
-  it('recusa grupo sem nome em fonte nenhuma', async () => {
+  /*
+   * Linha do fiscal da contabilidade que nao casa com nenhum catalogo nao e um
+   * produto: o arquivo dela nem tem coluna NOME. Antes virava um "grupo" sem
+   * nome que so podia ser recusado; agora nao vira grupo nenhum, e some da fila
+   * em vez de ocupar espaco. Sao 6 casos na base real.
+   */
+  it('linha fiscal orfa NAO vira grupo — nao e produto', async () => {
     await fonte({ id: 'f9', fonte: 'fiscal_tnp', interno: '55555', ncm: '12345678', ativo: null });
+
+    await grupos.recalcular();
+
+    expect((await grupos.listar({})).total).toBe(0);
+  });
+
+  it('mas o fiscal orfa CONTINUA no grupo quando ha um produto de verdade', async () => {
+    await fonte({ id: 'c9', fonte: 'compilart_tnp', barras: '00000000055555', interno: '77',
+      nome: 'PRODUTO DE VERDADE', custo: 1 });
+    await fonte({ id: 'f9', fonte: 'fiscal_tnp', interno: '55555', ncm: '12345678', ativo: null });
+
     await grupos.recalcular();
     const g = (await grupos.listar({})).grupos[0]!;
 
-    await expect(aplicar.unificar(admin, g.id)).rejects.toMatchObject({ code: 'UNIF_SEM_NOME' });
+    expect(g.fontes.sort()).toEqual(['compilart_tnp', 'fiscal_tnp']);
+    expect(g.nome).toBe('PRODUTO DE VERDADE');
   });
 
   it('usuario comum nao unifica', async () => {

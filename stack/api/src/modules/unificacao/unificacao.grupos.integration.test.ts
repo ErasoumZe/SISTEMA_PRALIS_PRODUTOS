@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import type { UnificacaoGruposService } from './unificacao.grupos.service';
 import type { UnificacaoService } from './unificacao.service';
+import type { CurrentUser } from '@/types/fastify-jwt';
 
 /**
  * ATENÇÃO: nada de importar `@/db/databases` estaticamente — ver nota nos
@@ -20,6 +21,7 @@ let db: {
   $client: { end: () => Promise<void> };
 };
 let sqlTag: typeof import('drizzle-orm')['sql'];
+const admin: CurrentUser = { id: 'u1', name: 'Jose', email: 'a@a', loja: null, role: 'admin' };
 
 beforeAll(async () => {
   container = await new PostgreSqlContainer('postgres:18.1-alpine').start();
@@ -170,6 +172,40 @@ describe('paginacao no servidor', () => {
 });
 
 describe('recalcular', () => {
+  it('preserva o grupo definido manualmente na Central', async () => {
+    const antes = await grupos.listar({ semGrupo: true, tamanho: 50 });
+    const escolhido = antes.grupos.find((g) => g.nome.trim() !== '')!;
+
+    await grupos.definirGrupo(admin, escolhido.id, 'MER TESTE OFICIAL');
+    let alterado = (await grupos.listar({ q: escolhido.chave, tamanho: 50 })).grupos
+      .find((g) => g.chave === escolhido.chave)!;
+    expect(alterado.grupo).toBe('MER TESTE OFICIAL');
+    expect(alterado.flagSemGrupo).toBe(false);
+
+    await grupos.recalcular();
+    alterado = (await grupos.listar({ q: escolhido.chave, tamanho: 50 })).grupos
+      .find((g) => g.chave === escolhido.chave)!;
+    expect(alterado.grupoManual).toBe('MER TESTE OFICIAL');
+    expect((alterado.candidato as { grupoDe: string }).grupoDe).toBe('central_manual');
+  });
+
+  it('lote automatico contem apenas casamento forte sem alertas de identidade ou grupo', async () => {
+    const ids = await grupos.idsAutomaticos(10);
+    expect(ids).toHaveLength(10);
+    const r = await db.execute(sqlTag`
+      SELECT motivo, flag_nomes_divergentes, flag_barras_conflitante, flag_sem_grupo
+      FROM unif_grupo WHERE id IN (${sqlTag.join(ids.map((id) => sqlTag`${id}`), sqlTag`, `)})`);
+    expect(r.rows.every((g) => g.motivo === 'mesmo_cod_barras'
+      && !g.flag_nomes_divergentes && !g.flag_barras_conflitante && !g.flag_sem_grupo)).toBe(true);
+  });
+
+  it('nao cria grupo para linha fiscal orfa sem nome', async () => {
+    const r = await db.execute(sqlTag`
+      SELECT count(*)::int c FROM unif_grupo
+      WHERE trim(nome) = '' AND fontes = ARRAY['fiscal_tnp']::text[]`);
+    expect(r.rows[0]!.c).toBe(0);
+  });
+
   it('NAO apaga decisao ja tomada — casa pela chave', async () => {
     await db.execute(sqlTag`
       UPDATE unif_grupo SET decisao = 'unificado', decidido_por = 'Jose', decidido_em = now()

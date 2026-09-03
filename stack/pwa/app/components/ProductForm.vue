@@ -177,6 +177,27 @@ const groupItems = computed(() => {
 });
 
 let classificationRequest = 0;
+/** Margem padrão do grupo escolhido, em % para a tela (a planilha guarda fração). */
+const margemDoGrupo = computed<number | null>(() => {
+  const padrao = selectedTaxRule.value?.margemPadrao;
+  return padrao == null ? null : Math.round(padrao * 10000) / 100;
+});
+
+/*
+ * Trocar o grupo aplica a margem padrão dele, quando existe. Hoje só 3 dos 76
+ * grupos têm margem; nos outros o campo continua em branco para ser escrito à
+ * mão, que é o comportamento de sempre.
+ *
+ * Só reage à TROCA de grupo: quem digitou uma margem e depois mexeu em outro
+ * campo não pode ver o número mudar sozinho.
+ */
+watch(() => form.grupo, (novo, anterior) => {
+  if (!novo || novo === anterior) return;
+  const padrao = margemDoGrupo.value;
+  if (padrao == null) return;
+  form.margemPct = padrao;
+});
+
 watch([() => form.grupo, () => form.codigoBarras], async ([grupo, codigoBarras]) => {
   const request = ++classificationRequest;
   fiscalClassification.value = null;
@@ -253,7 +274,7 @@ const vVenda = computed(() =>
     custo: Number(form.custo) || 0,
     qtCad: Number(form.qtCad) || 1,
     margemPontual: form.margemPct ? Number(form.margemPct) / 100 : null,
-    margemGrupo: 0,
+    margemGrupo: (margemDoGrupo.value ?? 0) / 100,
     vVendaPontual: Number(form.vVendaPontual) || 0,
     descricao: descricao.value,
   }),
@@ -736,7 +757,7 @@ onMounted(async () => {
               suffix="%"
               :min="0"
               :max="1000"
-              hint="Ex.: 70 = 70%"
+              :hint="margemDoGrupo != null ? `Padrão do grupo: ${margemDoGrupo}% — pode ajustar` : 'Ex.: 70 = 70%'"
               persistent-hint
               variant="outlined"
               density="comfortable"

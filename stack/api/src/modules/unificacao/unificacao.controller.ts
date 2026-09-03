@@ -74,4 +74,41 @@ export class UnificacaoController {
     await this.aplicar.reabrir(user, request.params.id);
     return reply.status(200).send(buildResponse(null, 'Grupo devolvido para a fila'));
   }
+
+  async definirGrupo(
+    request: FastifyRequest<{ Params: { id: string }; Body: { grupo: string } }>,
+    reply: FastifyReply,
+  ) {
+    const user = exigirAdmin(request);
+    await this.grupos.definirGrupo(user, request.params.id, request.body.grupo);
+    return reply.status(200).send(buildResponse(null, 'Grupo de mercadoria definido'));
+  }
+
+  /**
+   * Processa um lote pequeno e retomável. A seleção no servidor aceita apenas
+   * casamento forte, nomes iguais, grupo conhecido e barra sem conflito.
+   */
+  async unificarAutomaticos(
+    request: FastifyRequest<{ Body?: { limite?: number } }>,
+    reply: FastifyReply,
+  ) {
+    const user = exigirAdmin(request);
+    const ids = await this.grupos.idsAutomaticos(request.body?.limite ?? 25);
+    const resultados: Array<{ id: string; modo?: string; erro?: string }> = [];
+    for (const id of ids) {
+      try {
+        const r = await this.aplicar.unificar(user, id, false);
+        resultados.push({ id, modo: r.modo });
+      } catch (error) {
+        resultados.push({ id, erro: error instanceof Error ? error.message : 'Falha inesperada' });
+      }
+    }
+    const falhas = resultados.filter((r) => r.erro).length;
+    return reply.status(200).send(buildResponse({
+      selecionados: ids.length,
+      concluidos: ids.length - falhas,
+      falhas,
+      resultados,
+    }, ids.length ? 'Lote seguro processado' : 'Nenhum item seguro pendente'));
+  }
 }

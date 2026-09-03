@@ -18,6 +18,7 @@ const FONTES: Record<string, string> = {
   planilha_tnp: 'Planilha antiga',
   fiscal_tnp: 'Fiscal contabilidade',
   pralis: 'Pralis',
+  central_manual: 'Central',
 };
 
 const filtros = reactive<FiltrosUnificacao>({ pagina: 1, tamanho: 25, decisao: 'pendente' });
@@ -27,6 +28,16 @@ const carregando = ref(false);
 const erro = ref('');
 const busca = ref('');
 const flash = useFlash();
+const gruposOficiais = ref<string[]>([]);
+const grupoEscolhido = reactive<Record<string, string>>({});
+
+async function carregarGruposOficiais() {
+  try {
+    gruposOficiais.value = (await api.listGroupTaxRules()).map((r) => r.grupo);
+  } catch {
+    gruposOficiais.value = [];
+  }
+}
 
 async function carregar() {
   carregando.value = true;
@@ -47,7 +58,7 @@ async function carregar() {
   }
 }
 
-onMounted(carregar);
+onMounted(() => { void Promise.all([carregar(), carregarGruposOficiais()]); });
 // mudar filtro volta para a primeira página: manter a 7 com outro filtro confunde
 watch(() => [filtros.filtro, filtros.loja, filtros.status, filtros.revisar,
   filtros.semFiscalTnp, filtros.semGrupo, filtros.decisao], () => { filtros.pagina = 1; carregar(); });
@@ -65,6 +76,45 @@ function alternar<K extends keyof FiltrosUnificacao>(chave: K, valor: FiltrosUni
 }
 
 const agindo = ref('');
+const processandoLote = ref(false);
+
+async function definirGrupo(g: GrupoUnificacao) {
+  const grupo = grupoEscolhido[g.id]?.trim();
+  if (!grupo) return;
+  agindo.value = g.id;
+  try {
+    await api.unificacaoDefinirGrupo(g.id, grupo);
+    flash.value = { texto: `Grupo definido para "${g.candidato.nome}".`, tipo: 'success' };
+    await carregar();
+  } catch (e: unknown) {
+    flash.value = {
+      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível definir o grupo.',
+      tipo: 'error',
+    };
+  } finally {
+    agindo.value = '';
+  }
+}
+
+async function processarLoteSeguro() {
+  if (!confirm('Unificar até 25 itens com mesmo código, mesmo nome, grupo conhecido e sem conflito?')) return;
+  processandoLote.value = true;
+  try {
+    const r = await api.unificacaoAutoUnificar(25);
+    flash.value = {
+      texto: `${r.concluidos} item(ns) seguro(s) processado(s)${r.falhas ? `; ${r.falhas} falha(s)` : ''}.`,
+      tipo: r.falhas ? 'warning' : 'success',
+    };
+    await carregar();
+  } catch (e: unknown) {
+    flash.value = {
+      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível processar o lote.',
+      tipo: 'error',
+    };
+  } finally {
+    processandoLote.value = false;
+  }
+}
 
 async function acao(g: GrupoUnificacao, tipo: 'unificar' | 'nao_e_o_mesmo' | 'ignorado') {
   agindo.value = g.id;
@@ -217,6 +267,14 @@ const nomesDoGrupo = (g: GrupoUnificacao) =>
           <v-spacer />
           <v-btn
             size="small"
+            color="primary"
+            variant="tonal"
+            prepend-icon="playlist_add_check"
+            :loading="processandoLote"
+            @click="processarLoteSeguro"
+          >Unificar 25 seguros</v-btn>
+          <v-btn
+            size="small"
             variant="text"
             prepend-icon="refresh"
             :loading="recarregando"
@@ -313,6 +371,25 @@ const nomesDoGrupo = (g: GrupoUnificacao) =>
                 </tr>
               </tbody>
             </v-table>
+          </div>
+
+          <div v-if="g.flagSemGrupo" class="d-flex flex-wrap ga-2 align-center mt-3">
+            <v-autocomplete
+              v-model="grupoEscolhido[g.id]"
+              :items="gruposOficiais"
+              label="Grupo oficial"
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="min-width: 300px; max-width: 560px"
+            />
+            <v-btn
+              size="small"
+              variant="tonal"
+              :disabled="!grupoEscolhido[g.id]"
+              :loading="agindo === g.id"
+              @click="definirGrupo(g)"
+            >Salvar grupo</v-btn>
           </div>
 
           <!-- o que será gravado, com a fonte de cada campo -->

@@ -42,6 +42,8 @@ describe('TaxRuleService', () => {
       grupo: 'MER FAB. PRÓPRIA - PANIFICAÇÃO',
       cstPisCofins: '6', tributacaoSimples: 'ALÍQUOTA ZERO',
       aliquotaSimples: 7.4, icmsRe: 0, baseFiscal: 'Cesta básica',
+      // grupo sem margem na planilha: fica nulo e a margem e digitada na mao
+      margemPadrao: null,
     });
   });
 
@@ -104,8 +106,10 @@ describe('TaxRuleService — aba fiscal encolhida (faixa de grupos fora da grade
 
     await expect(service.list()).rejects.toMatchObject({ code: 'TAX_RULES_EMPTY' });
 
-    // 1a tentativa com as 4 faixas, 2a só com as 3 que existem
-    expect(pedidos).toHaveLength(2);
+    // 1a tentativa com as 4 faixas, 2a só com as 3 que existem, 3a a das
+    // margens — que e uma chamada SEPARADA justamente para nao entrar nesse
+    // lote e poder falhar sozinha sem derrubar o fiscal
+    expect(pedidos).toHaveLength(3);
     expect(pedidos[0]).toHaveLength(4);
     expect(pedidos[1]).toHaveLength(3);
     expect(pedidos[1]!.some((r) => r.includes('AB4:AG79'))).toBe(false);
@@ -172,5 +176,79 @@ describe('NCM nao perde o zero a esquerda', () => {
     // a reforma e indexada pelo MESMO normalizador, entao o casamento sobrevive
     expect(c.cstReforma).toBe('200');
     expect(c.cClassTrib).toBe('classe-x');
+  });
+});
+
+/**
+ * Margem padrao por grupo, da aba de grupos oficiais (coluna M = grupo,
+ * N = margem, guardada como FRACAO: 0,2 = 20%).
+ *
+ * Hoje so 3 dos 76 grupos tem margem. Os outros continuam sendo digitados a
+ * mao, que e o comportamento de sempre.
+ */
+describe('margem padrao do grupo', () => {
+  /** 1a chamada: as 4 faixas fiscais. 2a: a das margens. */
+  const gatewayCom = (margens: string[][]) => ({
+    batchGetValues: async (_id: string, faixas: string[]) => (
+      faixas.some((r) => r.includes('M5:N130'))
+        ? [margens]
+        : [
+          [['MER CIGARROS - TRADICIONAIS', '1', 'TRIBUTADO', '11,28%', '3,69%', 'Regra']],
+          [], [], [],
+        ]
+    ),
+  }) as unknown as SheetsGateway;
+
+  it('aplica a margem ao grupo que existe na tabela fiscal', async () => {
+    const service = new TaxRuleService(gatewayCom([['MER CIGARROS - TRADICIONAIS', '0,2']]));
+
+    const regra = await service.requireForGroup('MER CIGARROS - TRADICIONAIS');
+
+    expect(regra.margemPadrao).toBe(0.2); // fracao: 20%
+  });
+
+  it('grupo SEM margem na planilha fica nulo, nao zero', async () => {
+    const service = new TaxRuleService(gatewayCom([['MER CIGARROS - TRADICIONAIS', '']]));
+
+    expect((await service.requireForGroup('MER CIGARROS - TRADICIONAIS')).margemPadrao).toBeNull();
+  });
+
+  it('margem de grupo que NAO existe no fiscal e ignorada', async () => {
+    const service = new TaxRuleService(gatewayCom([['GRUPO QUE NAO EXISTE', '0,5']]));
+
+    const regras = await service.list();
+    expect(regras).toHaveLength(1);
+    expect(regras[0]!.margemPadrao).toBeNull();
+  });
+
+  /*
+   * Margem acima de 500% nao existe no varejo — e sinal de coluna lida errada.
+   * Recusar em silencio e melhor que preencher o cadastro com preco absurdo.
+   */
+  it('recusa valor absurdo em vez de aceitar coluna errada', async () => {
+    const service = new TaxRuleService(gatewayCom([['MER CIGARROS - TRADICIONAIS', '6']]));
+
+    expect((await service.requireForGroup('MER CIGARROS - TRADICIONAIS')).margemPadrao).toBeNull();
+  });
+
+  it('aceita margem escrita com % , convertendo para fracao', async () => {
+    const service = new TaxRuleService(gatewayCom([['MER CIGARROS - TRADICIONAIS', '30%']]));
+
+    expect((await service.requireForGroup('MER CIGARROS - TRADICIONAIS')).margemPadrao).toBe(0.3);
+  });
+
+  /* A margem e conveniencia; a regra fiscal e o que impede cadastro errado. */
+  it('aba de margens quebrada NAO derruba as regras fiscais', async () => {
+    const gateway = {
+      batchGetValues: async (_id: string, faixas: string[]) => {
+        if (faixas.some((r) => r.includes('M5:N130'))) throw new Error('aba fora da grade');
+        return [[['MER CIGARROS - TRADICIONAIS', '1', 'TRIBUTADO', '11,28%', '3,69%', 'Regra']], [], [], []];
+      },
+    } as unknown as SheetsGateway;
+
+    const regras = await new TaxRuleService(gateway).list();
+
+    expect(regras).toHaveLength(1);
+    expect(regras[0]!.margemPadrao).toBeNull();
   });
 });

@@ -28,6 +28,10 @@ export const unifGrupo = pgTable(
     nome: text('nome').notNull().default(''),
     nomeNormalizado: text('nome_normalizado').notNull().default(''),
     grupo: text('grupo'),
+    /** Escolha feita na Central para itens que chegaram sem grupo nas fontes. */
+    grupoManual: text('grupo_manual'),
+    grupoDefinidoPor: text('grupo_definido_por'),
+    grupoDefinidoEm: timestamp('grupo_definido_em', { withTimezone: true }),
     ativo: boolean('ativo').notNull().default(true),
 
     flagNomesDivergentes: boolean('flag_nomes_divergentes').notNull().default(false),
