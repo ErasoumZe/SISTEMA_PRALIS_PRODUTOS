@@ -199,6 +199,58 @@ describe('recalcular', () => {
       && !g.flag_nomes_divergentes && !g.flag_barras_conflitante && !g.flag_sem_grupo)).toBe(true);
   });
 
+  /*
+   * A contagem alimenta o rotulo do botao "Unificar todos por codigo de barras".
+   * Se ela e a selecao divergissem, a tela prometeria um numero e o botao faria
+   * outro — por isso as duas saem da MESMA condicao, e este teste e quem
+   * garante que continuam saindo.
+   */
+  it('a contagem do lote e a mesma condicao da selecao', async () => {
+    const total = await grupos.contarAutomaticos();
+    const direto = await db.execute(sqlTag`
+      SELECT count(*)::int c FROM unif_grupo
+      WHERE motivo = 'mesmo_cod_barras'
+        AND NOT flag_nomes_divergentes AND NOT flag_barras_conflitante AND NOT flag_sem_grupo
+        AND decisao IS NULL AND length(trim(nome)) > 0`);
+
+    expect(total).toBe(direto.rows[0].c);
+    expect(total).toBeGreaterThan(0);
+  });
+
+  /* A tela repete a chamada ate acabar; o teto por chamada e o que protege a cota. */
+  it('a selecao respeita o teto por chamada, mesmo pedindo mais', async () => {
+    expect(await grupos.idsAutomaticos(5)).toHaveLength(5);
+    expect(await grupos.idsAutomaticos(9999)).toHaveLength(200);
+  });
+
+  it('grupo com alerta de identidade fica FORA da contagem', async () => {
+    const antes = await grupos.contarAutomaticos();
+
+    // um item que estava no lote passa a ter nome divergente
+    const [alvo] = await grupos.idsAutomaticos(1);
+    await db.execute(sqlTag`UPDATE unif_grupo SET flag_nomes_divergentes = true WHERE id = ${alvo}`);
+
+    expect(await grupos.contarAutomaticos()).toBe(antes - 1);
+    expect(await grupos.idsAutomaticos(200)).not.toContain(alvo);
+
+    await db.execute(sqlTag`UPDATE unif_grupo SET flag_nomes_divergentes = false WHERE id = ${alvo}`);
+  });
+
+  it('grupo ja decidido sai da contagem — o botao nao reprocessa o que ja passou', async () => {
+    const antes = await grupos.contarAutomaticos();
+    const [alvo] = await grupos.idsAutomaticos(1);
+
+    await db.execute(sqlTag`
+      UPDATE unif_grupo SET decisao = 'unificado', decidido_por = 'Jose', decidido_em = now()
+      WHERE id = ${alvo}`);
+
+    expect(await grupos.contarAutomaticos()).toBe(antes - 1);
+
+    await db.execute(sqlTag`
+      UPDATE unif_grupo SET decisao = NULL, decidido_por = NULL, decidido_em = NULL
+      WHERE id = ${alvo}`);
+  });
+
   it('nao cria grupo para linha fiscal orfa sem nome', async () => {
     const r = await db.execute(sqlTag`
       SELECT count(*)::int c FROM unif_grupo

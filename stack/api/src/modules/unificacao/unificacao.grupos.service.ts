@@ -209,19 +209,41 @@ export class UnificacaoGruposService {
     }).where(eq(unifGrupo.id, grupoId));
   }
 
+  /**
+   * O que pode ser unificado sem interpretação humana.
+   *
+   * Uma definição só, usada pela contagem e pela seleção: se as duas
+   * divergissem, a tela prometeria um número e o botão faria outro.
+   *
+   * `mesmo_cod_barras` é a chave forte. As três flags de fora são as que
+   * exigem olho humano — nome divergente, código de barras conflitante entre
+   * fontes, e item sem grupo (sem grupo não há regra fiscal, e o cadastro
+   * quebraria depois na edição normal com TAX_RULE_NOT_FOUND).
+   */
+  private condicoesAutomaticas(): SQL {
+    return and(
+      eq(unifGrupo.motivo, 'mesmo_cod_barras'),
+      eq(unifGrupo.flagNomesDivergentes, false),
+      eq(unifGrupo.flagBarrasConflitante, false),
+      eq(unifGrupo.flagSemGrupo, false),
+      sql`${unifGrupo.decisao} IS NULL`,
+      sql`length(trim(${unifGrupo.nome})) > 0`,
+    )!;
+  }
+
+  /** Quantos grupos o lote automático ainda tem para processar. */
+  async contarAutomaticos(): Promise<number> {
+    const [linha] = await db.select({ total: count() }).from(unifGrupo)
+      .where(this.condicoesAutomaticas());
+    return linha?.total ?? 0;
+  }
+
   /** IDs do lote que pode ser unificado sem interpretação humana. */
   async idsAutomaticos(limite: number): Promise<string[]> {
     const linhas = await db.select({ id: unifGrupo.id }).from(unifGrupo)
-      .where(and(
-        eq(unifGrupo.motivo, 'mesmo_cod_barras'),
-        eq(unifGrupo.flagNomesDivergentes, false),
-        eq(unifGrupo.flagBarrasConflitante, false),
-        eq(unifGrupo.flagSemGrupo, false),
-        sql`${unifGrupo.decisao} IS NULL`,
-        sql`length(trim(${unifGrupo.nome})) > 0`,
-      ))
+      .where(this.condicoesAutomaticas())
       .orderBy(asc(unifGrupo.nome), asc(unifGrupo.chave))
-      .limit(Math.min(100, Math.max(1, limite)));
+      .limit(Math.min(200, Math.max(1, limite)));
     return linhas.map((l) => l.id);
   }
 

@@ -88,6 +88,19 @@ export class UnificacaoController {
    * Processa um lote pequeno e retomável. A seleção no servidor aceita apenas
    * casamento forte, nomes iguais, grupo conhecido e barra sem conflito.
    */
+  /**
+   * Quantos ainda faltam no lote automático.
+   *
+   * A tela precisa disto para dizer o tamanho ANTES de o José começar: sem o
+   * número, "unificar todos" é um botão que ninguém sabe se leva um minuto ou
+   * meia hora.
+   */
+  async pendentesAutomaticos(request: FastifyRequest, reply: FastifyReply) {
+    exigirAdmin(request);
+    const total = await this.grupos.contarAutomaticos();
+    return reply.status(200).send(buildResponse({ total }, `${total} item(ns) no lote automático`));
+  }
+
   async unificarAutomaticos(
     request: FastifyRequest<{ Body?: { limite?: number } }>,
     reply: FastifyReply,
