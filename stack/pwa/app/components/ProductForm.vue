@@ -726,7 +726,7 @@ onMounted(async () => {
             <v-text-field v-model="form.setorVenda2" label="Setor de venda secundário" variant="outlined" density="comfortable" clearable :hint="ajuda('setorVenda2')" />
           </v-col>
           <v-col cols="6" sm="3">
-            <v-text-field v-model.number="form.custo" type="number" label="Custo (R$)" variant="outlined" density="comfortable" :hint="ajuda('custo')" />
+            <MoneyField v-model="form.custo" label="Custo" :hint="ajuda('custo')" />
           </v-col>
           <v-col cols="6" sm="3">
             <v-text-field
@@ -747,7 +747,7 @@ onMounted(async () => {
             <v-switch v-model="form.auto" label="Calcular venda automático" color="primary" inset hide-details />
           </v-col>
           <v-col cols="12" sm="6">
-            <v-text-field v-model.number="form.vVendaPontual" type="number" label="V. Venda pontual (R$)" variant="outlined" density="comfortable" :disabled="form.auto" :hint="ajuda('vVendaPontual')" />
+            <MoneyField v-model="form.vVendaPontual" label="V. Venda pontual" :disabled="form.auto" :hint="ajuda('vVendaPontual')" />
           </v-col>
           <v-col cols="12">
             <v-text-field :model-value="`R$ ${vVenda.toFixed(2).replace('.', ',')}`" label="V. Venda (calculado)" variant="outlined" density="comfortable" readonly bg-color="purple-lighten-5" />
@@ -838,7 +838,7 @@ onMounted(async () => {
           </v-col>
           <template v-if="form.promoTipo !== 'nenhum'">
             <v-col v-if="form.promoTipo === 'valor'" cols="6" sm="4">
-              <v-text-field v-model.number="form.promoValor" type="number" label="Valor promo (R$)" variant="outlined" density="comfortable" />
+              <MoneyField v-model="form.promoValor" label="Valor promo" />
             </v-col>
             <v-col v-if="form.promoTipo === 'desconto'" cols="6" sm="4">
               <v-text-field v-model.number="form.promoDescontoPct" type="number" label="Desconto %" variant="outlined" density="comfortable" />
