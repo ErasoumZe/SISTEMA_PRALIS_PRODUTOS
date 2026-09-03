@@ -1,6 +1,8 @@
 import { injectable } from 'tsyringe';
 import { and, asc, count, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '@/db/databases';
+import { AppError } from '@/config/api.replies';
+import type { CurrentUser } from '@/types/fastify-jwt';
 import { unifFonteProduto } from './unificacao.table';
 import { unifGrupo, unifGrupoItem } from './unificacao.grupo.table';
 import { agrupar, type GrupoReconciliado, type ItemFonte, type LojaFonte } from './unificacao.motor';
@@ -108,9 +110,12 @@ export class UnificacaoGruposService {
         decisao: unifGrupo.decisao,
         decididoPor: unifGrupo.decididoPor,
         decididoEm: unifGrupo.decididoEm,
+        grupoManual: unifGrupo.grupoManual,
+        grupoDefinidoPor: unifGrupo.grupoDefinidoPor,
+        grupoDefinidoEm: unifGrupo.grupoDefinidoEm,
       })
       .from(unifGrupo)
-      .where(sql`${unifGrupo.decisao} IS NOT NULL`);
+      .where(sql`${unifGrupo.decisao} IS NOT NULL OR ${unifGrupo.grupoManual} IS NOT NULL`);
     const anteriores = new Map(decisoes.map((d) => [d.chave, d]));
 
     await db.transaction(async (tx) => {
@@ -142,28 +147,82 @@ export class UnificacaoGruposService {
 
   private paraLinha(
     g: GrupoReconciliado,
-    anterior?: { decisao: string | null; decididoPor: string | null; decididoEm: Date | null },
+    anterior?: {
+      decisao: string | null; decididoPor: string | null; decididoEm: Date | null;
+      grupoManual: string | null; grupoDefinidoPor: string | null; grupoDefinidoEm: Date | null;
+    },
   ) {
+    const grupoManual = anterior?.grupoManual?.trim() || null;
+    const candidato = grupoManual
+      ? { ...g.candidato, grupo: grupoManual, grupoDe: 'central_manual' }
+      : g.candidato;
     return {
       chave: g.chave,
       motivo: g.motivo,
       fontes: g.fontes,
       lojas: g.lojas,
-      candidato: g.candidato,
-      nome: g.candidato.nome,
-      nomeNormalizado: normalizarNome(g.candidato.nome),
-      grupo: g.candidato.grupo,
+      candidato,
+      nome: candidato.nome,
+      nomeNormalizado: normalizarNome(candidato.nome),
+      grupo: candidato.grupo,
+      grupoManual,
+      grupoDefinidoPor: anterior?.grupoDefinidoPor ?? null,
+      grupoDefinidoEm: anterior?.grupoDefinidoEm ?? null,
       ativo: g.candidato.ativo,
       flagNomesDivergentes: g.flags.nomesDivergentes,
       flagSemFiscalTnp: g.flags.semFiscalTnp,
       flagSemBarras: g.flags.semBarras,
       flagBarrasConflitante: g.flags.barrasConflitante,
-      flagSemGrupo: g.flags.semGrupo,
+      flagSemGrupo: grupoManual ? false : g.flags.semGrupo,
       flagJaNoPralis: g.flags.jaNoPralis,
       decisao: anterior?.decisao ?? null,
       decididoPor: anterior?.decididoPor ?? null,
       decididoEm: anterior?.decididoEm ?? null,
     };
+  }
+
+  /**
+   * Define o grupo oficial de um item que chegou sem essa informação.
+   * A escolha fica fora do staging e sobrevive a qualquer recálculo das fontes.
+   */
+  async definirGrupo(user: CurrentUser, grupoId: string, nomeGrupo: string): Promise<void> {
+    if (user.role !== 'admin') {
+      throw new AppError('Apenas o administrador define grupos.', 403, 'ONLY_ADMIN_UNIF');
+    }
+    const nome = nomeGrupo.replace(/\p{Cf}/gu, '').replace(/\s+/g, ' ').trim();
+    if (!nome) throw new AppError('Informe um grupo.', 422, 'UNIF_GRUPO_VAZIO');
+
+    const [atual] = await db.select().from(unifGrupo).where(eq(unifGrupo.id, grupoId));
+    if (!atual) throw new AppError('Grupo de reconciliação não encontrado.', 404, 'UNIF_GRUPO_NOT_FOUND');
+    if (atual.decisao) {
+      throw new AppError(`Este item já foi marcado como "${atual.decisao}".`, 409, 'UNIF_JA_DECIDIDO');
+    }
+
+    const candidato = atual.candidato as Record<string, unknown>;
+    await db.update(unifGrupo).set({
+      grupo: nome,
+      grupoManual: nome,
+      grupoDefinidoPor: user.name,
+      grupoDefinidoEm: new Date(),
+      flagSemGrupo: false,
+      candidato: { ...candidato, grupo: nome, grupoDe: 'central_manual' },
+    }).where(eq(unifGrupo.id, grupoId));
+  }
+
+  /** IDs do lote que pode ser unificado sem interpretação humana. */
+  async idsAutomaticos(limite: number): Promise<string[]> {
+    const linhas = await db.select({ id: unifGrupo.id }).from(unifGrupo)
+      .where(and(
+        eq(unifGrupo.motivo, 'mesmo_cod_barras'),
+        eq(unifGrupo.flagNomesDivergentes, false),
+        eq(unifGrupo.flagBarrasConflitante, false),
+        eq(unifGrupo.flagSemGrupo, false),
+        sql`${unifGrupo.decisao} IS NULL`,
+        sql`length(trim(${unifGrupo.nome})) > 0`,
+      ))
+      .orderBy(asc(unifGrupo.nome), asc(unifGrupo.chave))
+      .limit(Math.min(100, Math.max(1, limite)));
+    return linhas.map((l) => l.id);
   }
 
   /** Os filtros viram SQL — a tela nunca recebe a base inteira para peneirar. */

@@ -52,6 +52,15 @@ describe('chave forte', () => {
 });
 
 describe('agrupamento', () => {
+  it('nao transforma linha fiscal orfa e sem nome em produto vazio', () => {
+    const fiscalOrfao = item({
+      fonte: 'fiscal_tnp', loja: 'TNP', codInterno: '999999',
+      nome: '', nomeNormalizado: '',
+    });
+
+    expect(agruparSimples([fiscalOrfao])).toEqual([]);
+  });
+
   it('une LI e TNP pelo mesmo codigo de barras', () => {
     const grupos = agruparSimples([
       item({ fonte: 'sia_li', loja: 'LI', chaveBarras: '10000', nome: 'ABACAXI', nomeNormalizado: 'ABACAXI' }),

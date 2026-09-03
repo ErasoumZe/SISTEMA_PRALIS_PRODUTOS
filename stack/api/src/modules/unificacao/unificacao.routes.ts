@@ -100,6 +100,31 @@ export async function unificacaoRoutes(app: FastifyInstance) {
     controller.reabrir.bind(controller),
   );
 
+  typed.patch<{ Params: { id: string }; Body: { grupo: string } }>(
+    '/admin/unificacao/grupos/:id/grupo',
+    {
+      schema: {
+        params: z.object({ id: z.string().min(1) }),
+        body: z.object({ grupo: z.string().trim().min(1).max(200) }),
+        summary: 'Definir grupo oficial para item sem grupo (admin)',
+        tags: ['ADMIN', 'UNIFICACAO'],
+      },
+    },
+    controller.definirGrupo.bind(controller),
+  );
+
+  typed.post<{ Body: { limite?: number } }>(
+    '/admin/unificacao/auto-unificar',
+    {
+      schema: {
+        body: z.object({ limite: z.number().int().min(1).max(100).optional() }).optional(),
+        summary: 'Unificar lote de correspondências fortes e sem alertas (admin)',
+        tags: ['ADMIN', 'UNIFICACAO'],
+      },
+    },
+    controller.unificarAutomaticos.bind(controller),
+  );
+
   typed.get(
     '/admin/unificacao/health',
     {

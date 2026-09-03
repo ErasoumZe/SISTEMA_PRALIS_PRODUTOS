@@ -103,9 +103,16 @@ Depois de uma execução real, procure no log do Criare as linhas
 `AplicarNoCadastro() ... ATUALIZADO ... coditem: X`. É a confirmação de que
 gravou — e de que atualizou em vez de inserir.
 
-## Ainda não versionado
+## Arquivos para implantação
 
-`ROBO-SIA-AUTO.ps1` continua existindo **só na máquina**. A cópia que está no
-Desktop de quem desenvolve pode não ser igual à que roda na Lisboa, então não
-foi trazida para cá no chute. Confira qual é a versão viva na Lisboa e copie ela
-para esta pasta — script de automação que existe num Desktop só é risco.
+Os três arquivos do ciclo estão versionados nesta pasta:
+
+- `baixar-cadastro.ps1`: baixa e valida o arquivo;
+- `ROBO-SIA-AUTO.ps1`: chama o download e, somente se ele terminar bem, importa
+  e aplica no cadastro;
+- `INSTALAR-AGENDAMENTO-SIA.bat`: registra a tarefa interativa das 22:30.
+
+A versão trazida para o repositório é a cópia atual fornecida em 03/09/2026.
+Antes de substituir o arquivo da Lisboa, guarde uma cópia do que estiver rodando
+na máquina e compare os dois; não houve acesso remoto ao servidor para confirmar
+que aquela cópia é idêntica.

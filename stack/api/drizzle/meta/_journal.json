@@ -120,6 +120,13 @@
       "when": 1788373407117,
       "tag": "0016_busy_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788451200000,
+      "tag": "0017_central_grupo_manual",
+      "breakpoints": true
     }
   ]
 }

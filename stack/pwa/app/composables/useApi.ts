@@ -31,7 +31,7 @@ export interface CandidatoUnificacao {
 
 export interface GrupoUnificacao {
   id: string; chave: string; motivo: string; fontes: string[]; lojas: string[];
-  nome: string; grupo: string | null; ativo: boolean;
+  nome: string; grupo: string | null; grupoManual: string | null; ativo: boolean;
   candidato: CandidatoUnificacao; itens: ItemUnificacao[];
   flagNomesDivergentes: boolean; flagSemFiscalTnp: boolean; flagSemBarras: boolean;
   flagBarrasConflitante: boolean; flagSemGrupo: boolean; flagJaNoPralis: boolean;
@@ -61,6 +61,11 @@ export interface GroupTaxRule {
   aliquotaSimples: number;
   icmsRe: number;
   baseFiscal: string;
+  /**
+   * Margem padrão do grupo, como FRAÇÃO (0.2 = 20%). Nula na maioria: hoje
+   * só 3 dos 76 grupos têm margem definida na planilha.
+   */
+  margemPadrao: number | null;
 }
 export interface FiscalClassification extends GroupTaxRule {
   ncm: string | null;
@@ -191,6 +196,12 @@ export function useApi() {
       $fetch(`/admin/unificacao/grupos/${id}/marcar`, { ...base, method: 'POST', body: { acao } }),
     unificacaoReabrir: (id: string) =>
       $fetch(`/admin/unificacao/grupos/${id}/reabrir`, { ...base, method: 'POST' }),
+    unificacaoDefinirGrupo: (id: string, grupo: string) =>
+      $fetch(`/admin/unificacao/grupos/${id}/grupo`, { ...base, method: 'PATCH', body: { grupo } }),
+    unificacaoAutoUnificar: (limite = 25) =>
+      unwrap($fetch<{ data: { selecionados: number; concluidos: number; falhas: number } }>(
+        '/admin/unificacao/auto-unificar', { ...base, method: 'POST', body: { limite } },
+      )),
 
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),

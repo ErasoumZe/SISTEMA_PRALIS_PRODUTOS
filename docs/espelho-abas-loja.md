@@ -2,80 +2,80 @@
 
 **Pedido:** "planilha é espelho do sistema — base e abas de cada loja devem
 funcionar igual". Concordo com o objetivo. Mas as abas, como estão hoje, não
-comportam isso, e escrever nelas no chute corromperia 9.930 linhas.
+comportam isso, e escrever nelas no chute corromperia milhares de linhas.
 
-Levantado em 03/09/2026 lendo os cabeçalhos reais (linha 5).
+> **Correção de 03/09/2026.** A primeira versão deste documento mediu a planilha
+> **errada** — a de homologação (`1OrJScm...`), que é a do `.env` local. Os
+> números abaixo são da planilha **de produção** (`1C0FsF...`), a que o José
+> compartilhou. O diagnóstico não mudou; o buraco é maior do que eu tinha dito.
 
-## 1. As posições NÃO são um deslocamento uniforme
+## 1. O tamanho real da diferença
 
-A primeira impressão é que a aba da loja é a BASE deslocada 4 colunas (ela não
-tem `LOJAS`, `NOME`, `QUANTIDADE`, `MEDIDA BASE`). Não é:
-
-| Cabeçalho | BASE | TNP |
+| Aba | Cabeçalhos | Tem `ID`? |
 |---|---|---|
-| `CADASTRO PRODUTOS ATUALIZADO NOVO` | H | D |
-| `COMO SE COMPRA ESSE PRODUTO?` | P | **Z** |
-| `V. VENDA` | AO | **AR** |
-| `PROMOÇÃO DESC. %` | AX | **AV** |
-| `REDUCAO_ICMS` | BS | **CB** |
+| `(BASE) CADASTRO PRODUTOS` | **158** | sim, em `FP` |
+| `(TNP) CADASTRO PRODUTOS` | 65 | **não** |
+| `(LI) CADASTRO PRODUTOS` | 63 | **não** (e nem `FOTO`) |
 
-O desvio muda ao longo da aba. **Um mapa por posição gravaria dado na coluna
-errada** — custo caindo em alíquota, por exemplo. O mapeamento tem que ser
-por NOME de cabeçalho, como o serviço já faz para achar `ID` e `FOTO`.
+**96 cabeçalhos da BASE não existem na aba TNP.** E dos 62 que existem nas duas,
+**61 estão em posição diferente**.
 
-## 2. Faltam 10 colunas na aba da loja
+Ou seja: não é um deslocamento uniforme que dê para compensar com uma conta. Um
+mapa por posição gravaria custo na coluna de alíquota. O mapeamento tem que ser
+por NOME de cabeçalho — que é como o serviço já acha `ID` e `FOTO` hoje.
 
-De 74 cabeçalhos da BASE, a aba da loja tem 65. Não existem lá:
+## 2. O que falta é identidade, não detalhe
 
-```
-LOJAS · NOME · QUANTIDADE · MEDIDA BASE · QT_CAD
-QUAL A QUANTIDADE QUE TEM DENTRO DESSE PRODUTO? · QT_TR
-REF COMO SE COMPRA ESSE PRODUTO? · V. VENDA PROMO · PROMOÇÃO DESC. %%
-```
+Entre os 96 ausentes estão `NOME`, `QUANTIDADE`, `MEDIDA BASE` e `QT_CAD`.
 
-E, o mais importante: **não existe coluna `ID`**. A aba vai até `CK = FOTO`; na
-BASE o `ID` está em `CP`, e é ele que dá idempotência ao espelho — sem ele o
-sistema não sabe qual linha atualizar e passaria a duplicar a cada sincronismo.
+A aba de loja não guarda o nome do produto — ela **deriva** a descrição na
+coluna `CADASTRO PRODUTOS ATUALIZADO NOVO`. Ela foi desenhada como uma *visão*
+que herda identidade de outro lugar, não como um cadastro completo.
 
-## 3. A consequência
+E, decisivo: **não existe coluna `ID`**. É ela que dá idempotência ao espelho —
+sem ela o sistema não sabe qual linha atualizar, e passaria a **duplicar a cada
+sincronismo**.
 
-`NOME`, `QUANTIDADE` e `MEDIDA BASE` são identidade do produto. A aba da loja
-não guarda nenhum dos três — ela **deriva** a descrição na coluna
-`CADASTRO PRODUTOS ATUALIZADO NOVO`. Ou seja: a aba de loja foi desenhada como
-uma *visão* que herda identidade de outro lugar, não como um cadastro completo.
-
-Escrever um produto novo lá sem essas colunas deixaria a linha sem nome.
-
-## 4. A decisão que preciso de você
+## 3. A decisão que preciso de você
 
 **Opção A — igualar as abas (recomendo).** Acrescentar nas três abas de loja as
-colunas que faltam, com o mesmo nome de cabeçalho da BASE, incluindo `ID`. A
-partir daí o espelho é mecânico e funciona igual em todas.
+colunas que faltam, com o mesmo nome de cabeçalho da BASE. A partir daí o
+espelho é mecânico e funciona igual em todas.
 
-Mínimo indispensável para funcionar: **`ID`, `NOME`, `QUANTIDADE`,
-`MEDIDA BASE`, `QT_CAD`** (as outras 5 são de promoção e referência).
+Mínimo indispensável: **`ID`, `NOME`, `QUANTIDADE`, `MEDIDA BASE`, `QT_CAD`**.
+As outras 91 são de compra, promoção e referência, e podem entrar depois.
 
-**Opção B — espelhar só o que a aba já tem.** Funciona sem tocar na estrutura,
-mas produto novo aparece sem nome e sem quantidade, e a coluna de descrição
-depende de fórmula que talvez não resolva sozinha. Continua precisando do `ID`.
+**Opção B — espelhar só o que a aba já tem.** Não mexe na estrutura, mas produto
+novo aparece sem nome e sem quantidade. Continua precisando do `ID`.
 
-Em qualquer das duas, **a coluna `ID` é obrigatória** — é o que impede
-duplicação.
+Em qualquer das duas, **a coluna `ID` é obrigatória**.
 
-## 5. O que eu já deixei pronto
+## 4. O que já está pronto
 
 - O serviço descobre `ID`/`FOTO`/`HABILITAR AJUDA` **por nome de cabeçalho**, e
-  não por posição — então já está preparado para abas com layout diferente.
-- O `GOOGLE_SHEETS_DEFAULT_LOJAS` e a estrutura de configuração por aba já
-  existem.
+  não por posição — já preparado para abas com layout diferente.
+- A configuração por aba e o `GOOGLE_SHEETS_DEFAULT_LOJAS` já existem.
 
 Falta o mapa por nome dos ~40 campos e a configuração por loja. Assim que você
-disser A ou B (e acrescentar as colunas, se for A), isso é uma fatia curta — e
-eu faço com um modo de conferência que mostra célula por célula o que ele
-gravaria, antes de gravar de verdade.
+disser A ou B (e acrescentar as colunas, se for A), é uma fatia curta — e eu
+faço com um modo de conferência que mostra célula por célula o que gravaria,
+antes de gravar de verdade.
 
-## 6. Por que eu não fiz agora
+## 5. Por que eu não fiz agora
 
-Escrever numa aba de produção com 9.930 linhas, com mapa deduzido de um
-cabeçalho parcial e sem cópia para testar, é o tipo de erro que não se desfaz
-com um botão. Preferi trazer a evidência e a decisão.
+Escrever numa aba de produção com milhares de linhas, com mapa deduzido de
+cabeçalho e sem cópia para testar, é o tipo de erro que não se desfaz com um
+botão. Preferi trazer a evidência e a decisão.
+
+## 6. Duas planilhas — cuidado ao investigar
+
+Existem duas, e elas divergem:
+
+| | ID | Onde aparece |
+|---|---|---|
+| Produção | `1C0FsFMZelHN1Il3xmoI7E5EStgr_8MpgYz0aJ-X2y2w` | Coolify, e o link que o José compartilhou |
+| Homologação | `1OrJScm9YiRLYgWIoshHDsRVehwwsgsoT1uSrnfod09A` | `.env` local de desenvolvimento |
+
+Na de homologação a aba de grupos está `#REF!` e a BASE tem 74 cabeçalhos; na de
+produção a aba de grupos está sã e a BASE tem 158. **Conferir sempre qual das
+duas está sendo lida antes de concluir qualquer coisa.**

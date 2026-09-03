@@ -4,7 +4,16 @@ import { AppError } from '@/config/api.replies';
 import { SHEETS_GATEWAY } from '@/modules/google-sheets/google-sheets.di';
 import { a1, type SheetsGateway } from '@/modules/google-sheets/google-sheets.client';
 
-export interface GroupTaxRule { grupo: string; cstPisCofins: string; tributacaoSimples: string; aliquotaSimples: number; icmsRe: number; baseFiscal: string }
+export interface GroupTaxRule {
+  grupo: string; cstPisCofins: string; tributacaoSimples: string;
+  aliquotaSimples: number; icmsRe: number; baseFiscal: string;
+  /**
+   * Margem padrao do grupo, como FRACAO (0,2 = 20%). Nula quando a planilha
+   * nao define — e a maioria: 3 de 76 grupos tem margem hoje. Sem ela, quem
+   * cadastra escreve a margem na mao, que e o comportamento de sempre.
+   */
+  margemPadrao: number | null;
+}
 export interface FiscalClassification extends GroupTaxRule {
   ncm: string | null; codigoFiscal: string | null; produtoFiscal: string | null;
   cstReforma: string | null; cClassTrib: string | null; aliquotaIbs: number | null; aliquotaCbs: number | null;
@@ -47,6 +56,48 @@ export class TaxRuleService {
   private cache: Cache | null = null;
   constructor(@inject(SHEETS_GATEWAY) private sheets: SheetsGateway) {}
 
+  /**
+   * Margem padrão por grupo, da aba de grupos oficiais (coluna M = grupo,
+   * N = margem).
+   *
+   * Lido numa chamada SEPARADA e com `catch` de propósito. Já aconteceu de uma
+   * faixa fora da grade derrubar o lote inteiro e levar junto as tabelas
+   * fiscais que continuavam existindo — e a margem é conveniência, enquanto a
+   * regra fiscal é o que impede cadastro errado. Aba quebrada devolve mapa
+   * vazio e a margem volta a ser digitada na mão, sem derrubar nada.
+   *
+   * O valor é FRAÇÃO (`0,2` = 20%). Se vier com `%`, é convertido.
+   */
+  private async margensPorGrupo(): Promise<Map<string, number>> {
+    try {
+      const ranges = await this.sheets.batchGetValues(
+        env.GOOGLE_SHEETS_SPREADSHEET_ID,
+        [a1(env.GOOGLE_SHEETS_GRUPOS_TAB, 'M5:N130')],
+        'FORMATTED_VALUE',
+      );
+      const mapa = new Map<string, number>();
+      for (const [grupo = '', margem = ''] of ranges[0] ?? []) {
+        const chave = normalizeGroup(grupo);
+        const bruto = String(margem).trim();
+        if (!chave || bruto === '') continue;
+        const valor = parseSheetPercent(bruto);
+        if (!Number.isFinite(valor) || valor <= 0) continue;
+        const fracao = bruto.includes('%') ? valor / 100 : valor;
+        /*
+         * Limite de sanidade: margem acima de 500% não existe no varejo — é
+         * sinal de coluna lida errado. Recusar em silêncio é melhor que
+         * preencher o cadastro com um preço absurdo. Os valores reais hoje são
+         * 0,1 / 0,2 / 0,3.
+         */
+        if (fracao > 5) continue;
+        mapa.set(chave, fracao);
+      }
+      return mapa;
+    } catch {
+      return new Map();
+    }
+  }
+
   private async load(): Promise<Cache> {
     if (this.cache && this.cache.expiresAt > Date.now()) return this.cache;
     const missing = [...destinoSheetsFaltando(), ...credenciaisSheetsFaltando()];
@@ -81,7 +132,18 @@ export class TaxRuleService {
     const unique = new Map<string, GroupTaxRule>();
     for (const row of groupRows ?? []) {
       const [grupo = '', cst = '', tributacao = '', aliquota = '', icms = '', base = ''] = row; const key = normalizeGroup(grupo);
-      if (key && cst) unique.set(key, { grupo: grupo.replace(/\p{Cf}/gu, '').replace(/\s+/g, ' ').trim(), cstPisCofins: cst.trim(), tributacaoSimples: tributacao.trim(), aliquotaSimples: parseSheetPercent(aliquota), icmsRe: parseSheetPercent(icms), baseFiscal: base.trim() });
+      if (key && cst) unique.set(key, { grupo: grupo.replace(/\p{Cf}/gu, '').replace(/\s+/g, ' ').trim(), cstPisCofins: cst.trim(), tributacaoSimples: tributacao.trim(), aliquotaSimples: parseSheetPercent(aliquota), icmsRe: parseSheetPercent(icms), baseFiscal: base.trim(), margemPadrao: null });
+    }
+
+    /*
+     * A margem entra DEPOIS e só onde o grupo já existe na tabela fiscal.
+     * Casar contra os grupos conhecidos é a proteção: sem isso, uma faixa
+     * lida errado injetaria "margem" a partir de qualquer coluna numérica —
+     * foi o que um teste pegou, com o CST virando margem de 600%.
+     */
+    for (const [chave, margem] of await this.margensPorGrupo()) {
+      const regra = unique.get(chave);
+      if (regra) regra.margemPadrao = margem;
     }
     const products = new Map<string, ProductTaxRule>();
     for (const [codigo = '', ncm = '', cst = '', icms = '', nome = ''] of productRows ?? []) if (code(codigo) && ncm) products.set(code(codigo), { codigo: code(codigo), ncm: ncmCode(ncm), cst: cst.trim(), icmsRe: parseSheetPercent(icms), nome: nome.trim() });
