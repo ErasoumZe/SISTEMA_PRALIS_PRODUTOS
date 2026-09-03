@@ -93,7 +93,7 @@ export function traduzirCelulas(
  *
  * `ID` é obrigatório e não é detalhe: é ele que diz qual linha atualizar. Sem
  * ele o espelho não tem como reencontrar o produto e passaria a criar uma linha
- * nova a cada sincronismo — 9.930 linhas viram 19.860 na segunda rodada.
+ * nova a cada sincronismo: o mesmo produto duplicado a cada rodada.
  */
 export function conferirAbaDeDestino(
   colunaNoDestino: Map<string, string>,

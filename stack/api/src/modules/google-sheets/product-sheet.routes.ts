@@ -4,11 +4,13 @@ import { container } from 'tsyringe';
 import { z } from 'zod/v4';
 import { ProductRequests } from '@pralis/shared';
 import { ProductSheetController } from './product-sheet.controller';
+import { ProductSheetLojaController } from './product-sheet-loja.controller';
 import { apiResponseSchema } from '@/config/api.replies';
 import { authMiddleware } from '@/middlewares/auth-handler';
 
 export async function productSheetRoutes(app: FastifyInstance) {
   const controller = container.resolve(ProductSheetController);
+  const loja = container.resolve(ProductSheetLojaController);
   const a = app.withTypeProvider<ZodTypeProvider>();
 
   // autenticação obrigatória; o controller exige papel admin
@@ -70,6 +72,40 @@ export async function productSheetRoutes(app: FastifyInstance) {
       },
     },
     controller.sync.bind(controller),
+  );
+
+  // ---- espelho nas abas de LOJA (TNP e LI; HORA fica de fora) ----
+  const lojaQuery = z.object({
+    productId: z.string().min(1),
+    loja: z.enum(['TNP', 'LI']),
+  });
+
+  /*
+   * Conferencia ANTES de gravar: numa aba editada a mao, ver celula por
+   * celula vale mais que desfazer depois. E GET de proposito — nao escreve.
+   */
+  a.get<{ Querystring: z.infer<typeof lojaQuery> }>(
+    '/admin/sheets/loja/previsualizar',
+    {
+      schema: {
+        querystring: lojaQuery,
+        summary: 'Conferir o que o espelho gravaria na aba da loja, sem gravar',
+        tags: ['ADMIN', 'SHEETS'],
+      },
+    },
+    loja.previsualizar.bind(loja),
+  );
+
+  a.post<{ Body: z.infer<typeof lojaQuery> }>(
+    '/admin/sheets/loja/espelhar',
+    {
+      schema: {
+        body: lojaQuery,
+        summary: 'Gravar o produto na aba da loja (um por vez)',
+        tags: ['ADMIN', 'SHEETS'],
+      },
+    },
+    loja.espelhar.bind(loja),
   );
 
   a.get(

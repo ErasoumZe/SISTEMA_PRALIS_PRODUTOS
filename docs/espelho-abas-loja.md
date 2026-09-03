@@ -9,6 +9,9 @@ comportam isso, e escrever nelas no chute corromperia milhares de linhas.
 > números abaixo são da planilha **de produção** (`1C0FsF...`), a que o José
 > compartilhou. O diagnóstico não mudou; o buraco é maior do que eu tinha dito.
 
+> **Seções 1 e 2 são o diagnóstico de antes.** As colunas que faltavam já foram
+> acrescentadas — o que valeu delas está resolvido a partir da seção 3.
+
 ## 1. O tamanho real da diferença
 
 | Aba | Cabeçalhos | Tem `ID`? |
@@ -36,38 +39,76 @@ E, decisivo: **não existe coluna `ID`**. É ela que dá idempotência ao espelh
 sem ela o sistema não sabe qual linha atualizar, e passaria a **duplicar a cada
 sincronismo**.
 
-## 3. A decisão que preciso de você
+## 3. A decisão — tomada em 03/09/2026
 
-**Opção A — igualar as abas (recomendo).** Acrescentar nas três abas de loja as
-colunas que faltam, com o mesmo nome de cabeçalho da BASE. A partir daí o
-espelho é mecânico e funciona igual em todas.
+Você escolheu a **Opção A** e acrescentou na linha 5 das abas as colunas `NOME`,
+`QUANTIDADE`, `MEDIDA BASE`, `QT_CAD` e `ID`. Com isso o espelho ficou mecânico.
 
-Mínimo indispensável: **`ID`, `NOME`, `QUANTIDADE`, `MEDIDA BASE`, `QT_CAD`**.
-As outras 91 são de compra, promoção e referência, e podem entrar depois.
+Onde elas caíram (as posições são diferentes em cada aba — por isso o casamento
+é por **nome**, nunca por posição):
 
-**Opção B — espelhar só o que a aba já tem.** Não mexe na estrutura, mas produto
-novo aparece sem nome e sem quantidade. Continua precisando do `ID`.
+| Aba | `ID` | `NOME` | `QUANTIDADE` | `MEDIDA BASE` | `QT_CAD` |
+|---|---|---|---|---|---|
+| `(TNP) CADASTRO PRODUTOS` | `CP` | `CL` | `CM` | `CN` | `CO` |
+| `(LI) CADASTRO PRODUTOS` | `CG` | `CC` | `CD` | `CE` | `CF` |
 
-Em qualquer das duas, **a coluna `ID` é obrigatória**.
+`(HORA) CADASTRO PRODUTOS` também ganhou as colunas, mas **fica desligada** —
+não está em `LOJAS_ESPELHADAS` nem em `ABA_PADRAO`.
 
-## 4. O que já está pronto
+## 4. O que está pronto
 
-- O serviço descobre `ID`/`FOTO`/`HABILITAR AJUDA` **por nome de cabeçalho**, e
-  não por posição — já preparado para abas com layout diferente.
-- A configuração por aba e o `GOOGLE_SHEETS_DEFAULT_LOJAS` já existem.
+- `sheet-traducao.ts` — traduz um `CellMap` da BASE para outra aba casando pelo
+  **nome do cabeçalho**. O que a aba de destino não tem, não é escrito (fica
+  listado em `semCorrespondencia`); o que a aba ganhar depois passa a ser
+  preenchido sozinho, sem mexer em código.
+- `product-sheet-loja.service.ts` — acha a linha **pelo `ID`**: se já existe,
+  atualiza; se não, reserva a próxima linha realmente livre. Recusa aba sem `ID`
+  ou sem `NOME` (`SHEET_LOJA_SEM_ID`, 503).
+- `GET /admin/sheets/loja/previsualizar` — **modo de conferência**: mostra
+  célula por célula o que gravaria, e não grava nada.
+- `POST /admin/sheets/loja/espelhar` — grava. Um produto por vez, por clique.
 
-Falta o mapa por nome dos ~40 campos e a configuração por loja. Assim que você
-disser A ou B (e acrescentar as colunas, se for A), é uma fatia curta — e eu
-faço com um modo de conferência que mostra célula por célula o que gravaria,
-antes de gravar de verdade.
+Ambas as rotas são só para `admin` e recusam produto de outra loja
+(`PRODUCT_OTHER_STORE`, 422).
 
-## 5. Por que eu não fiz agora
+## 5. O que a conferência pegou antes de qualquer escrita
 
-Escrever numa aba de produção com milhares de linhas, com mapa deduzido de
-cabeçalho e sem cópia para testar, é o tipo de erro que não se desfaz com um
-botão. Preferi trazer a evidência e a decisão.
+Rodando a conferência com um produto TNP, ela apontou a **linha 11** como livre.
+Não estava: tinha código de barras `1234` e código interno `0011`.
 
-## 6. Duas planilhas — cuidado ao investigar
+A causa: a primeira versão decidia "linha livre" olhando só `ID` e `NOME` — as
+duas colunas **recém-criadas**, e portanto vazias em todas as linhas que a loja
+já tinha. O espelho gravaria por cima de uma linha existente.
+
+Agora uma linha só é considerada livre quando `ID` **e** todas as colunas de
+identidade que a aba já usa (`NOME`, `CODIGO BARRAS`, `CODIGO INT.`,
+`CADASTRO PRODUTOS ATUALIZADO NOVO`) estão vazias. O caso está travado por
+teste: `NÃO toma linha ocupada só pelas colunas antigas`.
+
+## 6. Quanta coisa há nas abas hoje
+
+Medido em 03/09/2026 na planilha de produção:
+
+| Aba | Grade (`rowCount`) | Linhas com produto |
+|---|---|---|
+| `(BASE) CADASTRO PRODUTOS` | 9.930 | 161 |
+| `(TNP) CADASTRO PRODUTOS` | 9.930 | 4 |
+| `(LI) CADASTRO PRODUTOS` | 9.930 | 4 |
+| `(HORA) CADASTRO PRODUTOS` | 9.930 | 1 |
+
+**9.930 é o tamanho da grade, não a quantidade de produtos.** Eu troquei as duas
+coisas em análises anteriores; as abas de loja têm 4 linhas de teste cada.
+
+## 7. As 4 linhas antigas não têm `ID`
+
+As linhas que já estavam nas abas foram digitadas à mão e não têm `ID`. O
+espelho não tem como saber que o produto X do Pralis é a linha 12 da aba — então
+ele **acrescenta uma linha nova** em vez de atualizar aquela.
+
+Com 4 linhas de teste isso é irrelevante. Fica registrado porque a mesma
+situação apareceria de novo se a loja digitasse produtos direto na aba.
+
+## 8. Duas planilhas — cuidado ao investigar
 
 Existem duas, e elas divergem:
 

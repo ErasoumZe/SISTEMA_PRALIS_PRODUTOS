@@ -89,6 +89,12 @@ export const env = {
   /** Aba com os grupos oficiais e a margem padrao de cada um (colunas M e N). */
   GOOGLE_SHEETS_GRUPOS_TAB: envVar('GOOGLE_SHEETS_GRUPOS_TAB', '(TNP/LI/HORA - EXP.) GRUPOS/REF. - VLD SAIDA'),
   GOOGLE_SHEETS_DEFAULT_LOJAS: envVar('GOOGLE_SHEETS_DEFAULT_LOJAS', 'TNP,LI,HORA'),
+  /**
+   * Aba de cada loja no espelho, como JSON. Vazio usa o padrao do servico,
+   * que cobre TNP e LI. HORA fica FORA de proposito: a aba existe e ja tem as
+   * colunas, mas a loja nao entrou em nenhuma integracao ainda.
+   */
+  GOOGLE_SHEETS_LOJA_TABS: envVar('GOOGLE_SHEETS_LOJA_TABS', ''),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: envVar('GOOGLE_SERVICE_ACCOUNT_EMAIL', ''),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: normalizePrivateKey(envVar('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', '')),
 

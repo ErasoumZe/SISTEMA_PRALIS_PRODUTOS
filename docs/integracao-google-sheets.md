@@ -121,7 +121,7 @@ As abas de loja não são "a BASE deslocada" — são **outro esquema**:
   HABILITAR AJUDA, LI e HORA não têm nenhuma das duas).
 
 Apontar o mapa de colunas da BASE para essas abas escreveria cada dado na coluna
-errada, em uma planilha de produção com ~9.930 linhas. Por isso a escrita por
+errada, em uma planilha de produção. Por isso a escrita por
 loja **não foi implementada** — seria um espelhamento que corrompe.
 
 **O que destrava:** alinhar as abas de loja à estrutura da BASE (no mínimo:
