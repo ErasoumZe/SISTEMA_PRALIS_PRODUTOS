@@ -417,8 +417,6 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
     margemPontual: form.margemPct ? Number(form.margemPct) / 100 : null,
     vVendaPontual: Number(form.vVendaPontual) || null,
     auto: form.auto,
-    // Ainda não há campos visuais para estes valores, mas uma edição comum
-    // não pode apagar o que já veio da planilha/banco.
     localVenda1: form.localVenda1 || null,
     localVenda2: form.localVenda2 || null,
     // promoção continua só para revenda (será movida para a tela do gerente — UX-06)
