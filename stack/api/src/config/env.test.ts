@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { normalizePrivateKey, destinoSheetsFaltando, credenciaisSheetsFaltando, env } from './env';
 
@@ -167,5 +169,36 @@ describe('configuração do Sheets — destino obrigatório', () => {
       GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n',
     });
     expect(comCreds).toEqual([]);
+  });
+});
+
+/**
+ * O Coolify nao basta: a env so chega no container se o compose a repassar,
+ * uma por uma. Ja aconteceu duas vezes de uma chave nova ficar so no painel e
+ * o recurso continuar desligado sem ninguem entender por que — a segunda foi
+ * o GOOGLE_SHEETS_LOJA_ESPELHO_AUTO, e eu ainda cheguei a dizer ao dono que
+ * bastava ligar no painel.
+ *
+ * Vazio nao quebra nada: `envVar` trata string vazia como ausente, entao uma
+ * chave repassada e nao definida cai no padrao do codigo.
+ */
+describe('toda env que o codigo le chega no container', () => {
+  const raiz = resolve(__dirname, '../../../..');
+  const fonte = readFileSync(resolve(__dirname, 'env.ts'), 'utf8');
+  const compose = readFileSync(resolve(raiz, 'docker-compose.coolify.yaml'), 'utf8');
+
+  const lidas = [...new Set(
+    [...fonte.matchAll(/env(?:Var|Bool|Num)\('([A-Z0-9_]+)'/g)].map((m) => m[1]),
+  )];
+
+  /*
+   * O que importa é a chave existir no bloco `environment:`, não de onde vem o
+   * valor: `DATABASE_URL` é montada a partir de DB_USER/DB_PASSWORD e
+   * `CORS_ORIGIN` vem de APP_URL. As duas chegam no container do mesmo jeito.
+   */
+  it('o compose repassa cada chave lida pelo env.ts', () => {
+    expect(lidas.length).toBeGreaterThan(10); // o regex ainda casa alguma coisa
+    const ausentes = lidas.filter((k) => !new RegExp(`^\\s+${k}:`, 'm').test(compose));
+    expect(ausentes).toEqual([]);
   });
 });

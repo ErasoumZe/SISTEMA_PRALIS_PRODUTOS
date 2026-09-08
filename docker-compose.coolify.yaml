@@ -49,6 +49,15 @@ services:
       GOOGLE_SHEETS_DEFAULT_LOJAS: ${GOOGLE_SHEETS_DEFAULT_LOJAS}
       GOOGLE_SERVICE_ACCOUNT_EMAIL: ${GOOGLE_SERVICE_ACCOUNT_EMAIL}
       GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
+      # Aba com os grupos oficiais e a margem padrao de cada um (colunas M e N).
+      GOOGLE_SHEETS_GRUPOS_TAB: ${GOOGLE_SHEETS_GRUPOS_TAB}
+      # Espelho nas abas de LOJA (TNP e LI; HORA fica fora). Mantenha vazio ate
+      # conferir a gravacao de 1 produto por GET /admin/sheets/loja/previsualizar.
+      # Vazio ja significa desligado.
+      GOOGLE_SHEETS_LOJA_ESPELHO_AUTO: ${GOOGLE_SHEETS_LOJA_ESPELHO_AUTO}
+      GOOGLE_SHEETS_LOJA_TABS: ${GOOGLE_SHEETS_LOJA_TABS}
+      # Pasta dos CSVs de fonte da Central. Vazio usa os versionados em docs/.
+      UNIFICACAO_FONTES_DIR: ${UNIFICACAO_FONTES_DIR}
       # Token exclusivo do robô para POST /vendas/importar (mínimo 32 caracteres).
       VENDAS_IMPORT_TOKEN: ${VENDAS_IMPORT_TOKEN}
       # Criare/SIA — exportação posicional de produtos. Mantenha ENABLED=false até
