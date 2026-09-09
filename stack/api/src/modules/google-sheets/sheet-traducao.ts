@@ -77,23 +77,44 @@ export interface Faixa {
  *
  * Cada rótulo abre uma faixa que vai até o rótulo seguinte.
  */
-export function faixasDaAba(linha: readonly unknown[], letra: (i: number) => string): Faixa[] {
+export const FAIXA_INICIAL = '(INICIO)';
+
+export function faixasDaAba(
+  linha: readonly unknown[],
+  letra: (i: number) => string,
+  /**
+   * Largura real da aba. A linha de rotulos costuma vir mais curta que a de
+   * cabecalhos — o Sheets corta as celulas vazias do fim —, e sem isso a
+   * ultima faixa terminava antes das colunas que existem de verdade.
+   */
+  largura?: number,
+): Faixa[] {
   const marcos: Array<{ nome: string; i: number }> = [];
   linha.forEach((valor, i) => {
     const nome = normalizarCabecalho(valor);
     if (nome) marcos.push({ nome, i });
   });
+  if (marcos.length === 0) return [];
 
-  return marcos.map((m, k) => {
-    const fim = k + 1 < marcos.length ? marcos[k + 1]!.i - 1 : linha.length - 1;
-    return {
-      nome: m.nome,
-      inicio: letra(m.i),
-      fim: letra(fim),
-      inicioIndice: m.i,
-      fimIndice: fim,
-    };
+  const ultimo = Math.max(largura ?? linha.length, linha.length) - 1;
+  const faixas: Faixa[] = [];
+
+  /*
+   * As primeiras colunas costumam ficar ANTES do primeiro rotulo (status, nome
+   * do produto). Sem uma faixa para elas, campo nenhum de la teria destino.
+   */
+  if (marcos[0]!.i > 0) {
+    faixas.push({
+      nome: FAIXA_INICIAL, inicio: letra(0), fim: letra(marcos[0]!.i - 1),
+      inicioIndice: 0, fimIndice: marcos[0]!.i - 1,
+    });
+  }
+
+  marcos.forEach((m, k) => {
+    const fim = k + 1 < marcos.length ? marcos[k + 1]!.i - 1 : ultimo;
+    faixas.push({ nome: m.nome, inicio: letra(m.i), fim: letra(fim), inicioIndice: m.i, fimIndice: fim });
   });
+  return faixas;
 }
 
 /**
@@ -117,6 +138,75 @@ export function colunaNaFaixa(
   for (let i = faixa.inicioIndice; i <= faixa.fimIndice; i += 1) {
     if (normalizarCabecalho(linhaCabecalho[i]) === procurado) return letra(i);
   }
+  return null;
+}
+
+/** Faixas que guardam dado de UMA loja. O resto vale para o produto inteiro. */
+const FAIXA_DA_LOJA: Record<string, readonly string[]> = {
+  TNP: ['TNP - CADASTRO', 'TNP - PROMOÇÃO'],
+  LI: ['LI - CADASTRO', 'LI - PROMOÇÃO'],
+};
+
+const ehFaixaDeLoja = (nome: string): boolean =>
+  Object.values(FAIXA_DA_LOJA).some((fs) => fs.includes(nome));
+
+export interface DestinoInput {
+  /** Cabeçalho do campo, como aparece na linha 5. */
+  nome: string;
+  /** Loja do produto. Sem ela, campo de loja não é escrito. */
+  loja?: string | null;
+  /** Desempate quando o mesmo nome existe em duas faixas que não são de loja. */
+  faixa?: string;
+  faixas: readonly Faixa[];
+  cabecalhos: readonly unknown[];
+  letra: (i: number) => string;
+}
+
+/**
+ * Em que coluna este campo deve ser escrito.
+ *
+ * A regra sai da **própria planilha**, não de uma classificação minha de 50
+ * campos: se o cabeçalho aparece nas faixas de loja, o campo é por loja; se
+ * aparece numa faixa só, é dela.
+ *
+ * Devolve `null` — e isso é o comportamento certo, não uma falha — quando:
+ *  - o campo é de loja e não veio loja (produto da BASE não preenche a faixa
+ *    da loja; isso acontece quando a loja importa e completa o cadastro);
+ *  - o nome existe em mais de uma faixa não-loja e ninguém desempatou (`QT`
+ *    está na geral e na de transformação: chutar seria gravar no campo errado);
+ *  - a aba não tem esse campo.
+ */
+export function resolverDestino(input: DestinoInput): string | null {
+  const { nome, loja, faixa, faixas, cabecalhos, letra } = input;
+  const procurado = normalizarCabecalho(nome);
+  if (!procurado) return null;
+
+  const achar = (nomeDaFaixa: string) =>
+    colunaNaFaixa(cabecalhos, faixas, nomeDaFaixa, procurado, letra);
+
+  // desempate explícito manda em tudo
+  if (faixa) return achar(faixa);
+
+  const comOCampo = faixas.filter((f) => achar(f.nome) !== null);
+  if (comOCampo.length === 0) return null;
+
+  const deLoja = comOCampo.filter((f) => ehFaixaDeLoja(f.nome));
+  const gerais = comOCampo.filter((f) => !ehFaixaDeLoja(f.nome));
+
+  if (loja && deLoja.length > 0) {
+    const daLoja = (FAIXA_DA_LOJA[loja] ?? []).map(normalizarCabecalho);
+    const alvo = deLoja.find((f) => daLoja.includes(f.nome));
+    if (alvo) return achar(alvo.nome);
+  }
+
+  /*
+   * Sem loja — produto da BASE — vale a faixa geral. Campo que SO existe em
+   * faixa de loja fica para a importacao, que e quando a loja completa o
+   * cadastro.
+   */
+  if (gerais.length === 1) return achar(gerais[0]!.nome);
+
+  // ambiguo entre faixas gerais sem desempate: nao escreve
   return null;
 }
 
