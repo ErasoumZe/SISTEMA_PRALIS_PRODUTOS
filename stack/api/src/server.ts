@@ -13,6 +13,7 @@ import {
   jsonSchemaTransform,
 } from 'fastify-type-provider-zod';
 import { env } from '@/config/env';
+import { segredosInsegurosEmProducao } from '@/config/segredos';
 import { AppError } from '@/config/api.replies';
 import { productRoutes } from '@/modules/product/product.routes';
 import { authRoutes } from '@/modules/auth/auth.routes';
@@ -85,13 +86,43 @@ app.setErrorHandler((error: Error & { statusCode?: number; validation?: unknown 
   }
   // erros de validação do Zod chegam com statusCode 400
   const statusCode = error.statusCode ?? 500;
-  if (statusCode >= 500) app.log.error(error);
+  if (statusCode >= 500) {
+    app.log.error(error);
+    /*
+     * 5xx não devolve a mensagem interna. Ela costuma trazer nome de tabela,
+     * trecho de SQL ou caminho de arquivo — informação de graça para quem
+     * estiver sondando, e inútil para quem está usando o sistema.
+     * O erro completo fica no log do servidor.
+     */
+    return reply.status(statusCode).send({
+      message: 'Erro interno. A equipe foi notificada pelo log.',
+      data: null,
+      details: null,
+    });
+  }
   return reply.status(statusCode).send({
-    message: error.message ?? 'Erro interno',
+    message: error.message ?? 'Erro na requisição',
     data: null,
     details: error.validation ?? null,
   });
 });
+
+/*
+ * Em produção, segredo padrão ou fraco IMPEDE o boot.
+ *
+ * Subir e funcionar com o segredo de desenvolvimento é o pior dos mundos:
+ * parece que está tudo bem. Falhar aqui é ruidoso, e é para ser.
+ */
+if (env.NODE_ENV === 'production') {
+  const inseguros = segredosInsegurosEmProducao(env);
+  if (inseguros.length > 0) {
+    app.log.fatal(
+      `Boot recusado: ${inseguros.join(' e ')} com valor padrão, vazio ou curto demais. `
+      + 'Defina segredos próprios de 32+ caracteres antes de subir.',
+    );
+    process.exit(1);
+  }
+}
 
 app
   .listen({ port: env.PORT, host: '0.0.0.0' })

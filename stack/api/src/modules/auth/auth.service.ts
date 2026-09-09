@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { inject, injectable } from 'tsyringe';
 import argon2 from 'argon2';
 import { AuthRepository } from './auth.repository';
@@ -5,7 +6,14 @@ import { EmailService } from '@/modules/email/email.service';
 import { AppError } from '@/config/api.replies';
 import { env } from '@/config/env';
 
-const genCode = () => String(Math.floor(100000 + Math.random() * 900000)); // 6 dígitos
+/**
+ * Código de 6 dígitos para verificação e recuperação de senha.
+ *
+ * `Math.random` não serve: é previsível a partir de saídas observadas, e este
+ * código vale como prova de identidade para trocar uma senha.
+ * `randomInt` usa o gerador do sistema operacional e é uniforme na faixa.
+ */
+const genCode = () => String(randomInt(100000, 1000000));
 const CODE_TTL_MIN = 15;
 
 export interface PublicUser {
