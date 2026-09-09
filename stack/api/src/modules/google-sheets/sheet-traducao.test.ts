@@ -5,6 +5,8 @@ import {
   conferirAbaDeDestino,
   normalizarCabecalho,
   traduzirCelulas,
+  faixasDaAba,
+  colunaNaFaixa,
 } from './sheet-traducao';
 import type { CellMap } from './product-sheet.mapper';
 
@@ -102,5 +104,55 @@ describe('a aba de destino esta pronta?', () => {
 
   it('aceita quando as duas existem', () => {
     expect(conferirAbaDeDestino(colunasPorCabecalho(['NOME', 'ID'], letra))).toEqual({ pronta: true, faltando: [] });
+  });
+});
+
+/*
+ * A planilha nova repete cabecalho: `QT` aparece na faixa geral (quantidade da
+ * embalagem) e na de transformacao; `CUSTO`, `CODIGO INT.` e as margens
+ * aparecem uma vez por LOJA, lado a lado na mesma linha.
+ *
+ * Casar so por nome pega sempre a primeira ocorrencia — mandaria a quantidade
+ * da transformacao para a coluna da embalagem e escreveria tudo da LI dentro da
+ * faixa da TNP. A propria planilha marca as faixas na linha 3; e por ela que a
+ * ambiguidade se resolve.
+ */
+describe('faixas — cabecalho repetido resolve pela secao', () => {
+  //          A        B    C     D        E     F        G      H
+  const l3 = ['', '', '', 'CADASTRO GERAL', '', '', 'TNP - CADASTRO', '', 'LI - CADASTRO'];
+  const l5 = ['', '', '', 'NOME', 'QT', 'X', 'CUSTO', 'QT', 'CUSTO'];
+
+  it('acha a faixa de cada coluna', () => {
+    const faixas = faixasDaAba(l3, letra);
+
+    expect(faixas.map((f) => f.nome)).toEqual(['CADASTRO GERAL', 'TNP - CADASTRO', 'LI - CADASTRO']);
+    expect(faixas[0]).toMatchObject({ inicio: 'D', fim: 'F' });
+    expect(faixas[1]).toMatchObject({ inicio: 'G', fim: 'H' });
+  });
+
+  it('o MESMO nome cai em coluna diferente conforme a faixa', () => {
+    const faixas = faixasDaAba(l3, letra);
+
+    expect(colunaNaFaixa(l5, faixas, 'TNP - CADASTRO', 'CUSTO', letra)).toBe('G');
+    expect(colunaNaFaixa(l5, faixas, 'LI - CADASTRO', 'CUSTO', letra)).toBe('I');
+  });
+
+  it('QT da faixa geral nao e o QT da outra faixa', () => {
+    const faixas = faixasDaAba(l3, letra);
+
+    expect(colunaNaFaixa(l5, faixas, 'CADASTRO GERAL', 'QT', letra)).toBe('E');
+    expect(colunaNaFaixa(l5, faixas, 'TNP - CADASTRO', 'QT', letra)).toBe('H');
+  });
+
+  /* Melhor nao escrever do que escrever na faixa errada. */
+  it('cabecalho que nao existe naquela faixa devolve nada', () => {
+    const faixas = faixasDaAba(l3, letra);
+
+    expect(colunaNaFaixa(l5, faixas, 'LI - CADASTRO', 'NOME', letra)).toBeNull();
+    expect(colunaNaFaixa(l5, faixas, 'FAIXA QUE NAO EXISTE', 'CUSTO', letra)).toBeNull();
+  });
+
+  it('sem nenhuma faixa marcada, nao inventa', () => {
+    expect(faixasDaAba(['', '', ''], letra)).toEqual([]);
   });
 });

@@ -12,7 +12,7 @@ async function main() {
   const c = new GoogleSheetsClient();
   const ler = async (id: string, aba: string) => {
     env.GOOGLE_SHEETS_SPREADSHEET_ID = id;
-    const [v] = await c.batchGetValues(id, [a1(aba, 'A5:HT5')], 'FORMATTED_VALUE');
+    const [v] = await c.batchGetValues(id, [a1(aba, 'A5:IZ5')], 'FORMATTED_VALUE');
     const m = new Map<string, string>();
     (((v ?? [])[0] ?? []) as string[]).forEach((x, i) => { const n = normalizarCabecalho(x); if (n) m.set(letra(i), n); });
     return m;

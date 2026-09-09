@@ -32,7 +32,7 @@ async function main() {
 
   const ler = async (id: string, aba: string) => {
     env.GOOGLE_SHEETS_SPREADSHEET_ID = id;
-    const [v] = await c.batchGetValues(id, [a1(aba, 'A5:HT5')], 'FORMATTED_VALUE');
+    const [v] = await c.batchGetValues(id, [a1(aba, 'A5:IZ5')], 'FORMATTED_VALUE');
     return (((v ?? [])[0] ?? []) as string[]).map(normalizarCabecalho);
   };
 
