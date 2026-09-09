@@ -24,26 +24,63 @@ function up(s: unknown): string {
 }
 
 // ---- R1 — Descrição (NOME + QUANTIDADE(3 casas) + MEDIDA) ----
+/**
+ * Gramatura ZERO ou vazia não entra na descrição.
+ *
+ * Antes saía `QUEIJO MINAS FRESCAL 0 KG` — e esse texto não fica só na tela:
+ * é a descrição que vai para a planilha e para o SIA. "0 KG" é informação
+ * falsa sobre o produto, não um detalhe de exibição.
+ */
 export function montarDescricao(nome: string, quantidade: number | string, medidaBase: string): string {
-  const partes = [up(nome), '', up(medidaBase)];
-  const qtdNum = parseFloat(String(quantidade).replace(',', '.')) || 0;
-  if (up(nome) || up(medidaBase) || qtdNum > 0) partes[1] = fmtQtd3(quantidade);
-  return partes.filter(Boolean).join(' ');
+  const qtdNum = parseFloat(String(quantidade ?? '').replace(',', '.')) || 0;
+  return [up(nome), qtdNum > 0 ? fmtQtd3(quantidade) : '', up(medidaBase)]
+    .filter(Boolean)
+    .join(' ');
 }
 
 // ---- R2 — Como se compra (embalagem) ----
-export function montarComoSeCompra(
-  embalagem: string,
-  cDe: string | null,
-  qtCad: number,
-  descricao: string,
-): string {
-  const emb = up(embalagem);
-  const d = String(descricao ?? '');
-  if (!emb && !d) return '';
-  if (cDe === 'C/') return `1 ${emb} C/ (${d})`;
-  if (cDe === 'DE') return `1 ${emb} DE${qtCad ?? ''} (${d})`;
-  return '';
+/** Nome por extenso da embalagem. Sigla desconhecida sai como veio. */
+const EMBALAGEM_POR_EXTENSO: Record<string, string> = {
+  SACO: 'SACO', PCT: 'PACOTE', CX: 'CAIXA', UN: 'UNIDADE', FD: 'FARDO',
+  POTE: 'POTE', BAND: 'BANDEJA', EMB: 'EMBALAGEM', MIL: 'MILHEIRO', KG: 'KG', LT: 'LITRO',
+};
+
+export interface ComoSeCompraInput {
+  embalagem: string;
+  cDe: string | null;
+  qtCad: number;
+  medidaCompra: string;
+  descricao: string;
+  /** Compra aproximada escreve "APROXIMADAMENTE"; exata não escreve nada. */
+  aproximado: boolean;
+}
+
+/**
+ * Frase de como o produto é comprado.
+ *
+ * Formato definido pelo José em 09/09/2026, a partir do exemplo dele:
+ * `queijo minas frescal kg - caixa com queijo minas frescal kg aproximadamente 20kg`
+ *
+ * A palavra "aproximadamente" existe porque para peso a quantidade da
+ * embalagem é uma estimativa — uma caixa de queijo não tem 20 kg exatos. Dizer
+ * "20KG" seco, quando não é exato, faz a conferência de entrada acusar
+ * diferença que não existe.
+ *
+ * Uma definição só: a tela tinha a própria cópia desta regra, e as duas já
+ * produziam textos diferentes.
+ */
+export function montarComoSeCompra(input: ComoSeCompraInput): string {
+  const emb = up(input.embalagem);
+  if (!emb) return '';
+  const d = String(input.descricao ?? '').trim();
+  const nome = EMBALAGEM_POR_EXTENSO[emb] ?? emb;
+  const ligacao = input.cDe === 'C/' ? 'COM' : 'DE';
+  const quantidade = [
+    input.aproximado ? 'APROXIMADAMENTE' : '',
+    `${input.qtCad ?? ''}${up(input.medidaCompra)}`,
+  ].filter(Boolean).join(' ');
+
+  return [d, '-', nome, ligacao, d, quantidade].filter(Boolean).join(' ');
 }
 
 // ---- R3 — Validação de quantidade (transformação) ----

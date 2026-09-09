@@ -69,6 +69,8 @@ export const baseProductSchema = z.object({
   cDe: cDe.nullable(),
   qtCad: z.number().int().positive().default(1),
   medidaCompra: medidaCompra.nullable(),
+  /** Quantidade da embalagem e aproximada (peso variavel), nao exata. */
+  compraAproximada: z.boolean().default(false),
   codigoInterno: z.string().nullable(),
   fotoUrl: z.string().nullable(),
   grupo: z.string().nullable(),

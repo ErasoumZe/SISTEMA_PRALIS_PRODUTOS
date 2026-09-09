@@ -161,10 +161,14 @@ export function mapProductToCells(product: Product, opts: MapperOptions): CellMa
     O: text(product.medidaCompra),
     // A fórmula histórica desta coluna depende de células auxiliares que
     // estão inconsistentes na planilha oficial. Geramos o valor no backend.
-    P: text(ProductRules.montarComoSeCompra(
-      product.embalagem ?? '', product.cDe, product.qtCad,
-      ProductRules.montarDescricao(product.nome, product.quantidade, product.medidaBase),
-    )),
+    P: text(ProductRules.montarComoSeCompra({
+      embalagem: product.embalagem ?? '',
+      cDe: product.cDe,
+      qtCad: product.qtCad,
+      medidaCompra: product.medidaCompra ?? '',
+      descricao: ProductRules.montarDescricao(product.nome, product.quantidade, product.medidaBase),
+      aproximado: product.compraAproximada ?? false,
+    })),
 
     // ---- grupo: revenda (R) x transformação (T) — exclusivos ----
     // Q e S são os flags que a planilha usa junto com R/T. São sempre

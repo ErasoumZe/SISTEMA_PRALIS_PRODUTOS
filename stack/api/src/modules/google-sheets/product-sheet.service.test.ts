@@ -349,7 +349,8 @@ describe('ProductSheetService — criação de linha nova', () => {
     for (const col of calculadas) {
       expect(colunasEscritas, `coluna calculada ${col} não pode ser escrita`).not.toContain(col);
     }
-    expect(sheets.get('P13')).toBe('1 UN DE1 (PAO FRANCES 50 G)');
+    // formato novo (09/09/2026), montado pela regra unica do shared
+    expect(sheets.get('P13')).toBe('PAO FRANCES 50 G - UNIDADE DE PAO FRANCES 50 G 1UN');
 
     // AP é a única exceção: a fórmula histórica da planilha precisa ter a
     // faixa absoluta dos dias corrigida para a própria linha do produto.

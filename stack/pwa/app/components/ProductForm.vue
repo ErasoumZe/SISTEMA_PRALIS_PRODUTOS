@@ -23,7 +23,8 @@ const SETORES = [
 
 const form = reactive({
   nome: '', quantidade: 0, medidaBase: 'KG', fotoUrl: '',
-  marca: '', embalagem: '', cDe: 'DE', qtCad: 1, medidaCompra: '', grupo: '', codigoBarras: '', codigoInterno: '',
+  marca: '', embalagem: '', cDe: 'DE', qtCad: 1, medidaCompra: '', compraAproximada: false,
+  grupo: '', codigoBarras: '', codigoInterno: '',
   status: 'ativo' as 'ativo' | 'inativo', habilitarAjuda: false,
   tipo: 'revenda' as 'revenda' | 'transformacao',
   // comercial (revenda) — a loja vem do usuário logado
@@ -124,7 +125,8 @@ function voltarAHerdar() {
   Object.assign(form, {
     nome: base.nome, quantidade: base.quantidade, medidaBase: base.medidaBase,
     marca: base.marca ?? '', embalagem: base.embalagem ?? '', cDe: base.cDe ?? 'DE',
-    qtCad: base.qtCad, medidaCompra: base.medidaCompra ?? '', grupo: base.grupo ?? '',
+    qtCad: base.qtCad, medidaCompra: base.medidaCompra ?? '',
+    compraAproximada: base.compraAproximada ?? false, grupo: base.grupo ?? '',
     fotoUrl: base.fotoUrl ?? '', codigoBarras: base.codigoBarras ?? '',
     status: base.status, habilitarAjuda: base.habilitarAjuda, tipo: base.tipo,
     custo: base.custo ?? 0, margemPct: ProductRules.fracaoParaMargemPct(base.margemPontual),
@@ -293,18 +295,20 @@ const validacaoQtd = computed(() =>
     : '',
 );
 
-// UX-04: "Como se compra" — concatenação informativa (embalagem + qtd + medida + descrição)
-const EMB_LABEL: Record<string, string> = {
-  SACO: 'Saco', PCT: 'Pacote', CX: 'Caixa', UN: 'Unidade', FD: 'Fardo',
-  POTE: 'Pote', BAND: 'Bandeja', EMB: 'Embalagem', MIL: 'Milheiro', KG: 'Kg', LT: 'Litro',
-};
-const comoSeCompra = computed(() => {
-  if (!form.embalagem) return '';
-  const emb = EMB_LABEL[form.embalagem] ?? form.embalagem;
-  const cde = form.cDe === 'C/' ? 'com' : 'de';
-  const qtd = form.qtCad ? `${form.qtCad}${form.medidaCompra ? ' ' + form.medidaCompra : ''}` : '';
-  return [emb, cde, qtd, descricao.value ? '— ' + descricao.value : ''].filter(Boolean).join(' ');
-});
+/*
+ * "Como se compra" vem da MESMA função que o servidor usa para a planilha.
+ * A tela tinha a própria cópia da regra, e as duas já produziam textos
+ * diferentes — a daqui dizia "Caixa com 20 KG — ..." e a do servidor
+ * "1 CX C/ (...)". Uma regra só, um texto só.
+ */
+const comoSeCompra = computed(() => ProductRules.montarComoSeCompra({
+  embalagem: form.embalagem,
+  cDe: form.cDe,
+  qtCad: Number(form.qtCad) || 0,
+  medidaCompra: form.medidaCompra,
+  descricao: descricao.value,
+  aproximado: form.compraAproximada,
+}));
 
 // UX-02: estoque, setor, custo e margem são do PRODUTO (valem para revenda E transformação)
 /*
@@ -338,6 +342,7 @@ const dicas: Record<string, string> = {
   qtCad: 'Quantas unidades/medidas vêm na embalagem de compra.',
   medidaCompra: 'Unidade da embalagem de compra (UN, KG, LT).',
   grupo: 'Grupo de mercadorias. Define a regra fiscal e a margem padrão.',
+  compraAproximada: 'Aproximado escreve "aproximadamente" na frase. Use para peso variável, como caixa de queijo.',
   setorEstoque: 'Onde o produto fica armazenado.',
   setorVenda1: 'Setor em que o produto é vendido. Não é o setor de estoque.',
   setorVenda2: 'Segundo setor de venda, quando o produto é vendido em mais de um.',
@@ -423,6 +428,7 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
     cDe: (form.cDe || null) as ProductRequests.CreateProductRequest['cDe'],
     qtCad: Number(form.qtCad) || 1,
     medidaCompra: (form.medidaCompra || null) as ProductRequests.CreateProductRequest['medidaCompra'],
+    compraAproximada: form.compraAproximada,
     // Na criação a API gera o código. Na edição ele precisa voltar
     // intacto; enviar null apagava silenciosamente o identificador existente.
     codigoInterno: props.productId ? (form.codigoInterno || null) : null,
@@ -710,6 +716,16 @@ onMounted(async () => {
           </v-col>
           <v-col cols="6" sm="3">
             <v-select v-model="form.medidaCompra" :items="MEDIDAS_COMPRA" label="Medida de compra" variant="outlined" density="comfortable" clearable :hint="ajuda('medidaCompra')" />
+          </v-col>
+          <v-col cols="12" sm="3">
+            <v-select
+              v-model="form.compraAproximada"
+              :items="[{ title: 'Exato', value: false }, { title: 'Aproximado', value: true }]"
+              label="Quantidade da embalagem"
+              variant="outlined"
+              density="comfortable"
+              :hint="ajuda('compraAproximada')"
+            />
           </v-col>
           <v-col cols="12">
             <v-text-field

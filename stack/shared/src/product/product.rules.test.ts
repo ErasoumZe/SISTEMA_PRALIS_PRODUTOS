@@ -22,16 +22,12 @@ describe('R1 — descrição', () => {
   });
 });
 
-describe('R2 — como se compra', () => {
-  it('DE inclui qtCad colado', () => {
-    expect(montarComoSeCompra('SACO', 'DE', 25, 'FARINHA DE TRIGO ALVEAR 25,000 KG')).toBe(
-      '1 SACO DE25 (FARINHA DE TRIGO ALVEAR 25,000 KG)',
-    );
-  });
-  it('C/ sem qtCad', () => {
-    expect(montarComoSeCompra('LT', 'C/', 10, 'TESTE 25,000 KG')).toBe('1 LT C/ (TESTE 25,000 KG)');
-  });
-});
+/*
+ * O formato `1 SACO DE25 (DESCRIÇÃO)` foi SUBSTITUÍDO em 09/09/2026 a pedido do
+ * José, por um que se lê em voz alta. Os testes do formato antigo saíram daqui
+ * de propósito: manter os dois seria manter duas verdades.
+ * O novo está em "como se compra", mais abaixo.
+ */
 
 describe('R3 — validação de quantidade', () => {
   it('usa a quantidade informada (= célula U12)', () => {
@@ -169,5 +165,68 @@ describe('normalizarGrupo — chave de comparacao', () => {
 
   it('nome com invisivel casa com o mesmo nome sem invisivel', () => {
     expect(normalizarGrupo('MER \u2060CHOCOLATES')).toBe(normalizarGrupo('MER CHOCOLATES'));
+  });
+});
+
+/*
+ * Formato pedido pelo Jose em 09/09/2026, a partir do exemplo dele:
+ *   queijo minas frescal kg - caixa com queijo minas frescal kg aproximadamente 20kg
+ *
+ * Duas mudancas: gramatura ZERO nao aparece em lugar nenhum, e a palavra
+ * "aproximadamente" so entra quando a compra e aproximada.
+ */
+describe('descricao — gramatura zero nao aparece', () => {
+  it('sem gramatura, fica so nome e medida', () => {
+    expect(montarDescricao('queijo minas frescal', 0, 'KG')).toBe('QUEIJO MINAS FRESCAL KG');
+    expect(montarDescricao('queijo minas frescal', '', 'KG')).toBe('QUEIJO MINAS FRESCAL KG');
+    expect(montarDescricao('queijo minas frescal', null as never, 'KG')).toBe('QUEIJO MINAS FRESCAL KG');
+  });
+
+  it('com gramatura, ela aparece entre o nome e a medida', () => {
+    // o formatador tira zeros a direita: 90 e nao 90,000
+    expect(montarDescricao('talento', 90, 'G')).toBe('TALENTO 90 G');
+    expect(montarDescricao('pao', 25.5, 'G')).toBe('PAO 25,5 G');
+  });
+
+  it('sem medida, nao sobra espaco solto', () => {
+    expect(montarDescricao('pao frances', 0, '')).toBe('PAO FRANCES');
+  });
+});
+
+describe('como se compra', () => {
+  const desc = 'QUEIJO MINAS FRESCAL KG';
+
+  it('aproximado escreve APROXIMADAMENTE antes da quantidade', () => {
+    expect(montarComoSeCompra({
+      embalagem: 'CX', cDe: 'C/', qtCad: 20, medidaCompra: 'KG',
+      descricao: desc, aproximado: true,
+    })).toBe('QUEIJO MINAS FRESCAL KG - CAIXA COM QUEIJO MINAS FRESCAL KG APROXIMADAMENTE 20KG');
+  });
+
+  /* Exato e o caso comum: a palavra some, o resto continua igual. */
+  it('exato NAO escreve a palavra', () => {
+    expect(montarComoSeCompra({
+      embalagem: 'CX', cDe: 'C/', qtCad: 20, medidaCompra: 'KG',
+      descricao: desc, aproximado: false,
+    })).toBe('QUEIJO MINAS FRESCAL KG - CAIXA COM QUEIJO MINAS FRESCAL KG 20KG');
+  });
+
+  it('DE em vez de COM', () => {
+    expect(montarComoSeCompra({
+      embalagem: 'PCT', cDe: 'DE', qtCad: 12, medidaCompra: 'UN',
+      descricao: 'BALA HORTELA UN', aproximado: false,
+    })).toBe('BALA HORTELA UN - PACOTE DE BALA HORTELA UN 12UN');
+  });
+
+  it('sem embalagem nao monta nada', () => {
+    expect(montarComoSeCompra({
+      embalagem: '', cDe: 'C/', qtCad: 20, medidaCompra: 'KG', descricao: desc, aproximado: true,
+    })).toBe('');
+  });
+
+  it('embalagem fora da lista aparece como veio, sem inventar nome', () => {
+    expect(montarComoSeCompra({
+      embalagem: 'XYZ', cDe: 'C/', qtCad: 5, medidaCompra: 'KG', descricao: desc, aproximado: false,
+    })).toContain('XYZ COM');
   });
 });

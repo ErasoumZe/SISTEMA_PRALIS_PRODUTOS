@@ -33,7 +33,7 @@ export type UpdatedProduct = ProductSchemas.ProductEntity & {
  */
 const CAMPOS_HERDADOS = [
   'nome', 'quantidade', 'medidaBase', 'codigoBarras', 'marca', 'embalagem', 'cDe',
-  'qtCad', 'medidaCompra', 'codigoInterno', 'fotoUrl', 'grupo', 'tipo', 'status',
+  'qtCad', 'medidaCompra', 'compraAproximada', 'codigoInterno', 'fotoUrl', 'grupo', 'tipo', 'status',
   'habilitarAjuda', 'estoqueMin', 'estoqueMax', 'setorEstoque', 'custo',
   'margemPontual', 'vVendaPontual', 'auto', 'localVenda1', 'localVenda2',
 ] as const satisfies readonly (keyof ProductSchemas.ProductEntity)[];
@@ -375,6 +375,7 @@ export class ProductService {
     return {
       nome: p.nome, quantidade: p.quantidade, medidaBase: p.medidaBase, codigoBarras: p.codigoBarras,
       marca: p.marca, embalagem: p.embalagem, cDe: p.cDe, qtCad: p.qtCad, medidaCompra: p.medidaCompra,
+      compraAproximada: p.compraAproximada,
       codigoInterno: p.codigoInterno, fotoUrl: p.fotoUrl, grupo: p.grupo, tipo: p.tipo, status: p.status,
       habilitarAjuda: p.habilitarAjuda, estoqueMin: p.estoqueMin, estoqueMax: p.estoqueMax,
       setorEstoque: p.setorEstoque, setorVenda1: p.setorVenda1, setorVenda2: p.setorVenda2,

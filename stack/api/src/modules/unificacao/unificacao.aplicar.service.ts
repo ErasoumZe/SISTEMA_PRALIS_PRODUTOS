@@ -128,6 +128,7 @@ export class UnificacaoAplicarService {
       cDe: null,
       qtCad: 1,
       medidaCompra: null,
+      compraAproximada: false,
       codigoInterno: null,
       fotoUrl: null,
       // texto puro, sem regra fiscal atrás: quem não tem grupo entra A CLASSIFICAR

@@ -38,6 +38,7 @@ const bread = (overrides: Partial<ProductEntity> = {}): ProductEntity => ({
   id: '019c1f58-472e-7000-8000-000000000001',
   codigo: 'PR-TEST-0001',
   loja: 'TNP',
+  compraAproximada: false,
   baseProductId: null,
   createdByName: 'Teste',
   createdAt: '2026-08-25T12:00:00.000Z',
