@@ -12,6 +12,8 @@ const search = ref('');
 const loading = ref(false);
 const importing = ref(false);
 const msg = ref('');
+// importou, mas a aba da loja nao recebeu: aviso, nao erro — os produtos entraram
+const espelhoFalhou = ref(false);
 const erro = ref('');
 
 const headers = [
@@ -39,9 +41,21 @@ async function importar() {
   importing.value = true;
   msg.value = '';
   erro.value = '';
+  espelhoFalhou.value = false;
   try {
     const r = await api.importBase([...selected.value]);
-    msg.value = `${r.imported} produto(s) importado(s), ${r.skipped} já existia(m) na sua loja.`;
+    /*
+     * O servidor devolve como terminou o espelho na aba da loja. Ignorar isso
+     * era o defeito: os produtos entravam no banco, a aba não recebia, e a tela
+     * dizia só "importados".
+     */
+    const espelho = r.espelhoLoja === 'falhou'
+      ? ' A aba da sua loja não recebeu estes produtos; ficam pendentes de reenvio.'
+      : r.espelhoLoja === 'espelhado'
+        ? ' A aba da sua loja também foi atualizada.'
+        : '';
+    msg.value = `${r.imported} produto(s) importado(s), ${r.skipped} já existia(m) na sua loja.${espelho}`;
+    espelhoFalhou.value = r.espelhoLoja === 'falhou';
     selected.value = [];
     await load();
   } catch (e: unknown) {
@@ -70,7 +84,7 @@ async function importar() {
       </v-btn>
     </div>
 
-    <v-alert v-if="msg" type="success" variant="tonal" class="mb-4">{{ msg }}</v-alert>
+    <v-alert v-if="msg" :type="espelhoFalhou ? 'warning' : 'success'" variant="tonal" class="mb-4">{{ msg }}</v-alert>
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
 
     <v-card flat border rounded="lg">

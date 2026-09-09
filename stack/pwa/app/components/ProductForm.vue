@@ -311,6 +311,12 @@ const comoSeCompra = computed(() => {
  * Limpar o campo significa "sem margem pontual" e precisa CONTINUAR nulo — o
  * `|| 0` de antes transformava vazio em zero, e zero manda vender pelo custo.
  */
+/** Algum destino externo ficou para trás? Só isso decide a cor do aviso. */
+function pendenciaDeEspelho(details: { sheetSync?: string; espelhoLoja?: string } | undefined): boolean {
+  const s = details?.sheetSync;
+  return s === 'failed' || s === 'misconfigured' || details?.espelhoLoja === 'falhou';
+}
+
 function clampMargem() {
   if (form.margemPct == null || String(form.margemPct).trim() === '') {
     form.margemPct = null;
@@ -466,28 +472,18 @@ async function salvar(forcar = false) {
   duplicado.value = '';
   try {
     const payload = buildPayload(forcar);
-    if (props.productId) {
-      const res = await api.updateProduct(props.productId, payload);
-      // A edição JÁ valeu no banco — a mensagem só informa o estado do espelho.
-      const sync = res.details?.sheetSync;
-      flash.value =
-        sync === 'synced'
-          ? { texto: 'Produto atualizado no banco e na planilha', tipo: 'success' }
-          : sync === 'failed' || sync === 'misconfigured'
-            ? { texto: 'Produto atualizado no banco. Sincronização com a planilha pendente', tipo: 'warning' }
-            : { texto: 'Produto atualizado com sucesso', tipo: 'success' };
-    } else {
-      const res = await api.createProduct(payload);
-      // O produto JÁ está salvo no banco nos três casos — a mensagem só informa
-      // como ficou o espelho na planilha. Nunca pedir para cadastrar de novo.
-      const sync = res.details?.sheetSync;
-      flash.value =
-        sync === 'synced'
-          ? { texto: 'Produto salvo no banco e na planilha', tipo: 'success' }
-          : sync === 'failed' || sync === 'misconfigured'
-            ? { texto: 'Produto salvo no banco. Sincronização com a planilha pendente', tipo: 'warning' }
-            : { texto: 'Produto salvo no banco', tipo: 'success' };
-    }
+    const res = props.productId
+      ? await api.updateProduct(props.productId, payload)
+      : await api.createProduct(payload);
+    /*
+     * A mensagem vem do SERVIDOR. Ela era remontada aqui, e as duas versões já
+     * divergiam: o servidor passou a avisar quando a aba da loja não recebeu, e
+     * a tela continuava dizendo "atualizado com sucesso".
+     *
+     * O produto está salvo em todos os casos — falha de destino externo é
+     * aviso, nunca erro de cadastro. Daí warning e não error.
+     */
+    flash.value = { texto: res.message, tipo: pendenciaDeEspelho(res.details) ? 'warning' : 'success' };
     await navigateTo('/');
   } catch (e: unknown) {
     const err = e as { data?: { message?: string; details?: { code?: string } } };
