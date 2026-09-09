@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { ProductRules } from '@pralis/shared';
 import { env, credenciaisSheetsFaltando, destinoSheetsFaltando } from '@/config/env';
 import { AppError } from '@/config/api.replies';
 import { SHEETS_GATEWAY } from '@/modules/google-sheets/google-sheets.di';
@@ -24,7 +25,11 @@ interface ReformRule { cst: string; cClassTrib: string; ibs: number; cbs: number
 interface Cache { expiresAt: number; groups: GroupTaxRule[]; products: Map<string, ProductTaxRule>; reform: Map<string, ReformRule>; cst: Map<string, { tributacao: string; aliquota: number }> }
 const CACHE_MS = 5 * 60 * 1000;
 
-export const normalizeGroup = (value: string): string => value.normalize('NFKC').replace(/\p{Cf}/gu, '').replace(/\s+/g, ' ').trim().toLocaleUpperCase('pt-BR');
+/**
+ * Uma definição só, no `@pralis/shared`: a tela precisa da MESMA chave para
+ * casar produto com grupo, e duas cópias divergiriam sem ninguém notar.
+ */
+export const normalizeGroup = (value: string): string => ProductRules.normalizarGrupo(value);
 export const parseSheetPercent = (value: string): number => { const parsed = Number(value.replace('%', '').replace(/\./g, '').replace(',', '.').trim()); return Number.isFinite(parsed) ? parsed : 0; };
 const code = (value: string) => value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
 

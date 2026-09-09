@@ -176,21 +176,46 @@ async function remover(p: Product) {
 
 onMounted(() => {
   load();
+  void carregarMargens();
   // Não atualiza com a aba em segundo plano: gasta requisição à toa e é a
   // volta ao primeiro plano que interessa.
   timer = setInterval(() => { if (!document.hidden) load(true); }, 5000);
 });
 onUnmounted(() => { if (timer) clearInterval(timer); });
 
+/*
+ * Margem padrão de cada grupo, para o card calcular o MESMO preço que o
+ * formulário. Antes o card passava `margemGrupo: 0` fixo: um produto que
+ * herda a margem do grupo aparecia na lista pelo custo e, ao abrir, com outro
+ * número. Duas telas, dois preços, para o mesmo produto.
+ *
+ * A chave é normalizada porque os nomes de grupo carregam U+2060 invisível —
+ * só na comparação; o texto exibido continua o oficial.
+ */
+const margemPorGrupo = ref<Map<string, number | null>>(new Map());
+
+async function carregarMargens() {
+  try {
+    const regras = await api.listGroupTaxRules();
+    margemPorGrupo.value = new Map(
+      regras.map((r) => [ProductRules.normalizarGrupo(r.grupo), r.margemPadrao]),
+    );
+  } catch {
+    // sem as regras o card cai no comportamento anterior; não vale derrubar a lista
+    margemPorGrupo.value = new Map();
+  }
+}
+
 // BUG-01: quando o cálculo é automático, o card mostra o V. Venda CALCULADO
 // (custo/qtCad + margem); senão, o valor pontual. Mesma regra do formulário.
 function preco(p: Product): string | null {
+  const doGrupo = margemPorGrupo.value.get(ProductRules.normalizarGrupo(p.grupo));
   const v = ProductRules.calcularVVenda({
     auto: p.auto,
     custo: p.custo ?? 0,
     qtCad: p.qtCad,
     margemPontual: p.margemPontual,
-    margemGrupo: 0,
+    margemGrupo: doGrupo ?? 0,
     vVendaPontual: p.vVendaPontual ?? 0,
     descricao: p.nome, // não-vazio garante o cálculo (descrição vazia retornaria 0)
   });
