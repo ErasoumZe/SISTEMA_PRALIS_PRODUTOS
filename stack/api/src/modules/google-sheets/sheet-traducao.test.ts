@@ -7,6 +7,7 @@ import {
   traduzirCelulas,
   faixasDaAba,
   colunaNaFaixa,
+  resolverDestino,
 } from './sheet-traducao';
 import type { CellMap } from './product-sheet.mapper';
 
@@ -125,9 +126,14 @@ describe('faixas — cabecalho repetido resolve pela secao', () => {
   it('acha a faixa de cada coluna', () => {
     const faixas = faixasDaAba(l3, letra);
 
-    expect(faixas.map((f) => f.nome)).toEqual(['CADASTRO GERAL', 'TNP - CADASTRO', 'LI - CADASTRO']);
-    expect(faixas[0]).toMatchObject({ inicio: 'D', fim: 'F' });
-    expect(faixas[1]).toMatchObject({ inicio: 'G', fim: 'H' });
+    // a primeira faixa e a das colunas ANTES do primeiro rotulo: status e nome
+    // do produto moram la, e sem ela nenhum campo dali teria destino
+    expect(faixas.map((f) => f.nome)).toEqual([
+      '(INICIO)', 'CADASTRO GERAL', 'TNP - CADASTRO', 'LI - CADASTRO',
+    ]);
+    expect(faixas[0]).toMatchObject({ inicio: 'A', fim: 'C' });
+    expect(faixas[1]).toMatchObject({ inicio: 'D', fim: 'F' });
+    expect(faixas[2]).toMatchObject({ inicio: 'G', fim: 'H' });
   });
 
   it('o MESMO nome cai em coluna diferente conforme a faixa', () => {
@@ -154,5 +160,46 @@ describe('faixas — cabecalho repetido resolve pela secao', () => {
 
   it('sem nenhuma faixa marcada, nao inventa', () => {
     expect(faixasDaAba(['', '', ''], letra)).toEqual([]);
+  });
+});
+
+/*
+ * Onde cada campo vai, sem classificar 50 campos na mao.
+ *
+ * A regra sai da PROPRIA planilha: se o cabecalho aparece nas faixas de loja,
+ * o campo e por loja e vai para a faixa da loja do produto. Se aparece numa
+ * faixa so, vai nela. Se aparece em mais de uma faixa que nao e de loja
+ * (`QT` na geral e na transformacao), so uma dica explicita resolve — e sem
+ * dica NAO escreve, porque chutar a? seria gravar no campo errado.
+ */
+describe('destino do campo — faixa por faixa', () => {
+  //          A   B   C        D                E                F        G
+  const l3 = ['', '', 'CADASTRO GERAL', '', 'TRANSFORMAÇÃO', '', 'TNP - CADASTRO', '', 'LI - CADASTRO'];
+  const l5 = ['', '', 'CODIGO BARRAS', 'QT', 'PRECISÃO', 'QT', 'CUSTO', 'ESTOQUE MIN', 'CUSTO', 'ESTOQUE MIN'];
+  const faixas = faixasDaAba(l3, letra);
+
+  it('campo que so existe numa faixa vai nela, sem precisar de dica', () => {
+    expect(resolverDestino({ nome: 'CODIGO BARRAS', faixas, cabecalhos: l5, letra })).toBe('C');
+    expect(resolverDestino({ nome: 'PRECISÃO', faixas, cabecalhos: l5, letra })).toBe('E');
+  });
+
+  it('campo de LOJA vai para a faixa da loja pedida', () => {
+    expect(resolverDestino({ nome: 'CUSTO', loja: 'TNP', faixas, cabecalhos: l5, letra })).toBe('G');
+    expect(resolverDestino({ nome: 'CUSTO', loja: 'LI', faixas, cabecalhos: l5, letra })).toBe('I');
+  });
+
+  /* Produto da BASE nao preenche faixa de loja: isso e feito na importacao. */
+  it('campo de loja SEM loja informada nao escreve', () => {
+    expect(resolverDestino({ nome: 'CUSTO', faixas, cabecalhos: l5, letra })).toBeNull();
+  });
+
+  it('ambiguo entre faixas nao-loja exige dica', () => {
+    expect(resolverDestino({ nome: 'QT', faixas, cabecalhos: l5, letra })).toBeNull();
+    expect(resolverDestino({ nome: 'QT', faixa: 'TRANSFORMAÇÃO', faixas, cabecalhos: l5, letra })).toBe('F');
+    expect(resolverDestino({ nome: 'QT', faixa: 'CADASTRO GERAL', faixas, cabecalhos: l5, letra })).toBe('D');
+  });
+
+  it('campo que a aba nao tem devolve nada', () => {
+    expect(resolverDestino({ nome: 'CAMPO INEXISTENTE', faixas, cabecalhos: l5, letra })).toBeNull();
   });
 });
