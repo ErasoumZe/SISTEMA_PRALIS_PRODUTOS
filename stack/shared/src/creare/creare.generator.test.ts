@@ -136,7 +136,13 @@ describe('gerador Criare estrito', () => {
     const record = generateCreareRecord(bread(), config);
     expect(record).toHaveLength(363);
     const parsed = parseCreareRecord(record);
-    expect(parsed.shortDescription.trim()).toBe('PAO DE SAL PRALIS 0 KG');
+    /*
+     * Sem o "0" desde 09/09/2026. Este e o texto que vai para o SIA: o pao de
+     * sal e vendido por quilo e nao tem gramatura, entao "0 KG" afirmava um
+     * peso que nao existe. Aqui a mudanca deixa de ser cosmetica — e o nome do
+     * produto no sistema fiscal.
+     */
+    expect(parsed.shortDescription.trim()).toBe('PAO DE SAL PRALIS KG');
     expect(parsed.unitPrice).toBe('0000002199');
     expect(parsed.cost).toBe('0000000100');
     expect(parsed.unit).toBe('KG');
