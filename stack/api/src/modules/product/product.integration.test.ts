@@ -127,4 +127,48 @@ describe('ProductRepository multi-loja (Postgres real via Testcontainers)', () =
 
     await repo.delete(criado.id);
   });
+  /*
+   * F09 da auditoria de 08/09/2026. `proximoCodigoInterno` fazia MAX + 1 e o
+   * codigo era gerado FORA da transacao da criacao. Dois cadastros ao mesmo
+   * tempo liam o mesmo MAX e recebiam o mesmo numero — e o codigo interno e o
+   * que o SIA usa para casar produto.
+   *
+   * O teste dispara as criacoes em paralelo de proposito: em serie o defeito
+   * nao aparece.
+   */
+  it('duas criacoes simultaneas NAO recebem o mesmo codigo interno', async () => {
+    const criar = (n: number) => repo.create(
+      { ...payload, nome: `SIMULTANEO ${n}`, codigoBarras: null },
+      { loja: 'BASE', codigo: `PR-CONC-${n}`, createdByUserId: null, createdByName: 'Jose' },
+    );
+
+    const criados = await Promise.all([criar(1), criar(2), criar(3), criar(4)]);
+    const codigos = criados.map((p) => p.codigoInterno);
+
+    expect(new Set(codigos).size).toBe(codigos.length);
+    expect(codigos.every((c) => c && /^[0-9]{5}$/.test(c))).toBe(true);
+
+    for (const p of criados) await repo.delete(p.id);
+  });
+
+  /* A copia da loja herda o codigo da BASE: nao pode ganhar um numero novo. */
+  it('copia de loja mantem o codigo interno da base', async () => {
+    const base = await repo.create(
+      { ...payload, nome: 'PAO COM HERANCA', codigoBarras: null },
+      { loja: 'BASE', codigo: 'PR-HER-01', createdByUserId: null, createdByName: 'Jose' },
+    );
+
+    const copia = await repo.create(
+      { ...payload, nome: 'PAO COM HERANCA', codigoBarras: null },
+      {
+        loja: 'TNP', codigo: 'PR-HER-01T', createdByUserId: null, createdByName: 'Jose',
+        codigoInterno: base.codigoInterno, baseProductId: base.id,
+      },
+    );
+
+    expect(copia.codigoInterno).toBe(base.codigoInterno);
+
+    await repo.delete(copia.id);
+    await repo.delete(base.id);
+  });
 });

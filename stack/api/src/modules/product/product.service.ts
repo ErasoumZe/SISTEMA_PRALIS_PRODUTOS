@@ -117,12 +117,14 @@ export class ProductService {
       }
     }
     const codigo = await this.novoCodigo();
-    const codigoInterno = await this.repo.proximoCodigoInterno();
+    // o código interno é gerado DENTRO da transação de `create` (F09):
+    // gerar aqui fora deixava dois cadastros simultâneos com o mesmo número
 
     // produto + registro `pending` de espelhamento na MESMA transação
     const created = await this.repo.create(
       payloadComImposto,
-      { loja: alvo, codigo, codigoInterno, createdByUserId: user.id, createdByName: user.name },
+      // sem `codigoInterno`: `create` gera dentro da propria transacao (F09)
+      { loja: alvo, codigo, createdByUserId: user.id, createdByName: user.name },
       (productId, tx) => this.sheets.registerPending(productId, tx),
     );
 
