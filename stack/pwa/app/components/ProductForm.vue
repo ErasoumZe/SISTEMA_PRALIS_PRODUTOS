@@ -107,8 +107,36 @@ const errosEstoque = computed<Record<string, string>>(() => {
 
 const mesmoValor = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
+/**
+ * Dois cadastros, um formulário.
+ *
+ * A BASE define o que o produto É — nome, código, embalagem, como se compra, e
+ * se é revenda ou transformação com o grupo correspondente. Termina aí.
+ *
+ * A LOJA importa esse produto e completa o que é dela: estoque, custo, preço,
+ * onde vende, fiscal e promoção. O que veio da BASE ela vê, mas não edita —
+ * exceto ativar ou inativar na própria loja.
+ *
+ * Produto novo é sempre da BASE: quem cria é o admin, e as lojas recebem por
+ * importação.
+ */
 const produtoSalvo = ref<Record<string, unknown> | null>(null);
 const produtoBase = ref<Record<string, unknown> | null>(null);
+
+/** Editando um produto que já pertence a uma loja? */
+const modoLoja = computed(() => {
+  const loja = produtoSalvo.value?.loja;
+  return !!props.productId && !!loja && loja !== 'BASE';
+});
+
+/** Campos que vieram da BASE ficam legíveis, porém travados, na loja. */
+const travadoNaLoja = computed(() => ({
+  VTextField: { readonly: modoLoja.value },
+  VSelect: { readonly: modoLoja.value },
+  VCombobox: { readonly: modoLoja.value },
+  VSwitch: { readonly: modoLoja.value },
+  VBtnToggle: { disabled: modoLoja.value },
+}));
 
 /** Campos em que esta loja tem valor próprio — ou seja, que pararam de seguir a base. */
 const camposEditadosNaLoja = computed(() => {
@@ -624,14 +652,38 @@ onMounted(async () => {
       </div>
     </v-alert>
 
+    <v-alert v-if="modoLoja" type="info" variant="tonal" density="compact" class="mb-4">
+      Este produto veio da base. Os campos do cadastro geral estão em leitura —
+      só o administrador os altera, e a mudança desce para as lojas.
+      Aqui você completa o que é da sua loja e pode ativar ou inativar.
+    </v-alert>
+
     <!-- PRODUTO (cadastro inicial + geral unificados — UX-03) -->
     <v-card flat border rounded="lg" class="mb-4">
       <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">PRODUTO</v-card-title>
       <v-card-text>
+        <!--
+          Na loja, tudo aqui e leitura: o que o produto E vem da BASE. O status
+          escapa logo abaixo, porque ativar/inativar e decisao de cada loja.
+        -->
+        <v-defaults-provider :defaults="travadoNaLoja">
         <v-row dense>
+          <!--
+            O status é o único campo do cadastro geral que a loja mexe: um
+            produto pode estar ativo numa loja e inativo na outra.
+          -->
           <!-- status (primeiro campo) ao lado da foto -->
           <v-col cols="12" sm="5">
-            <v-select v-model="form.status" :items="['ativo', 'inativo']" label="Status" variant="outlined" density="comfortable" hide-details class="mb-3" />
+            <v-select
+              v-model="form.status"
+              :items="['ativo', 'inativo']"
+              :readonly="false"
+              label="Status"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+              class="mb-3"
+            />
             <v-switch v-model="form.habilitarAjuda" label="Habilitar ajuda" color="primary" inset hide-details />
           </v-col>
           <!-- foto: dropzone (clique ou arraste) -->
@@ -747,6 +799,7 @@ onMounted(async () => {
             />
           </v-col>
         </v-row>
+        </v-defaults-provider>
       </v-card-text>
     </v-card>
 
@@ -754,13 +807,16 @@ onMounted(async () => {
     <v-card flat border rounded="lg" class="mb-4">
       <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">REVENDA OU TRANSFORMAÇÃO</v-card-title>
       <v-card-text>
-        <v-btn-toggle v-model="form.tipo" mandatory color="primary" divided class="mb-4">
+        <v-btn-toggle v-model="form.tipo" :disabled="modoLoja" mandatory color="primary" divided class="mb-4">
           <v-btn value="revenda">Revenda</v-btn>
           <v-btn value="transformacao">Transformação</v-btn>
         </v-btn-toggle>
 
         <v-row dense>
-          <!-- campos do PRODUTO: valem para revenda E transformação (UX-02) -->
+          <!--
+            O grupo é escolha da BASE: é ele que define a regra fiscal. A loja
+            vê qual é, e não troca.
+          -->
           <!--
             Ordem pedida pelo José em 09/09/2026: grupo em cima, depois setor de
             estoque com os limites AO LADO (é a mesma decisão: onde guarda e
@@ -774,6 +830,7 @@ onMounted(async () => {
               v-model="form.grupo"
               :items="groupItems"
               :loading="loadingGroups"
+              :readonly="modoLoja"
               label="Grupo de mercadorias *"
               variant="outlined"
               density="comfortable"
@@ -782,6 +839,12 @@ onMounted(async () => {
             />
           </v-col>
 
+          <!--
+            Daqui para baixo é da LOJA. No cadastro da BASE o formulário termina
+            no grupo: quem preenche estoque, custo e preço é a loja que importar.
+          -->
+          <template v-if="modoLoja">
+          <v-col cols="12"><v-divider class="my-2" /><div class="text-subtitle-2 font-weight-bold">DESTA LOJA</div></v-col>
           <v-col cols="12" sm="6">
             <v-select v-model="form.setorEstoque" :items="SETORES" label="Setor de estoque" variant="outlined" density="comfortable" clearable :hint="ajuda('setorEstoque')" />
           </v-col>
@@ -832,7 +895,9 @@ onMounted(async () => {
             <v-text-field :model-value="`R$ ${vVenda.toFixed(2).replace('.', ',')}`" label="V. Venda (calculado)" variant="outlined" density="comfortable" readonly bg-color="purple-lighten-5" />
           </v-col>
 
-          <!-- exclusivo de transformação -->
+          </template>
+
+          <!-- exclusivo de transformação — é da BASE: define o que o produto é -->
           <template v-if="form.tipo === 'transformacao'">
             <v-col cols="12"><v-divider class="my-1" /><div class="text-subtitle-2 font-weight-bold mt-1">TRANSFORMAÇÃO</div></v-col>
             <v-col cols="6" sm="4">
@@ -858,8 +923,8 @@ onMounted(async () => {
       </v-card-text>
     </v-card>
 
-    <!-- FISCAL -->
-    <v-card flat border rounded="lg" class="mb-4">
+    <!-- FISCAL — da LOJA: so aparece depois que o produto foi importado -->
+    <v-card v-if="modoLoja" flat border rounded="lg" class="mb-4">
       <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">FISCAL</v-card-title>
       <v-card-text>
         <v-row dense>
@@ -892,8 +957,8 @@ onMounted(async () => {
       </v-card-text>
     </v-card>
 
-    <!-- PROMOÇÃO (por último, separada — UX-05; vira tela do gerente no UX-06) -->
-    <v-card v-if="form.tipo === 'revenda'" flat border rounded="lg" class="mb-4">
+    <!-- PROMOÇÃO — da LOJA (UX-05; vira tela do gerente no UX-06) -->
+    <v-card v-if="modoLoja && form.tipo === 'revenda'" flat border rounded="lg" class="mb-4">
       <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">PROMOÇÃO</v-card-title>
       <v-card-text>
         <v-row dense>
