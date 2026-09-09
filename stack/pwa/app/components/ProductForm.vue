@@ -152,8 +152,8 @@ watch(() => form.codigoBarras, (valor) => {
   if (codigo.length < 6) return; // curto demais para significar alguma coisa
   buscaBarras = setTimeout(async () => {
     try {
-      const achados = await api.listProducts(codigo);
-      const outro = achados.find((p) => p.codigoBarras === codigo && p.id !== props.productId);
+      const achados = await api.findByCodigoBarras(codigo);
+      const outro = achados.find((p) => p.id !== props.productId);
       barrasJaExiste.value = outro ? { nome: outro.nome, id: outro.id } : null;
     } catch {
       barrasJaExiste.value = null; // a busca é conveniência: falhar não atrapalha o cadastro
@@ -164,7 +164,16 @@ watch(() => form.codigoBarras, (valor) => {
 const groupTaxRules = ref<GroupTaxRule[]>([]);
 const loadingGroups = ref(false);
 const groupRulesError = ref('');
-const selectedTaxRule = computed(() => groupTaxRules.value.find((r) => r.grupo === form.grupo) ?? null);
+/*
+ * Casa pela CHAVE normalizada, não pelo texto: os nomes de grupo carregam
+ * U+2060 invisível e a comparação exata falhava sem deixar rastro — o grupo
+ * aparecia escolhido na tela e a margem dele nunca era encontrada.
+ */
+const selectedTaxRule = computed(() => {
+  const alvo = ProductRules.normalizarGrupo(form.grupo);
+  if (!alvo) return null;
+  return groupTaxRules.value.find((r) => ProductRules.normalizarGrupo(r.grupo) === alvo) ?? null;
+});
 const fiscalClassification = ref<FiscalClassification | null>(null);
 const loadingFiscal = ref(false);
 const automaticFiscal = computed(() => fiscalClassification.value ?? selectedTaxRule.value);

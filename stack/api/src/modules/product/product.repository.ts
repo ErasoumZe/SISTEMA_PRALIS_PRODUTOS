@@ -1,6 +1,7 @@
 import { injectable } from 'tsyringe';
 import { and, eq, ilike, inArray, or, desc, isNotNull, sql, ne } from 'drizzle-orm';
 import { db, Tx } from '@/db/databases';
+import { barcodeCandidates } from '@/modules/apoio/tax-rule.service';
 import { ProductSchemas, ProductRequests } from '@pralis/shared';
 import { products, productTransformacao, productFiscal, promocoes } from './product.table';
 
@@ -233,6 +234,20 @@ export class ProductRepository {
     if (filter.q) {
       const term = `%${filter.q}%`;
       conditions.push(or(ilike(products.nome, term), ilike(products.marca, term), ilike(products.codigo, term))!);
+    }
+    /*
+     * Igualdade, não `ilike`: código de barras não é texto de busca, é
+     * identidade. Compara pelas MESMAS variantes que o fiscal e as vendas usam
+     * (`barcodeCandidates` tira zeros à esquerda e resolve EAN de balança),
+     * senão "0000789" e "789" pareceriam produtos diferentes.
+     */
+    if (filter.codigoBarras) {
+      const variantes = barcodeCandidates(filter.codigoBarras);
+      conditions.push(
+        variantes.length > 1
+          ? inArray(products.codigoBarras, variantes)
+          : eq(products.codigoBarras, variantes[0] ?? filter.codigoBarras),
+      );
     }
 
     const rows = await db.select().from(products).where(and(...conditions)).orderBy(desc(products.createdAt));
