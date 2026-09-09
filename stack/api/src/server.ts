@@ -13,6 +13,7 @@ import {
   jsonSchemaTransform,
 } from 'fastify-type-provider-zod';
 import { env } from '@/config/env';
+import { segredosInsegurosEmProducao } from '@/config/segredos';
 import { AppError } from '@/config/api.replies';
 import { productRoutes } from '@/modules/product/product.routes';
 import { authRoutes } from '@/modules/auth/auth.routes';
@@ -74,7 +75,37 @@ app.register(creareRoutes);
 app.register(unificacaoRoutes);
 app.register(vendasRoutes);
 
-app.get('/health', async () => ({ ok: true }));
+/**
+ * Liveness + qual versao esta no ar.
+ *
+ * Sem isto nao havia como saber QUAL commit responde em producao: a auditoria
+ * teve de inferir pelo painel do Coolify. Nao consulta o banco de proposito —
+ * um health que depende do Postgres nao distingue "processo morto" de "banco
+ * fora", e e a diferenca que decide o que fazer.
+ *
+ * Nao expoe segredo nenhum: so o SHA, que e publico no repositorio.
+ */
+app.get('/health', async () => ({
+  ok: true,
+  commit: env.BUILD_COMMIT || null,
+  ambiente: env.NODE_ENV,
+}));
+
+/**
+ * Readiness: da para ATENDER? Exige o banco de pe. E o que um balanceador
+ * deve olhar antes de mandar trafego.
+ */
+app.get('/health/pronto', async (_request, reply) => {
+  try {
+    const { db } = await import('@/db/databases');
+    const { sql } = await import('drizzle-orm');
+    await db.execute(sql`SELECT 1`);
+    return { ok: true, banco: 'ok' };
+  } catch {
+    // motivo fica no log; a resposta nao descreve a infraestrutura
+    return reply.status(503).send({ ok: false, banco: 'indisponivel' });
+  }
+});
 
 // tratamento de erros global
 app.setErrorHandler((error: Error & { statusCode?: number; validation?: unknown }, _request, reply) => {
@@ -85,13 +116,43 @@ app.setErrorHandler((error: Error & { statusCode?: number; validation?: unknown 
   }
   // erros de validação do Zod chegam com statusCode 400
   const statusCode = error.statusCode ?? 500;
-  if (statusCode >= 500) app.log.error(error);
+  if (statusCode >= 500) {
+    app.log.error(error);
+    /*
+     * 5xx não devolve a mensagem interna. Ela costuma trazer nome de tabela,
+     * trecho de SQL ou caminho de arquivo — informação de graça para quem
+     * estiver sondando, e inútil para quem está usando o sistema.
+     * O erro completo fica no log do servidor.
+     */
+    return reply.status(statusCode).send({
+      message: 'Erro interno. A equipe foi notificada pelo log.',
+      data: null,
+      details: null,
+    });
+  }
   return reply.status(statusCode).send({
-    message: error.message ?? 'Erro interno',
+    message: error.message ?? 'Erro na requisição',
     data: null,
     details: error.validation ?? null,
   });
 });
+
+/*
+ * Em produção, segredo padrão ou fraco IMPEDE o boot.
+ *
+ * Subir e funcionar com o segredo de desenvolvimento é o pior dos mundos:
+ * parece que está tudo bem. Falhar aqui é ruidoso, e é para ser.
+ */
+if (env.NODE_ENV === 'production') {
+  const inseguros = segredosInsegurosEmProducao(env);
+  if (inseguros.length > 0) {
+    app.log.fatal(
+      `Boot recusado: ${inseguros.join(' e ')} com valor padrão, vazio ou curto demais. `
+      + 'Defina segredos próprios de 32+ caracteres antes de subir.',
+    );
+    process.exit(1);
+  }
+}
 
 app
   .listen({ port: env.PORT, host: '0.0.0.0' })

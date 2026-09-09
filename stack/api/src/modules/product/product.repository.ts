@@ -1,6 +1,7 @@
 import { injectable } from 'tsyringe';
 import { and, eq, ilike, inArray, or, desc, isNotNull, sql, ne } from 'drizzle-orm';
 import { db, Tx } from '@/db/databases';
+import { barcodeCandidates } from '@/modules/apoio/tax-rule.service';
 import { ProductSchemas, ProductRequests } from '@pralis/shared';
 import { products, productTransformacao, productFiscal, promocoes } from './product.table';
 
@@ -14,8 +15,22 @@ export interface CreateContext {
   createdByUserId: string | null;
   createdByName: string | null;
   baseProductId?: string | null;
-  codigoInterno?: string | null; // código interno (00001...) — igual entre as lojas
+  /**
+   * Código interno (00001...), igual entre BASE e as cópias das lojas.
+   *
+   * `undefined` = **gere um**, dentro da transação da criação.
+   * `null` ou string = use exatamente isto (a cópia da loja HERDA o da BASE e
+   * não pode ganhar número novo).
+   */
+  codigoInterno?: string | null;
 }
+
+/**
+ * Chave da trava de aviso da geração de código interno. Número arbitrário e
+ * fixo: o que importa é ser o MESMO em todas as conexões, e não colidir com
+ * outra trava do sistema.
+ */
+const CHAVE_TRAVA_CODIGO_INTERNO = 811_042_001;
 
 // ---- helpers de conversão ----
 const num = (v: string | null): number | null => (v == null ? null : Number(v));
@@ -121,7 +136,11 @@ export class ProductRepository {
           createdByUserId: ctx.createdByUserId,
           createdByName: ctx.createdByName,
           ...this.productColumns(payload),
-          codigoInterno: ctx.codigoInterno ?? null, // do contexto (sobrepõe o do payload)
+          // `undefined` pede geração aqui dentro — a trava só vale enquanto a
+          // transação existe, então gerar fora dela não protegeria de nada.
+          codigoInterno: ctx.codigoInterno === undefined
+            ? await this.proximoCodigoInterno(tx)
+            : ctx.codigoInterno,
         } as typeof products.$inferInsert)
         .returning();
       if (!created) throw new Error('Falha ao criar produto');
@@ -176,7 +195,20 @@ export class ProductRepository {
   }
 
   /** Próximo código interno sequencial (00001...), baseado no maior já atribuído (em qualquer produto). */
+  /**
+   * Próximo código interno livre.
+   *
+   * `MAX + 1` sozinho não é seguro: dois cadastros simultâneos leem o mesmo
+   * máximo e recebem o mesmo número — e é por esse código que o SIA casa o
+   * produto. A trava de aviso do Postgres serializa só esta geração, e é
+   * liberada no fim da transação; não bloqueia nada além disso.
+   *
+   * Trava de aviso em vez de sequence porque não exige mudança de schema: o
+   * `start:prod` ainda roda `drizzle-kit push --force`, e trocar isso é
+   * assunto separado.
+   */
   async proximoCodigoInterno(tx: Tx = db): Promise<string> {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${CHAVE_TRAVA_CODIGO_INTERNO})`);
     const res = await tx.execute(
       sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max FROM products WHERE codigo_interno ~ '^[0-9]+$'`,
     );
@@ -233,6 +265,20 @@ export class ProductRepository {
     if (filter.q) {
       const term = `%${filter.q}%`;
       conditions.push(or(ilike(products.nome, term), ilike(products.marca, term), ilike(products.codigo, term))!);
+    }
+    /*
+     * Igualdade, não `ilike`: código de barras não é texto de busca, é
+     * identidade. Compara pelas MESMAS variantes que o fiscal e as vendas usam
+     * (`barcodeCandidates` tira zeros à esquerda e resolve EAN de balança),
+     * senão "0000789" e "789" pareceriam produtos diferentes.
+     */
+    if (filter.codigoBarras) {
+      const variantes = barcodeCandidates(filter.codigoBarras);
+      conditions.push(
+        variantes.length > 1
+          ? inArray(products.codigoBarras, variantes)
+          : eq(products.codigoBarras, variantes[0] ?? filter.codigoBarras),
+      );
     }
 
     const rows = await db.select().from(products).where(and(...conditions)).orderBy(desc(products.createdAt));

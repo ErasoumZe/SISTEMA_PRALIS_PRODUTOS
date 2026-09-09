@@ -37,11 +37,22 @@ export class AuthRepository {
   }
 
   /** Define a nova senha e limpa o código de reset. */
+  /**
+   * Troca a senha E derruba as sessoes existentes.
+   *
+   * Sem isso, quem ja estava dentro continua dentro: se a conta foi tomada, a
+   * recuperacao de senha nao expulsa o invasor — que e exatamente o motivo de
+   * alguem recuperar a senha. As duas coisas na MESMA transacao: senha nova com
+   * sessao velha viva e o pior estado possivel.
+   */
   async resetPassword(userId: string, passwordHash: string, tx: Tx = db) {
-    await tx
-      .update(users)
-      .set({ passwordHash, resetCode: null, resetExpiresAt: null })
-      .where(eq(users.id, userId));
+    await tx.transaction(async (trx) => {
+      await trx
+        .update(users)
+        .set({ passwordHash, resetCode: null, resetExpiresAt: null })
+        .where(eq(users.id, userId));
+      await trx.delete(sessions).where(eq(sessions.userId, userId));
+    });
   }
 
   async findByEmail(email: string, tx: Tx = db) {

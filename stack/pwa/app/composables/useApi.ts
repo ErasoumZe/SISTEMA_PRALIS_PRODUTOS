@@ -127,6 +127,14 @@ export function useApi() {
       return $fetch<{ data: { url: string } }>('/files', { ...base, method: 'POST', body: fd }).then((r) => r.data.url);
     },
 
+    /**
+     * Busca EXATA por código de barras — não é o `q`, que procura em nome,
+     * marca e código do sistema. Era essa a causa do aviso de duplicado não
+     * achar o duplicado.
+     */
+    findByCodigoBarras: (codigoBarras: string) =>
+      unwrap($fetch<{ data: Product[] }>('/products', { ...base, query: { codigoBarras } })),
+
     listGroupTaxRules: () =>
       unwrap($fetch<{ data: GroupTaxRule[] }>('/apoio/grupos-fiscais', { ...base })),
 

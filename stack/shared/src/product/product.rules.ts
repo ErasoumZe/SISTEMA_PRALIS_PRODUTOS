@@ -68,6 +68,51 @@ export interface CalcVVendaInput {
   vVendaPontual: number;
   descricao?: string;
 }
+/**
+ * Chave de comparação para nome de grupo — **nunca** o texto a exibir.
+ *
+ * Os nomes vindos da planilha carregam `U+2060` (word joiner), que não aparece
+ * na tela. Cruzar por nome sem tirar isso não casa nunca, e o motivo é
+ * invisível para quem está olhando. `\p{Cf}` pega essa e as demais marcas de
+ * formatação; o `NFKC` junta variantes de composição.
+ */
+export function normalizarGrupo(valor: string | null | undefined): string {
+  return String(valor ?? '')
+    .normalize('NFKC')
+    .replace(/\p{Cf}/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleUpperCase('pt-BR');
+}
+
+/**
+ * Margem digitada na tela (%) para a fração que o domínio usa.
+ *
+ * **Vazio é ausência; zero é decisão.** São coisas diferentes e mudam o preço:
+ * ausência faz `calcularVVenda` herdar a margem do grupo, zero manda vender
+ * pelo custo. A conversão vivia espalhada como `valor ? conta : null`, e teste
+ * de verdadeiro trata `0` como vazio — uma margem de 0% escolhida à mão virava
+ * "sem margem" e o produto passava a herdar a do grupo sem ninguém pedir.
+ *
+ * Aceita vírgula porque é o que sai do teclado em pt-BR.
+ */
+export function margemPctParaFracao(pct: number | string | null | undefined): number | null {
+  if (pct == null) return null;
+  const texto = String(pct).trim().replace(',', '.');
+  if (texto === '') return null;
+  const n = Number(texto);
+  // texto que não é número é ausência, nunca zero: zero é uma afirmação
+  if (!Number.isFinite(n)) return null;
+  return n / 100;
+}
+
+/** A volta: fração do domínio para o % da tela, preservando a mesma distinção. */
+export function fracaoParaMargemPct(fracao: number | null | undefined): number | null {
+  if (fracao == null || !Number.isFinite(fracao)) return null;
+  // arredonda na 2ª casa do PERCENTUAL (0.075 -> 7.5), sem inventar precisão
+  return Math.round(fracao * 10000) / 100;
+}
+
 export function calcularVVenda(input: CalcVVendaInput): number {
   const { auto, custo = 0, qtCad = 1, margemPontual, margemGrupo = 0, vVendaPontual = 0 } = input;
   const temProduto = input.descricao == null ? true : String(input.descricao).trim() !== '';

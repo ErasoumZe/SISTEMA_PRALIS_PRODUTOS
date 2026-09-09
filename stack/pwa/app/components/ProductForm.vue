@@ -27,7 +27,7 @@ const form = reactive({
   status: 'ativo' as 'ativo' | 'inativo', habilitarAjuda: false,
   tipo: 'revenda' as 'revenda' | 'transformacao',
   // comercial (revenda) — a loja vem do usuário logado
-  custo: 0, margemPct: 0, auto: true, vVendaPontual: 0,
+  custo: 0, margemPct: null as number | null, auto: true, vVendaPontual: 0,
   estoqueMin: 0, estoqueMax: 0, setorEstoque: '', localVenda1: '', localVenda2: '',
   setorVenda1: '', setorVenda2: '',
   // transformação
@@ -127,7 +127,7 @@ function voltarAHerdar() {
     qtCad: base.qtCad, medidaCompra: base.medidaCompra ?? '', grupo: base.grupo ?? '',
     fotoUrl: base.fotoUrl ?? '', codigoBarras: base.codigoBarras ?? '',
     status: base.status, habilitarAjuda: base.habilitarAjuda, tipo: base.tipo,
-    custo: base.custo ?? 0, margemPct: base.margemPontual ? base.margemPontual * 100 : 0,
+    custo: base.custo ?? 0, margemPct: ProductRules.fracaoParaMargemPct(base.margemPontual),
     auto: base.auto, vVendaPontual: base.vVendaPontual ?? 0,
     estoqueMin: base.estoqueMin ?? 0, estoqueMax: base.estoqueMax ?? 0,
     setorEstoque: base.setorEstoque ?? '',
@@ -152,8 +152,8 @@ watch(() => form.codigoBarras, (valor) => {
   if (codigo.length < 6) return; // curto demais para significar alguma coisa
   buscaBarras = setTimeout(async () => {
     try {
-      const achados = await api.listProducts(codigo);
-      const outro = achados.find((p) => p.codigoBarras === codigo && p.id !== props.productId);
+      const achados = await api.findByCodigoBarras(codigo);
+      const outro = achados.find((p) => p.id !== props.productId);
       barrasJaExiste.value = outro ? { nome: outro.nome, id: outro.id } : null;
     } catch {
       barrasJaExiste.value = null; // a busca é conveniência: falhar não atrapalha o cadastro
@@ -164,7 +164,16 @@ watch(() => form.codigoBarras, (valor) => {
 const groupTaxRules = ref<GroupTaxRule[]>([]);
 const loadingGroups = ref(false);
 const groupRulesError = ref('');
-const selectedTaxRule = computed(() => groupTaxRules.value.find((r) => r.grupo === form.grupo) ?? null);
+/*
+ * Casa pela CHAVE normalizada, não pelo texto: os nomes de grupo carregam
+ * U+2060 invisível e a comparação exata falhava sem deixar rastro — o grupo
+ * aparecia escolhido na tela e a margem dele nunca era encontrada.
+ */
+const selectedTaxRule = computed(() => {
+  const alvo = ProductRules.normalizarGrupo(form.grupo);
+  if (!alvo) return null;
+  return groupTaxRules.value.find((r) => ProductRules.normalizarGrupo(r.grupo) === alvo) ?? null;
+});
 const fiscalClassification = ref<FiscalClassification | null>(null);
 const loadingFiscal = ref(false);
 const automaticFiscal = computed(() => fiscalClassification.value ?? selectedTaxRule.value);
@@ -178,10 +187,9 @@ const groupItems = computed(() => {
 
 let classificationRequest = 0;
 /** Margem padrão do grupo escolhido, em % para a tela (a planilha guarda fração). */
-const margemDoGrupo = computed<number | null>(() => {
-  const padrao = selectedTaxRule.value?.margemPadrao;
-  return padrao == null ? null : Math.round(padrao * 10000) / 100;
-});
+const margemDoGrupo = computed<number | null>(
+  () => ProductRules.fracaoParaMargemPct(selectedTaxRule.value?.margemPadrao),
+);
 
 /*
  * Trocar o grupo aplica a margem padrão dele, quando existe. Hoje só 3 dos 76
@@ -273,8 +281,8 @@ const vVenda = computed(() =>
     auto: form.auto,
     custo: Number(form.custo) || 0,
     qtCad: Number(form.qtCad) || 1,
-    margemPontual: form.margemPct ? Number(form.margemPct) / 100 : null,
-    margemGrupo: (margemDoGrupo.value ?? 0) / 100,
+    margemPontual: ProductRules.margemPctParaFracao(form.margemPct),
+    margemGrupo: ProductRules.margemPctParaFracao(margemDoGrupo.value) ?? 0,
     vVendaPontual: Number(form.vVendaPontual) || 0,
     descricao: descricao.value,
   }),
@@ -299,8 +307,23 @@ const comoSeCompra = computed(() => {
 });
 
 // UX-02: estoque, setor, custo e margem são do PRODUTO (valem para revenda E transformação)
+/*
+ * Limpar o campo significa "sem margem pontual" e precisa CONTINUAR nulo — o
+ * `|| 0` de antes transformava vazio em zero, e zero manda vender pelo custo.
+ */
+/** Algum destino externo ficou para trás? Só isso decide a cor do aviso. */
+function pendenciaDeEspelho(details: { sheetSync?: string; espelhoLoja?: string } | undefined): boolean {
+  const s = details?.sheetSync;
+  return s === 'failed' || s === 'misconfigured' || details?.espelhoLoja === 'falhou';
+}
+
 function clampMargem() {
-  form.margemPct = Math.min(1000, Math.max(0, Number(form.margemPct) || 0));
+  if (form.margemPct == null || String(form.margemPct).trim() === '') {
+    form.margemPct = null;
+    return;
+  }
+  const n = Number(form.margemPct);
+  form.margemPct = Number.isFinite(n) ? Math.min(1000, Math.max(0, n)) : null;
 }
 
 // "Habilitar ajuda": mostra dicas nos campos quando focados (hint só aparece no foco)
@@ -414,7 +437,7 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
     setorVenda1: form.setorVenda1 || null,
     setorVenda2: form.setorVenda2 || null,
     custo: Number(form.custo) || null,
-    margemPontual: form.margemPct ? Number(form.margemPct) / 100 : null,
+    margemPontual: ProductRules.margemPctParaFracao(form.margemPct),
     vVendaPontual: Number(form.vVendaPontual) || null,
     auto: form.auto,
     localVenda1: form.localVenda1 || null,
@@ -449,28 +472,18 @@ async function salvar(forcar = false) {
   duplicado.value = '';
   try {
     const payload = buildPayload(forcar);
-    if (props.productId) {
-      const res = await api.updateProduct(props.productId, payload);
-      // A edição JÁ valeu no banco — a mensagem só informa o estado do espelho.
-      const sync = res.details?.sheetSync;
-      flash.value =
-        sync === 'synced'
-          ? { texto: 'Produto atualizado no banco e na planilha', tipo: 'success' }
-          : sync === 'failed' || sync === 'misconfigured'
-            ? { texto: 'Produto atualizado no banco. Sincronização com a planilha pendente', tipo: 'warning' }
-            : { texto: 'Produto atualizado com sucesso', tipo: 'success' };
-    } else {
-      const res = await api.createProduct(payload);
-      // O produto JÁ está salvo no banco nos três casos — a mensagem só informa
-      // como ficou o espelho na planilha. Nunca pedir para cadastrar de novo.
-      const sync = res.details?.sheetSync;
-      flash.value =
-        sync === 'synced'
-          ? { texto: 'Produto salvo no banco e na planilha', tipo: 'success' }
-          : sync === 'failed' || sync === 'misconfigured'
-            ? { texto: 'Produto salvo no banco. Sincronização com a planilha pendente', tipo: 'warning' }
-            : { texto: 'Produto salvo no banco', tipo: 'success' };
-    }
+    const res = props.productId
+      ? await api.updateProduct(props.productId, payload)
+      : await api.createProduct(payload);
+    /*
+     * A mensagem vem do SERVIDOR. Ela era remontada aqui, e as duas versões já
+     * divergiam: o servidor passou a avisar quando a aba da loja não recebeu, e
+     * a tela continuava dizendo "atualizado com sucesso".
+     *
+     * O produto está salvo em todos os casos — falha de destino externo é
+     * aviso, nunca erro de cadastro. Daí warning e não error.
+     */
+    flash.value = { texto: res.message, tipo: pendenciaDeEspelho(res.details) ? 'warning' : 'success' };
     await navigateTo('/');
   } catch (e: unknown) {
     const err = e as { data?: { message?: string; details?: { code?: string } } };
@@ -507,7 +520,7 @@ onMounted(async () => {
       status: p.status, habilitarAjuda: p.habilitarAjuda, tipo: p.tipo,
     });
     Object.assign(form, {
-      custo: p.custo ?? 0, margemPct: p.margemPontual ? p.margemPontual * 100 : 0,
+      custo: p.custo ?? 0, margemPct: ProductRules.fracaoParaMargemPct(p.margemPontual),
       auto: p.auto, vVendaPontual: p.vVendaPontual ?? 0,
       estoqueMin: p.estoqueMin ?? 0, estoqueMax: p.estoqueMax ?? 0, setorEstoque: p.setorEstoque ?? '',
       localVenda1: p.localVenda1 ?? '', localVenda2: p.localVenda2 ?? '',
@@ -755,7 +768,7 @@ onMounted(async () => {
               suffix="%"
               :min="0"
               :max="1000"
-              :hint="margemDoGrupo != null ? `Padrão do grupo: ${margemDoGrupo}% — pode ajustar` : 'Ex.: 70 = 70%'"
+              :hint="margemDoGrupo != null ? `Padrão do grupo: ${margemDoGrupo}% — vazio usa esse valor, 0 vende pelo custo` : 'Ex.: 70 = 70%. Vazio = sem margem própria.'"
               persistent-hint
               variant="outlined"
               density="comfortable"

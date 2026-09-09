@@ -118,6 +118,14 @@ export type UpdateProductRequest = z.infer<typeof updateProductSchema>;
 
 export const listProductQuerySchema = z.object({
   q: z.string().optional(),
+  /**
+   * Busca EXATA por código de barras.
+   *
+   * Separado do `q` de propósito: `q` é busca textual por nome, marca e
+   * código do sistema. O aviso de "código de barras já cadastrado" usava `q` e
+   * por isso não achava o duplicado — o campo nem entrava na consulta.
+   */
+  codigoBarras: z.string().trim().min(1).optional(),
   tipo: tipoProduto.optional(),
   status: statusProduto.optional(),
   // só admin pode listar outro catálogo; ignorado para usuários comuns

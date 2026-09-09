@@ -4,6 +4,9 @@ import {
   montarComoSeCompra,
   montarValidacaoQtd,
   calcularVVenda,
+  margemPctParaFracao,
+  fracaoParaMargemPct,
+  normalizarGrupo,
   calcularVVendaFinal,
   resolverMargemGrupo,
   resolverSetorVenda,
@@ -89,5 +92,82 @@ describe('R6 — lookups', () => {
   });
   it('setor de venda', () => {
     expect(resolverSetorVenda('BALCÃO', [{ codigo: 'BALCÃO', setor: 'LJ - VITRINES' }])).toBe('LJ - VITRINES');
+  });
+});
+
+/*
+ * F02 da auditoria de 08/09/2026. A tela guarda margem em % e o dominio em
+ * fracao. A conversao vivia espalhada em `valor ? conta : null`, e teste de
+ * verdadeiro trata 0 como vazio: uma margem de 0% escolhida a mao virava
+ * "sem margem", e o preco passava a herdar a do grupo sem ninguem pedir.
+ *
+ * Vazio e ausencia. Zero e decisao. Sao coisas diferentes e o preco muda.
+ */
+describe('margem: % da tela <-> fracao do dominio', () => {
+  it('ZERO por cento e uma escolha, nao ausencia', () => {
+    expect(margemPctParaFracao(0)).toBe(0);
+    expect(margemPctParaFracao('0')).toBe(0);
+  });
+
+  it('campo vazio e ausencia — herda a do grupo', () => {
+    expect(margemPctParaFracao(null)).toBeNull();
+    expect(margemPctParaFracao(undefined)).toBeNull();
+    expect(margemPctParaFracao('')).toBeNull();
+    expect(margemPctParaFracao('   ')).toBeNull();
+  });
+
+  it('converte por cento em fracao', () => {
+    expect(margemPctParaFracao(70)).toBe(0.7);
+    expect(margemPctParaFracao('7,5')).toBe(0.075); // virgula do teclado pt-BR
+    expect(margemPctParaFracao(100)).toBe(1);
+  });
+
+  it('texto que nao e numero e ausencia, nunca zero', () => {
+    expect(margemPctParaFracao('abc')).toBeNull();
+  });
+
+  it('a volta preserva a mesma distincao', () => {
+    expect(fracaoParaMargemPct(0)).toBe(0);
+    expect(fracaoParaMargemPct(null)).toBeNull();
+    expect(fracaoParaMargemPct(0.7)).toBe(70);
+    expect(fracaoParaMargemPct(0.075)).toBe(7.5);
+  });
+
+  it('ida e volta nao inventa nem perde a escolha', () => {
+    for (const pct of [0, 7.5, 70, 133.33]) {
+      expect(fracaoParaMargemPct(margemPctParaFracao(pct))).toBe(pct);
+    }
+    expect(fracaoParaMargemPct(margemPctParaFracao(null))).toBeNull();
+  });
+
+  /* O preco e o motivo de tudo isto: 0% e herdar dao numeros diferentes. */
+  it('0% explicito NAO herda a margem do grupo', () => {
+    const comum = { auto: true, custo: 10, qtCad: 1, margemGrupo: 0.5, vVendaPontual: 0, descricao: 'X' };
+
+    expect(calcularVVenda({ ...comum, margemPontual: margemPctParaFracao(0) })).toBe(10);
+    expect(calcularVVenda({ ...comum, margemPontual: margemPctParaFracao('') })).toBe(15);
+  });
+});
+
+/*
+ * Os nomes de grupo vindos da planilha carregam U+2060 (word joiner), que nao
+ * aparece na tela. Cruzar por nome sem tirar isso nao casa NUNCA, e o motivo e
+ * invisivel para quem esta olhando. Normaliza-se so a CHAVE de comparacao; o
+ * texto exibido continua o oficial.
+ */
+describe('normalizarGrupo — chave de comparacao', () => {
+  it('tira caractere invisivel, espaco duplo e caixa', () => {
+    expect(normalizarGrupo('MER \u2060BOMBONIERI')).toBe('MER BOMBONIERI');
+    expect(normalizarGrupo('  mer   padaria  ')).toBe('MER PADARIA');
+  });
+
+  it('vazio e nulo viram string vazia, sem estourar', () => {
+    expect(normalizarGrupo(null)).toBe('');
+    expect(normalizarGrupo(undefined)).toBe('');
+    expect(normalizarGrupo('   ')).toBe('');
+  });
+
+  it('nome com invisivel casa com o mesmo nome sem invisivel', () => {
+    expect(normalizarGrupo('MER \u2060CHOCOLATES')).toBe(normalizarGrupo('MER CHOCOLATES'));
   });
 });

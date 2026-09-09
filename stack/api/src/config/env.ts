@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { SEGREDOS_DE_DESENVOLVIMENTO } from './segredos';
 
 /** Lê uma env var tratando string vazia como ausente (compose injeta '' para ${VAR} não setada). */
 const envVar = (key: string, fallback: string): string => {
@@ -60,10 +61,17 @@ export const normalizePrivateKey = (raw: string): string => {
  */
 export const env = {
   NODE_ENV: process.env.NODE_ENV ?? 'dev',
+  /**
+   * Commit publicado. O Coolify expoe SOURCE_COMMIT; ficar vazio nao e erro,
+   * so significa "nao da para saber por aqui".
+   */
+  BUILD_COMMIT: envVar('SOURCE_COMMIT', envVar('GIT_COMMIT_SHA', '')),
   PORT: Number(process.env.PORT ?? 3333),
   CORS_ORIGIN: envVar('CORS_ORIGIN', '*'),
-  JWT_SECRET: envVar('JWT_SECRET', 'dev-jwt-secret-troque-em-producao'),
-  COOKIE_SECRET: envVar('COOKIE_SECRET', 'dev-cookie-secret-troque-em-producao'),
+  // Os padrões são de DESENVOLVIMENTO e estão no repositório. Em produção o
+  // boot recusa (ver `segredos.ts`): quem conhece o padrão assina um token.
+  JWT_SECRET: envVar('JWT_SECRET', SEGREDOS_DE_DESENVOLVIMENTO.JWT_SECRET),
+  COOKIE_SECRET: envVar('COOKIE_SECRET', SEGREDOS_DE_DESENVOLVIMENTO.COOKIE_SECRET),
   ADMIN_EMAIL: envVar('ADMIN_EMAIL', 'rodrigo@cicluz.com.br').toLowerCase(),
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME ?? '',
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY ?? '',

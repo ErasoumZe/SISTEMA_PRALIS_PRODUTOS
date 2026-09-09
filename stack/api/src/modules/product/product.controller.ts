@@ -46,7 +46,7 @@ export class ProductController {
   }
 
   async update(request: FastifyRequest<{ Params: IdParams; Body: ProductRequests.UpdateProductRequest }>, reply: FastifyReply) {
-    const { sheetSync, lojasAtualizadas, ...product } = await this.service.update(requireUser(request), request.params.id, request.body);
+    const { sheetSync, lojasAtualizadas, espelhoLoja, ...product } = await this.service.update(requireUser(request), request.params.id, request.body);
     // Mesma regra do create: a edição valeu nos três casos, a mensagem só diz
     // como ficou o espelho. Nunca pedir para editar de novo.
     const message =
@@ -58,7 +58,19 @@ export class ProductController {
     const herdaram = lojasAtualizadas > 0
       ? ` A mudança desceu para ${lojasAtualizadas} produto(s) de loja.`
       : '';
-    return reply.status(200).send(buildResponse(product, message + herdaram, { sheetSync, lojasAtualizadas }));
+    /*
+     * O espelho da ABA DA LOJA é um destino separado do da BASE e falha
+     * sozinho. Antes o resultado caía dentro do produto e o schema de resposta
+     * o descartava: a tela dizia "atualizado com sucesso" com a aba parada.
+     * Falha de destino externo não é erro de cadastro — o produto está salvo —,
+     * mas tem de aparecer.
+     */
+    const aba = espelhoLoja === 'falhou'
+      ? ' A aba da loja não recebeu a alteração; ela fica pendente de reenvio.'
+      : '';
+    return reply
+      .status(200)
+      .send(buildResponse(product, message + herdaram + aba, { sheetSync, lojasAtualizadas, espelhoLoja }));
   }
 
   async delete(request: FastifyRequest<{ Params: IdParams }>, reply: FastifyReply) {

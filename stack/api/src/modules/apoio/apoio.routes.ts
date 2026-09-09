@@ -5,6 +5,17 @@ import { apiResponseSchema, buildResponse } from '@/config/api.replies';
 import { authMiddleware } from '@/middlewares/auth-handler';
 import { TaxRuleService } from './tax-rule.service';
 
+/**
+ * O serializador do Zod remove tudo que não está declarado aqui — silenciosamente.
+ *
+ * Foi assim que a margem por grupo sumiu entre o serviço e a tela: o
+ * `TaxRuleService` entregava `margemPadrao`, o `ProductForm` lia
+ * `selectedTaxRule.margemPadrao`, e no meio o campo era descartado sem erro
+ * nenhum. Campo novo no serviço precisa entrar TAMBÉM aqui.
+ *
+ * `nullable`, não `optional`: ausente e nulo têm significados diferentes —
+ * nulo é "este grupo não tem margem definida", e zero é uma margem escolhida.
+ */
 const ruleSchema = z.object({
   grupo: z.string(),
   cstPisCofins: z.string(),
@@ -12,6 +23,7 @@ const ruleSchema = z.object({
   aliquotaSimples: z.number(),
   icmsRe: z.number(),
   baseFiscal: z.string(),
+  margemPadrao: z.number().nullable(),
 });
 
 const classificationSchema = ruleSchema.extend({

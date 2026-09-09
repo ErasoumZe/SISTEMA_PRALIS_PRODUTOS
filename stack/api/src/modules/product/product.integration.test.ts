@@ -63,4 +63,112 @@ describe('ProductRepository multi-loja (Postgres real via Testcontainers)', () =
     expect(await repo.delete(created.id)).toBe(true);
     expect(await repo.findById(created.id)).toBeNull();
   });
+  /*
+   * F03 da auditoria de 08/09/2026. O aviso de "codigo de barras ja
+   * cadastrado" chamava a listagem com `q`, e `q` procura em nome, marca e
+   * codigo do sistema — nunca em codigo de barras. O duplicado so aparecia por
+   * coincidencia, quando o numero calhava de bater com outro campo.
+   */
+  it('acha pelo codigo de barras, que a busca textual nao alcanca', async () => {
+    const criado = await repo.create(
+      { ...payload, nome: 'AGUA COM GAS 500ML', codigoBarras: '7891000100103' },
+      { loja: 'TNP', codigo: 'PR-BARRAS-01', createdByUserId: null, createdByName: 'Jose' },
+    );
+
+    // a busca textual NAO acha: o numero nao esta em nome, marca nem codigo
+    const porTexto = await repo.list('TNP', { q: '7891000100103' });
+    expect(porTexto.find((p) => p.id === criado.id)).toBeUndefined();
+
+    // o filtro proprio acha — e SO ele. Sem o filtro a listagem devolveria
+    // tudo e um `toContain` acertaria por acaso; por isso um segundo produto.
+    const outro = await repo.create(
+      { ...payload, nome: 'CHA MATE 1L', codigoBarras: '7890000000009' },
+      { loja: 'TNP', codigo: 'PR-BARRAS-01B', createdByUserId: null, createdByName: 'Jose' },
+    );
+
+    const porBarras = await repo.list('TNP', { codigoBarras: '7891000100103' });
+
+    expect(porBarras.map((p) => p.id)).toEqual([criado.id]);
+
+    await repo.delete(criado.id);
+    await repo.delete(outro.id);
+  });
+
+  /* "0000789" e "789" sao o mesmo produto: mesma normalizacao do fiscal e das vendas. */
+  it('ignora zeros a esquerda, como o resto do sistema', async () => {
+    const criado = await repo.create(
+      { ...payload, nome: 'PAO DE FORMA', codigoBarras: '789' },
+      { loja: 'TNP', codigo: 'PR-BARRAS-02', createdByUserId: null, createdByName: 'Jose' },
+    );
+
+    // segundo produto de novo: sem ele, a listagem sem filtro passaria por acaso
+    const outro = await repo.create(
+      { ...payload, nome: 'LEITE INTEGRAL 1L', codigoBarras: '7899999123456' },
+      { loja: 'TNP', codigo: 'PR-BARRAS-02B', createdByUserId: null, createdByName: 'Jose' },
+    );
+
+    const achados = await repo.list('TNP', { codigoBarras: '0000789' });
+
+    expect(achados.map((p) => p.id)).toEqual([criado.id]);
+
+    await repo.delete(criado.id);
+    await repo.delete(outro.id);
+  });
+
+  it('codigo de barras de outra loja nao aparece', async () => {
+    const criado = await repo.create(
+      { ...payload, nome: 'SUCO UVA 1L', codigoBarras: '7899999000001' },
+      { loja: 'LI', codigo: 'PR-BARRAS-03', createdByUserId: null, createdByName: 'Jose' },
+    );
+
+    expect(await repo.list('TNP', { codigoBarras: '7899999000001' })).toEqual([]);
+    expect((await repo.list('LI', { codigoBarras: '7899999000001' })).map((p) => p.id))
+      .toContain(criado.id);
+
+    await repo.delete(criado.id);
+  });
+  /*
+   * F09 da auditoria de 08/09/2026. `proximoCodigoInterno` fazia MAX + 1 e o
+   * codigo era gerado FORA da transacao da criacao. Dois cadastros ao mesmo
+   * tempo liam o mesmo MAX e recebiam o mesmo numero — e o codigo interno e o
+   * que o SIA usa para casar produto.
+   *
+   * O teste dispara as criacoes em paralelo de proposito: em serie o defeito
+   * nao aparece.
+   */
+  it('duas criacoes simultaneas NAO recebem o mesmo codigo interno', async () => {
+    const criar = (n: number) => repo.create(
+      { ...payload, nome: `SIMULTANEO ${n}`, codigoBarras: null },
+      { loja: 'BASE', codigo: `PR-CONC-${n}`, createdByUserId: null, createdByName: 'Jose' },
+    );
+
+    const criados = await Promise.all([criar(1), criar(2), criar(3), criar(4)]);
+    const codigos = criados.map((p) => p.codigoInterno);
+
+    expect(new Set(codigos).size).toBe(codigos.length);
+    expect(codigos.every((c) => c && /^[0-9]{5}$/.test(c))).toBe(true);
+
+    for (const p of criados) await repo.delete(p.id);
+  });
+
+  /* A copia da loja herda o codigo da BASE: nao pode ganhar um numero novo. */
+  it('copia de loja mantem o codigo interno da base', async () => {
+    const base = await repo.create(
+      { ...payload, nome: 'PAO COM HERANCA', codigoBarras: null },
+      { loja: 'BASE', codigo: 'PR-HER-01', createdByUserId: null, createdByName: 'Jose' },
+    );
+
+    const copia = await repo.create(
+      { ...payload, nome: 'PAO COM HERANCA', codigoBarras: null },
+      {
+        loja: 'TNP', codigo: 'PR-HER-01T', createdByUserId: null, createdByName: 'Jose',
+        codigoInterno: base.codigoInterno, baseProductId: base.id,
+      },
+    );
+
+    expect(copia.codigoInterno).toBe(base.codigoInterno);
+
+    await repo.delete(copia.id);
+    await repo.delete(base.id);
+  });
 });
