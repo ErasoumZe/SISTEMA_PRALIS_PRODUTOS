@@ -29,6 +29,10 @@ services:
       dockerfile: stack/api/Dockerfile
     environment:
       NODE_ENV: production
+      # Commit publicado, exposto em GET /health. O Coolify define SOURCE_COMMIT;
+      # vazio nao e erro, so significa "nao da para saber por aqui".
+      SOURCE_COMMIT: ${SOURCE_COMMIT}
+      GIT_COMMIT_SHA: ${GIT_COMMIT_SHA}
       PORT: 3344
       DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
       CORS_ORIGIN: ${APP_URL}

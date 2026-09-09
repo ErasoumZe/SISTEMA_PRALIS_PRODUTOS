@@ -75,7 +75,37 @@ app.register(creareRoutes);
 app.register(unificacaoRoutes);
 app.register(vendasRoutes);
 
-app.get('/health', async () => ({ ok: true }));
+/**
+ * Liveness + qual versao esta no ar.
+ *
+ * Sem isto nao havia como saber QUAL commit responde em producao: a auditoria
+ * teve de inferir pelo painel do Coolify. Nao consulta o banco de proposito —
+ * um health que depende do Postgres nao distingue "processo morto" de "banco
+ * fora", e e a diferenca que decide o que fazer.
+ *
+ * Nao expoe segredo nenhum: so o SHA, que e publico no repositorio.
+ */
+app.get('/health', async () => ({
+  ok: true,
+  commit: env.BUILD_COMMIT || null,
+  ambiente: env.NODE_ENV,
+}));
+
+/**
+ * Readiness: da para ATENDER? Exige o banco de pe. E o que um balanceador
+ * deve olhar antes de mandar trafego.
+ */
+app.get('/health/pronto', async (_request, reply) => {
+  try {
+    const { db } = await import('@/db/databases');
+    const { sql } = await import('drizzle-orm');
+    await db.execute(sql`SELECT 1`);
+    return { ok: true, banco: 'ok' };
+  } catch {
+    // motivo fica no log; a resposta nao descreve a infraestrutura
+    return reply.status(503).send({ ok: false, banco: 'indisponivel' });
+  }
+});
 
 // tratamento de erros global
 app.setErrorHandler((error: Error & { statusCode?: number; validation?: unknown }, _request, reply) => {

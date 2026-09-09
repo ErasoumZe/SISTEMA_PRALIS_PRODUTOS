@@ -1,0 +1,68 @@
+# Portão de qualidade do Pralis.
+#
+# Existe porque `main` É PRODUÇÃO: o merge dispara o deploy no Coolify, e já
+# houve um caso de a API entrar em laço de reinício por algo que os testes
+# locais teriam pego. Aqui isso falha ANTES do merge.
+#
+# Os testes de integração sobem PostgreSQL de verdade via Testcontainers, por
+# isso precisam do Docker — que o runner do GitHub já tem.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# PR novo cancela a execução anterior do mesmo PR: não adianta gastar runner
+# revisando um commit que já foi substituído.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificacao:
+    name: tipos, testes e build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Versão fixa aqui, e não num `.nvmrc`: o Nixpacks do Coolify lê esse
+      # arquivo, e criá-lo mudaria o build de produção sem necessidade. A
+      # versão do runtime continua sendo decidida lá.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar (lockfile, sem resolver versões de novo)
+        run: npm ci
+
+      - name: Tipos
+        run: npm run typecheck
+
+      - name: Testes unitários
+        run: npm test
+
+      # Sobem PostgreSQL real; separados para o log dizer qual etapa quebrou.
+      - name: Testes de integração
+        run: npm run test:integration
+
+      - name: Build
+        run: npm run build
+
+  compose:
+    name: compose entrega as envs que o código lê
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Duas vezes uma env nova ficou só no painel do Coolify e o recurso
+      # continuou desligado, sem erro para explicar. O teste que compara
+      # `env.ts` com o compose roda junto do resto, mas aqui fica explícito
+      # que a validação do Compose é um portão próprio.
+      - name: Compose é YAML válido
+        run: docker compose -f docker-compose.coolify.yaml config --quiet

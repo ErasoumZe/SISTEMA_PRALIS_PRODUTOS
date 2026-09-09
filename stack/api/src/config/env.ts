@@ -61,6 +61,11 @@ export const normalizePrivateKey = (raw: string): string => {
  */
 export const env = {
   NODE_ENV: process.env.NODE_ENV ?? 'dev',
+  /**
+   * Commit publicado. O Coolify expoe SOURCE_COMMIT; ficar vazio nao e erro,
+   * so significa "nao da para saber por aqui".
+   */
+  BUILD_COMMIT: envVar('SOURCE_COMMIT', envVar('GIT_COMMIT_SHA', '')),
   PORT: Number(process.env.PORT ?? 3333),
   CORS_ORIGIN: envVar('CORS_ORIGIN', '*'),
   // Os padrões são de DESENVOLVIMENTO e estão no repositório. Em produção o
