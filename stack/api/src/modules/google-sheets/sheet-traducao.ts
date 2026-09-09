@@ -56,6 +56,70 @@ export function colunasPorCabecalho(linha: readonly unknown[], letra: (i: number
   return mapa;
 }
 
+/** Uma seção da aba: `TNP - CADASTRO`, `TRANSFORMAÇÃO`, `CADASTRO GERAL`… */
+export interface Faixa {
+  nome: string;
+  /** Primeira e última coluna da faixa, em letra. */
+  inicio: string;
+  fim: string;
+  inicioIndice: number;
+  fimIndice: number;
+}
+
+/**
+ * As seções que a planilha marca acima da linha de cabeçalho.
+ *
+ * Existem porque a aba nova **repete cabeçalho de propósito**: `CUSTO`,
+ * `CODIGO INT.` e as margens aparecem uma vez por LOJA, lado a lado na mesma
+ * linha; `QT` aparece na faixa geral e de novo na de transformação. Casar só
+ * por nome pega sempre a primeira ocorrência — escreveria os dados da LI dentro
+ * da faixa da TNP, sem erro nenhum para avisar.
+ *
+ * Cada rótulo abre uma faixa que vai até o rótulo seguinte.
+ */
+export function faixasDaAba(linha: readonly unknown[], letra: (i: number) => string): Faixa[] {
+  const marcos: Array<{ nome: string; i: number }> = [];
+  linha.forEach((valor, i) => {
+    const nome = normalizarCabecalho(valor);
+    if (nome) marcos.push({ nome, i });
+  });
+
+  return marcos.map((m, k) => {
+    const fim = k + 1 < marcos.length ? marcos[k + 1]!.i - 1 : linha.length - 1;
+    return {
+      nome: m.nome,
+      inicio: letra(m.i),
+      fim: letra(fim),
+      inicioIndice: m.i,
+      fimIndice: fim,
+    };
+  });
+}
+
+/**
+ * A coluna de um cabeçalho DENTRO de uma faixa.
+ *
+ * `null` quando a faixa não existe ou não tem aquele cabeçalho — de propósito:
+ * não escrever é sempre melhor do que escrever na faixa errada.
+ */
+export function colunaNaFaixa(
+  linhaCabecalho: readonly unknown[],
+  faixas: readonly Faixa[],
+  nomeDaFaixa: string,
+  nomeDoCabecalho: string,
+  letra: (i: number) => string,
+): string | null {
+  const alvo = normalizarCabecalho(nomeDaFaixa);
+  const faixa = faixas.find((f) => f.nome === alvo);
+  if (!faixa) return null;
+
+  const procurado = normalizarCabecalho(nomeDoCabecalho);
+  for (let i = faixa.inicioIndice; i <= faixa.fimIndice; i += 1) {
+    if (normalizarCabecalho(linhaCabecalho[i]) === procurado) return letra(i);
+  }
+  return null;
+}
+
 export function traduzirCelulas(
   celulas: CellMap,
   cabecalhoDaOrigem: Map<string, string>,

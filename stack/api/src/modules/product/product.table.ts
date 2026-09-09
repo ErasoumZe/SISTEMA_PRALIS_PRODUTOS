@@ -44,6 +44,14 @@ export const products = pgTable(
     cDe: text('c_de'),
     qtCad: integer('qt_cad').notNull().default(1),
     medidaCompra: text('medida_compra'),
+    /**
+     * A quantidade da embalagem e exata ou aproximada?
+     *
+     * Uma caixa de queijo nao tem 20 kg exatos. Sem essa distincao a frase de
+     * "como se compra" afirma um peso certo que nao existe, e a conferencia de
+     * entrada acusa diferenca que nao ha. `false` = exato, que e o comum.
+     */
+    compraAproximada: boolean('compra_aproximada').notNull().default(false),
     codigoInterno: text('codigo_interno'),
     fotoUrl: text('foto_url'),
     grupo: text('grupo'),

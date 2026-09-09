@@ -82,6 +82,8 @@ function rowToPayload(get: (col: string) => unknown): ProductRequests.CreateProd
     nome: str(get('E')),
     quantidade: quantidade != null && quantidade >= 0 ? quantidade : 0,
     medidaBase: oneOf(get('G'), MEDIDA_BASE, 'UN')!,
+    // a planilha antiga nao tem essa informacao: entra como EXATA, que e o comum
+    compraAproximada: false,
     codigoBarras: orNull(get('J')),
     marca: orNull(get('K')),
     embalagem: oneOf(get('L'), EMBALAGEM, null),

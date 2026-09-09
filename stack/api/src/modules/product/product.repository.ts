@@ -66,6 +66,7 @@ function mapProduct(row: typeof products.$inferSelect): Omit<ProductEntity, 'pro
     cDe: row.cDe as ProductEntity['cDe'],
     qtCad: row.qtCad,
     medidaCompra: row.medidaCompra as ProductEntity['medidaCompra'],
+    compraAproximada: row.compraAproximada ?? false,
     codigoInterno: row.codigoInterno,
     fotoUrl: row.fotoUrl,
     grupo: row.grupo,
@@ -333,6 +334,7 @@ export class ProductRepository {
     assign('cDe', p.cDe);
     assign('qtCad', p.qtCad);
     assign('medidaCompra', p.medidaCompra);
+    assign('compraAproximada', p.compraAproximada);
     assign('codigoInterno', p.codigoInterno);
     assign('fotoUrl', p.fotoUrl);
     assign('grupo', p.grupo);
