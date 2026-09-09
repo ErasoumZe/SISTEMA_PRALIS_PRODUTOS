@@ -728,14 +728,22 @@ onMounted(async () => {
             />
           </v-col>
           <v-col cols="12">
+            <!--
+              Uma linha só, mas sem perder o fim da frase: a fonte encolhe o
+              suficiente para caber o caso comum, e o texto inteiro fica no
+              title (aparece ao passar o mouse) e rola na horizontal quando o
+              campo recebe o clique. Cortar sem saída era o problema.
+            -->
             <v-text-field
               :model-value="comoSeCompra"
+              :title="comoSeCompra"
               label="Como se compra (automático)"
               variant="outlined"
               density="comfortable"
               readonly
               bg-color="grey-lighten-4"
               placeholder="Preencha a embalagem para gerar"
+              class="como-se-compra"
             />
           </v-col>
         </v-row>
@@ -943,5 +951,14 @@ onMounted(async () => {
 .dropzone--full {
   cursor: default;
   padding: 12px;
+}
+/*
+ * A frase de "como se compra" e longa por natureza — ela repete a descricao
+ * duas vezes. Uma linha so, mas com fonte menor para caber o caso comum, e
+ * sem reticencias: o que passar rola na horizontal em vez de sumir.
+ */
+.como-se-compra :deep(input) {
+  font-size: 0.82rem;
+  text-overflow: clip;
 }
 </style>
