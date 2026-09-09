@@ -337,6 +337,7 @@ const dicas: Record<string, string> = {
   cDe: 'C/ = "com" (caixa com 12). DE = "de" (saco de 25 kg).',
   qtCad: 'Quantas unidades/medidas vêm na embalagem de compra.',
   medidaCompra: 'Unidade da embalagem de compra (UN, KG, LT).',
+  grupo: 'Grupo de mercadorias. Define a regra fiscal e a margem padrão.',
   setorEstoque: 'Onde o produto fica armazenado.',
   setorVenda1: 'Setor em que o produto é vendido. Não é o setor de estoque.',
   setorVenda2: 'Segundo setor de venda, quando o produto é vendido em mais de um.',
@@ -736,7 +737,28 @@ onMounted(async () => {
 
         <v-row dense>
           <!-- campos do PRODUTO: valem para revenda E transformação (UX-02) -->
+          <!--
+            Ordem pedida pelo José em 09/09/2026: grupo em cima, depois setor de
+            estoque com os limites AO LADO (é a mesma decisão: onde guarda e
+            quanto guarda), e só então onde o produto é vendido.
+
+            O grupo saiu do cartão fiscal e veio para cá porque é escolha de
+            cadastro; ele continua disparando a classificação fiscal igual.
+          -->
           <v-col cols="12">
+            <v-select
+              v-model="form.grupo"
+              :items="groupItems"
+              :loading="loadingGroups"
+              label="Grupo de mercadorias *"
+              variant="outlined"
+              density="comfortable"
+              no-data-text="Nenhum grupo fiscal disponível"
+              :hint="ajuda('grupo')"
+            />
+          </v-col>
+
+          <v-col cols="12" sm="6">
             <v-select v-model="form.setorEstoque" :items="SETORES" label="Setor de estoque" variant="outlined" density="comfortable" clearable :hint="ajuda('setorEstoque')" />
           </v-col>
           <v-col cols="6" sm="3">
@@ -745,6 +767,7 @@ onMounted(async () => {
           <v-col cols="6" sm="3">
             <v-text-field v-model.number="form.estoqueMax" type="number" label="Estoque máx." variant="outlined" density="comfortable" :hint="ajuda('estoqueMax')" :error-messages="errosEstoque.estoqueMax" />
           </v-col>
+
           <v-col cols="12" sm="6">
             <v-text-field v-model="form.localVenda1" label="Local de venda primário" variant="outlined" density="comfortable" clearable :hint="ajuda('localVenda1')" />
           </v-col>
@@ -821,17 +844,6 @@ onMounted(async () => {
               Os dados fiscais são definidos pelo administrador e calculados a partir do grupo.
               Trocar o grupo aqui recalcula os impostos automaticamente.
             </v-alert>
-          </v-col>
-          <v-col cols="12">
-            <v-select
-              v-model="form.grupo"
-              :items="groupItems"
-              :loading="loadingGroups"
-              label="Grupo de mercadorias *"
-              variant="outlined"
-              density="comfortable"
-              no-data-text="Nenhum grupo fiscal disponível"
-            />
           </v-col>
           <v-col v-if="automaticFiscal" cols="12">
             <v-alert type="info" variant="tonal" density="compact" class="mb-2">
