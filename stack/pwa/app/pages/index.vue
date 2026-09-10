@@ -398,7 +398,12 @@ function preco(p: Product): string | null {
 
     <v-card v-else-if="!loading && !erro" flat border rounded="lg" class="pa-12 text-center text-medium-emphasis">
       <v-icon size="48" class="mb-2">inventory_2</v-icon>
-      <div>{{ temFiltro ? 'Nenhum produto com esses filtros.' : 'Nenhum produto cadastrado ainda.' }}</div>
+      <!-- "cadastrado" é o verbo do admin; a loja não cadastra, ela importa -->
+      <div>
+        {{ temFiltro
+          ? 'Nenhum produto com esses filtros.'
+          : (isAdmin ? 'Nenhum produto cadastrado ainda.' : 'Nenhum produto importado ainda.') }}
+      </div>
       <!--
         Os números do dashboard somam TODAS as lojas, mas esta lista mostra uma
         aba por vez. Sem esta linha, clicar em "Inativos" e cair numa lista
@@ -409,7 +414,14 @@ function preco(p: Product): string | null {
         Produtos com esses filtros podem estar em outra loja.
       </div>
       <v-btn v-if="temFiltro" color="primary" variant="tonal" class="mt-4" @click="limparFiltros">Limpar filtros</v-btn>
-      <v-btn v-else color="primary" variant="tonal" class="mt-4" to="/produtos/novo">Cadastrar o primeiro</v-btn>
+      <!--
+        Só o admin cadastra produto novo; a loja recebe por importação. Oferecer
+        "Cadastrar o primeiro" para quem não é admin mandava a pessoa para uma
+        tela que o servidor recusa com 403 — e no primeiro acesso da loja, que é
+        exatamente quando a lista está vazia, esse era o único botão à vista.
+      -->
+      <v-btn v-else-if="isAdmin" color="primary" variant="tonal" class="mt-4" to="/produtos/novo">Cadastrar o primeiro</v-btn>
+      <v-btn v-else color="primary" variant="tonal" class="mt-4" prepend-icon="download" to="/importar">Importar da base</v-btn>
     </v-card>
 
     <!-- paginação (10 por página) -->
