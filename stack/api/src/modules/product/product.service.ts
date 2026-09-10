@@ -46,6 +46,44 @@ const BLOCOS_HERDADOS = ['fiscal', 'transformacao'] as const;
 const mesmoValor = (a: unknown, b: unknown): boolean =>
   JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
+/**
+ * Campos fiscais que uma PESSOA digita. Todo o resto do bloco é DERIVADO da
+ * regra do grupo, do de-para por produto ou do cadastro de ECF.
+ *
+ * Só estes entram na comparação que decide "o colaborador mexeu no fiscal?".
+ * Comparar o bloco inteiro dava falso positivo e travava o salvamento de quem
+ * não tinha tocado em nada: os derivados chegam do servidor a cada
+ * classificação, e a tela não tem como devolvê-los idênticos.
+ */
+const FISCAIS_MANUAIS = [
+  'ncm', 'cest', 'categoria',
+  'aliquotaCheia', 'aliquotaFcp', 'aliquotaPis', 'aliquotaCofins',
+  'reducaoIcms', 'icms',
+] as const;
+
+/**
+ * Ausência de valor tem três grafias na travessia tela -> API: `null`, `''` e
+ * `0`. O formulário monta os números com `Number(x) || null`, então um zero
+ * GUARDADO volta como `null` — e comparar cru acusava mudança onde não houve.
+ *
+ * Zero e vazio são indistinguíveis para quem preenche a tela hoje; tratá-los
+ * como iguais aqui é honesto. Onde a distinção importa de verdade — a margem —
+ * ela é feita em `margemPctParaFracao`, que é outro caminho.
+ */
+const fiscalVazio = (v: unknown): boolean =>
+  v == null || v === '' || v === 0;
+
+/** Compara SÓ o que a pessoa digita, normalizando as grafias de vazio. */
+const mesmoFiscalManual = (
+  a: Record<string, unknown> | null | undefined,
+  b: Record<string, unknown> | null | undefined,
+): boolean => FISCAIS_MANUAIS.every((campo) => {
+  const x = a?.[campo];
+  const y = b?.[campo];
+  if (fiscalVazio(x) && fiscalVazio(y)) return true;
+  return String(x) === String(y);
+});
+
 @injectable()
 export class ProductService {
   constructor(
@@ -203,7 +241,10 @@ export class ProductService {
       user.role !== 'admin' &&
       payload.fiscal !== undefined &&
       !grupoOuBarcodeMudou &&
-      !mesmoValor(payload.fiscal, p.fiscal)
+      !mesmoFiscalManual(
+        payload.fiscal as Record<string, unknown> | null,
+        p.fiscal as Record<string, unknown> | null,
+      )
     ) {
       throw new AppError(
         'Apenas o administrador altera os dados fiscais do produto.',
