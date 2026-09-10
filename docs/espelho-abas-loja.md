@@ -5,9 +5,16 @@
 > `(TNP/LI) CADASTRO PRODUTOS`. Nela, BASE, TNP e LI compartilham a mesma linha:
 > os dados gerais ficam uma vez e cada loja tem sua própria faixa lateral.
 > Portanto, importar/editar LI ou TNP deve atualizar essa mesma linha, localizada
-> pelo `baseProductId`. As abas `(TNP) CADASTRO PRODUTOS` e
-> `(LI) CADASTRO PRODUTOS` são projeções do cadastro combinado, não o destino
-> primário da API.
+> pelo `baseProductId`.
+>
+> **Correção de 10/09/2026.** Escrevi aqui que as abas `(TNP) CADASTRO PRODUTOS`
+> e `(LI) CADASTRO PRODUTOS` eram "projeções" do cadastro combinado. Não são.
+> Medido na planilha: o nome do produto está nelas como **valor literal**, não
+> como fórmula, e das 1.188 linhas com produto **1.187 têm nome idêntico nas
+> três abas** — a única divergente era justamente a linha que o sistema criou
+> escrevendo só na combinada. Elas são **cópias linha a linha**, e nada as
+> alimenta sozinho. Quem escreve na combinada tem de escrever nelas, na mesma
+> linha, ou o alinhamento quebra a partir dali.
 >
 > O fluxo antigo descrito abaixo — escrita direta nas abas dedicadas, controlada
 > por `GOOGLE_SHEETS_LOJA_ESPELHO_AUTO` — permanece somente como compatibilidade
@@ -21,7 +28,20 @@
 2. Ao importar para LI/TNP, a cópia no Postgres guarda `baseProductId`.
 3. A importação em lote localiza a linha por esse ID e preenche apenas a faixa
    da loja; uma edição posterior repete a sincronização de forma idempotente.
-4. Se a planilha detectada for a antiga, o sistema recorre ao espelho dedicado.
+4. **Na mesma linha**, as abas `(TNP)` e `(LI) CADASTRO PRODUTOS` recebem as
+   colunas gerais — sempre, inclusive para produto da BASE — e a faixa da loja
+   só na aba daquela loja. É `espelharNasAbasDeLoja`.
+5. Se a planilha detectada for a antiga, o sistema recorre ao espelho dedicado.
+
+## O que o sistema nunca sobrescreve
+
+Colunas que a própria linha calcula (`C/DE`, `COMO SE COMPRA`, `MARGEM GRUPO %`,
+`V. VENDA`, `SETOR VENDA…`) são lidas antes de cada gravação e **puladas**.
+Gravar valor por cima de fórmula a apaga para sempre naquela linha: foi o que
+aconteceu na linha 1198, onde `C/DE` virou o texto solto `DE` e `COMO SE COMPRA`
+virou texto fixo, enquanto as outras 1.187 linhas seguiam calculando. Como o
+guarda lê a linha de destino depois de `garantirFormulas`, uma linha já estragada
+se conserta sozinha no salvamento seguinte.
 
 ## Histórico do leiaute anterior
 

@@ -806,8 +806,24 @@ describe('ProductSheetService — importação em lote no leiaute novo', () => {
     expect(sheets.get('P11')).toBe('9');
     expect(rows.get(OUTRO_ID)).toMatchObject({ status: 'synced', rowNumber: 11 });
     expect(rows.get(TERCEIRO_ID)).toMatchObject({ status: 'synced', rowNumber: 11 });
-    // Uma leitura do layout (linhas 5 e 3), uma da coluna ID; não relê por produto.
-    expect(sheets.chamadas.batchGet).toBe(3);
+    // Layout (linhas 5 e 3), coluna ID e as fórmulas das linhas alvo: quatro
+    // leituras para o lote inteiro; nenhuma se repete por produto.
+    expect(sheets.chamadas.batchGet).toBe(4);
+  });
+
+  it('não grava valor por cima de coluna que a planilha calcula', async () => {
+    // MARCAS calculada nesta linha; CUSTO segue sendo coluna de entrada.
+    const sheets = planilhaNovaComBase().set('G11', '=UPPER(D11)');
+    const { repo: syncRepo } = fakeSyncRepo();
+    const tnp = produto({
+      id: OUTRO_ID, loja: 'TNP', baseProductId: ID, marca: 'KAMI', custo: 1.25,
+    });
+    const service = new ProductSheetService(fakeProductRepo(tnp), syncRepo, sheets);
+
+    await service.syncStoreProducts([tnp]);
+
+    expect(sheets.get('G11')).toBe('=UPPER(D11)');
+    expect(sheets.get('L11')).toBe('1.25');
   });
 
   it('no leiaute antigo devolve skipped para permitir o fallback dedicado', async () => {
