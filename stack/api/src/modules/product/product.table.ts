@@ -111,6 +111,10 @@ export const productFiscal = pgTable('product_fiscal', {
   aliquotaIbs: numeric('aliquota_ibs', { precision: 8, scale: 6 }),
   aliquotaCbs: numeric('aliquota_cbs', { precision: 8, scale: 6 }),
   origemFiscal: text('origem_fiscal'),
+  // TEXTO: a coluna do Creare mistura "18,00%", "SUBST TRIB" e "ISENTO", e o
+  // ID ("03", "10", "11") tem zero à esquerda que faz parte do código.
+  aliquotaEcf: text('aliquota_ecf'),
+  aliquotaEcfId: text('aliquota_ecf_id'),
 });
 
 export const promocoes = pgTable('promocoes', {

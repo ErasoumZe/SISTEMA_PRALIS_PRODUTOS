@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { ProductSchemas } from '@pralis/shared';
 import {
-  mapProductToCells, inputColumnsFor, DEFAULT_FOOTER_COLUMNS, DIAS_COLS, DIA_LABELS,
+  mapProductToCells, inputColumnsFor, COLUNAS_SO_DA_NOVA, DEFAULT_FOOTER_COLUMNS, DIAS_COLS, DIA_LABELS,
   simNao, formatQuantidade, barcodeCell, descontoParaAZ,
   type SheetCell,
 } from './product-sheet.mapper';
@@ -59,8 +59,18 @@ describe('mapper: colunas do cadastro geral', () => {
     for (const col of inputColumnsFor(DEFAULT_FOOTER_COLUMNS)) {
       expect(cells[col], `coluna ${col} ausente no mapa`).toBeDefined();
     }
-    // e não escreve NADA fora das colunas de entrada (as calculadas ficam intactas)
-    expect(Object.keys(cells).sort()).toEqual(inputColumnsFor(DEFAULT_FOOTER_COLUMNS).sort());
+    /*
+     * E não escreve NADA fora das colunas de entrada — as calculadas ficam
+     * intactas. As únicas fora da lista são as chaves sintéticas da planilha
+     * nova, e é justamente por estarem fora que o leiaute ANTIGO nunca escreve
+     * nelas: lá as letras CF e CG são outra coisa.
+     */
+    expect(Object.keys(cells).sort()).toEqual(
+      [...inputColumnsFor(DEFAULT_FOOTER_COLUMNS), ...COLUNAS_SO_DA_NOVA].sort(),
+    );
+    for (const col of COLUNAS_SO_DA_NOVA) {
+      expect(inputColumnsFor(DEFAULT_FOOTER_COLUMNS)).not.toContain(col);
+    }
   });
 
   it('mapeia identidade, embalagem e preço nas colunas certas', () => {

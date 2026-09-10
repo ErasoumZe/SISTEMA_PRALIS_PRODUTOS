@@ -34,6 +34,19 @@ export const CAMPO_DA_COLUNA: Readonly<Record<string, string>> = {
   BS: 'REDUCAO_ICMS', BT: 'ALIQUOTA CHEIA', BU: 'ALIQUOTA FCP',
   BV: 'CST PIS/COFINS', BW: 'ALIQUOTA PIS', BX: 'ALIQUOTA COFINS',
   CA: 'NCM', CB: 'CATEGORIA', CD: 'ICMS', CE: 'CODIGO CEST',
+  /*
+   * `CF` e `CG` NÃO existem na BASE antiga — são chaves sintéticas.
+   *
+   * A faixa `CADASTRO - FISCAL` da planilha nova tem `ALIQUOTA ECF` e
+   * `ALIQUOTA ECF ID`, que a BASE antiga não tinha e que nenhuma letra
+   * carregava. Sem uma chave aqui, o mapper não teria onde pôr o valor e as
+   * duas colunas continuariam vazias para sempre.
+   *
+   * As letras foram escolhidas entre as que a BASE antiga não usava, e não
+   * entram em `INPUT_COLUMNS`: no leiaute antigo elas são simplesmente
+   * ignoradas, então nada muda lá.
+   */
+  CF: 'ALIQUOTA ECF', CG: 'ALIQUOTA ECF ID',
 };
 
 /** Mesmo campo, nome diferente nas duas planilhas. Cada um provado no dado. */

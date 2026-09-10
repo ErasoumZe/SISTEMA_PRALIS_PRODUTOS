@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { env } from '@/config/env';
 import type { SheetsGateway } from '@/modules/google-sheets/google-sheets.client';
-import { barcodeCandidates, ncmCode, normalizeGroup, parseSheetPercent, TaxRuleService } from './tax-rule.service';
+import { barcodeCandidates, ncmCode, normalizeGroup, parseCampoCreare, parseSheetPercent, TaxRuleService } from './tax-rule.service';
 
 const previous = {
   id: env.GOOGLE_SHEETS_SPREADSHEET_ID,
@@ -250,5 +250,121 @@ describe('margem padrao do grupo', () => {
 
     expect(regras).toHaveLength(1);
     expect(regras[0]!.margemPadrao).toBeNull();
+  });
+});
+
+/**
+ * Cadastro de ECF: a única fonte de ALIQUOTA ECF, CATEGORIA e CEST.
+ *
+ * A aba `(TNP) FISCAL - CADASTRO ECF` não tem código de barras — a coluna
+ * REFERENCIA do Creare é `0000000000000000` nas 3.122 linhas — então o
+ * casamento é pelo NOME, e só quando o nome é único.
+ */
+describe('TaxRuleService — cadastro de ECF por nome', () => {
+  /** Gateway com as quatro tabelas de sempre + a aba de ECF. */
+  const comEcf = (linhasEcf: string[][]) => ({
+    async batchGetValues(_id: string, faixas: string[]) {
+      return faixas.map((faixa) => {
+        if (faixa.includes('CADASTRO ECF')) return linhasEcf;
+        if (/AB4:AG79/.test(faixa)) return [['MER BEBIDAS', '4', 'MONOFÁSICO', '7,40%', '0,00%', 'Lei 13.097']];
+        if (/A4:E2000/.test(faixa)) return [];
+        if (/H4:M200/.test(faixa)) return [];
+        if (/O4:Q20/.test(faixa)) return [['4', 'MONOFÁSICO', '7,40%']];
+        return [];
+      });
+    },
+    async getSheets() { return []; },
+    async batchUpdateValues() {},
+    async batchUpdate() {},
+  }) as unknown as SheetsGateway;
+
+  /** Uma linha da aba, na ordem que `montar-aba-fiscal-ecf.ts` grava. */
+  const linhaEcf = (nome: string, over: Partial<Record<number, string>> = {}) => {
+    const l = ['010000', nome, nome, 'COD INTERNO', '5333', '18000', '0000', '6',
+      '00000000', '00000000', '18,00%', '03', '22029900', 'TRIB. OUTROS', '0,00', '0,00', '2300100'];
+    for (const [i, v] of Object.entries(over)) l[Number(i)] = v;
+    return l;
+  };
+
+  it('copia alíquota de ECF, categoria e CEST quando o nome casa', async () => {
+    const s = new TaxRuleService(comEcf([linhaEcf('FANTA UVA 2L')]));
+
+    const r = await s.classify('MER BEBIDAS', null, 'Fanta Uva 2L');
+
+    expect(r.ecf).toMatchObject({
+      aliquotaEcf: '18,00%',
+      aliquotaEcfId: '03', // TEXTO: o zero à esquerda faz parte do código
+      categoria: 'TRIB. OUTROS',
+      cest: '2300100',
+    });
+    // escalas medidas no dado real: 5333 = 53,33% e 18000 = 18,000%
+    expect(r.ecf?.reducaoIcms).toBe(53.33);
+    expect(r.ecf?.aliquotaCheia).toBe(18);
+  });
+
+  it('casa ignorando acento — a planilha escreve AÇÚCAR e o Creare AÇUCAR', async () => {
+    const s = new TaxRuleService(comEcf([linhaEcf('AÇUCAR REFINADO 1KG')]));
+
+    const r = await s.classify('MER BEBIDAS', null, 'AÇÚCAR REFINADO 1KG');
+
+    expect(r.ecf?.aliquotaEcf).toBe('18,00%');
+  });
+
+  it('nome repetido NÃO casa: dois produtos, escolher um seria sortear imposto', async () => {
+    const s = new TaxRuleService(comEcf([
+      linhaEcf('HAMBURGUER'),
+      linhaEcf('HAMBURGUER', { 10: 'SUBST TRIB', 11: '10' }),
+    ]));
+
+    const r = await s.classify('MER BEBIDAS', null, 'HAMBURGUER');
+
+    expect(r.ecf).toBeNull();
+  });
+
+  it('sem nome, classifica como antes e não inventa ECF', async () => {
+    const s = new TaxRuleService(comEcf([linhaEcf('FANTA UVA 2L')]));
+
+    const r = await s.classify('MER BEBIDAS', null);
+
+    expect(r.ecf).toBeNull();
+    expect(r.cstPisCofins).toBe('4'); // o resto da classificação segue igual
+  });
+
+  it('aba de ECF ausente não derruba o cadastro', async () => {
+    const gateway = {
+      async batchGetValues(_id: string, faixas: string[]) {
+        if (faixas.some((f) => f.includes('CADASTRO ECF'))) throw new Error('Unable to parse range');
+        return faixas.map((faixa) => {
+          if (/AB4:AG79/.test(faixa)) return [['MER BEBIDAS', '4', 'MONOFÁSICO', '7,40%', '0,00%', 'Lei 13.097']];
+          if (/O4:Q20/.test(faixa)) return [['4', 'MONOFÁSICO', '7,40%']];
+          return [];
+        });
+      },
+      async getSheets() { return []; },
+      async batchUpdateValues() {},
+      async batchUpdate() {},
+    } as unknown as SheetsGateway;
+    const s = new TaxRuleService(gateway);
+
+    const r = await s.classify('MER BEBIDAS', null, 'FANTA UVA 2L');
+
+    expect(r.ecf).toBeNull();
+    expect(r.cstPisCofins).toBe('4');
+  });
+});
+
+describe('parseCampoCreare — casas decimais implícitas', () => {
+  it('respeita a escala que o chamador diz, porque ela não é uniforme', () => {
+    expect(parseCampoCreare('5333', 2)).toBe(53.33); // REDUCAO_ICMS
+    expect(parseCampoCreare('18000', 3)).toBe(18); // ALIQUOTA CHEIA
+  });
+
+  it('aceita o formato já pontuado que aparece em % NCM e ICMS', () => {
+    expect(parseCampoCreare('0,00', 2)).toBe(0);
+  });
+
+  it('lixo vira ausência, nunca zero — zero é uma afirmação', () => {
+    expect(parseCampoCreare('X', 2)).toBeNull();
+    expect(parseCampoCreare('', 2)).toBeNull();
   });
 });

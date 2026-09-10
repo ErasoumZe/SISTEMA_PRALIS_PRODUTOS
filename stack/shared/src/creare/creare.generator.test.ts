@@ -79,6 +79,8 @@ const bread = (overrides: Partial<ProductEntity> = {}): ProductEntity => ({
     icmsRe: null, baseFiscal: null, codigoFiscal: null, produtoFiscal: null,
     cstReforma: null, cClassTrib: null, aliquotaIbs: null, aliquotaCbs: null,
     origemFiscal: null,
+    aliquotaEcf: null,
+    aliquotaEcfId: null,
   },
   ...overrides,
 });

@@ -110,6 +110,8 @@ function mapFiscal(r: typeof productFiscal.$inferSelect): ProductEntity['fiscal'
     aliquotaIbs: num(r.aliquotaIbs), aliquotaCbs: num(r.aliquotaCbs),
     origemFiscal: r.origemFiscal as ProductEntity['fiscal'] extends infer F
       ? F extends { origemFiscal: infer O } ? O : never : never,
+    aliquotaEcf: null,
+    aliquotaEcfId: null,
   };
 }
 
@@ -402,6 +404,8 @@ export class ProductRepository {
           cstReforma: f.cstReforma, cClassTrib: f.cClassTrib,
           aliquotaIbs: toDb(f.aliquotaIbs), aliquotaCbs: toDb(f.aliquotaCbs),
           origemFiscal: f.origemFiscal,
+    aliquotaEcf: null,
+    aliquotaEcfId: null,
         });
       }
     }

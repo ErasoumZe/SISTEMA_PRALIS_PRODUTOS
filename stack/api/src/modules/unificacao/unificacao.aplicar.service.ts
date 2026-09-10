@@ -100,6 +100,8 @@ export class UnificacaoAplicarService {
       tributacaoSimples: null, aliquotaSimples: null, icmsRe: null, baseFiscal: null,
       codigoFiscal: null, produtoFiscal: null, cstReforma: null, cClassTrib: null,
       aliquotaIbs: null, aliquotaCbs: null, origemFiscal: null,
+    aliquotaEcf: null,
+    aliquotaEcfId: null,
     };
     if (loja === 'LI') {
       if (!c.fiscalLi) return null;
