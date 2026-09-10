@@ -85,6 +85,29 @@ export const percentual = (v: unknown): string => {
   return Number.isFinite(n) ? String(n).replace('.', ',') : s;
 };
 
+/**
+ * Valor vencedor entre os meses: MAIORIA, empate desfeito pelo mais recente.
+ *
+ * "O mais recente vence" sozinho é perigoso aqui. A MARGARINA QUALY C/SAL 500G
+ * aparece com NCM 15171000 (margarina) em junho e julho e 16024900 em agosto —
+ * e 16024900 é preparação de carne. Uma digitação errada no último mês viraria
+ * classificação fiscal do cadastro.
+ *
+ * A maioria corrige isso sem inventar nada: escolhe entre valores que o PRÓPRIO
+ * estudo afirmou, e o mês isolado perde para os dois que concordam. Onde não há
+ * maioria, o mais recente decide, que é a regra original.
+ */
+export function vencedor(valores: ReadonlyArray<{ valor: string; mes: string }>): string {
+  const votos = new Map<string, { n: number; ultimo: number }>();
+  for (const { valor, mes } of valores) {
+    if (valor === '') continue;
+    const atual = votos.get(valor) ?? { n: 0, ultimo: -1 };
+    votos.set(valor, { n: atual.n + 1, ultimo: Math.max(atual.ultimo, MESES.indexOf(mes)) });
+  }
+  return [...votos.entries()]
+    .sort((a, b) => (b[1].n - a[1].n) || (b[1].ultimo - a[1].ultimo))[0]?.[0] ?? '';
+}
+
 /** Índice da linha de cabeçalho do bloco de VENDAS, ou -1. */
 export function acharBlocoDeVendas(linhas: unknown[][]): number {
   return linhas.findIndex((l) => {
@@ -148,14 +171,44 @@ async function main() {
   for (const [codigo, ocorrencias] of porCodigo) {
     const ncms = new Set(ocorrencias.map((o) => o.ncm));
     const csts = new Set(ocorrencias.map((o) => o.cst));
-    if (ncms.size > 1 || csts.size > 1) {
-      instaveis.push(`  ${codigo} ${ocorrencias[0]!.nome}\n     ${ocorrencias
-        .map((o) => `${o.mes}: NCM ${o.ncm} CST ${o.cst} ICMS ${o.icmsRe || '-'}`).join('\n     ')}`);
+    const maisRecente = [...ocorrencias]
+      .sort((a, b) => MESES.indexOf(a.mes) - MESES.indexOf(b.mes)).pop()!;
+    /*
+     * NCM e CST pela MAIORIA; % ICMS RE pelo MAIS RECENTE.
+     *
+     * A distinção importa. Um NCM ou um CST é CLASSIFICAÇÃO: o produto é o que
+     * é, não muda de um mês para o outro. Um mês sozinho que discorda dos
+     * outros dois é digitação errada — foi o caso da MARGARINA virando
+     * preparação de carne em agosto.
+     *
+     * Já o % ICMS RE é ALÍQUOTA, e alíquota muda de verdade. Aplicar maioria
+     * nele descartaria uma atualização legítima do último mês só por ser nova:
+     * o PAPEL DE CEDA e o PÃO DE SAL FUNCIONÁRIO passaram a 3,69 em agosto
+     * depois de dois meses em zero, e isso tem cara de correção, não de erro.
+     */
+    const resolvido: DoEstudo = {
+      ...maisRecente,
+      ncm: vencedor(ocorrencias.map((o) => ({ valor: o.ncm, mes: o.mes }))),
+      cst: vencedor(ocorrencias.map((o) => ({ valor: o.cst, mes: o.mes }))),
+      icmsRe: maisRecente.icmsRe,
+    };
+    // Toda instabilidade é reportada, inclusive a de ICMS, que a regra não
+    // resolve por maioria: nenhuma mudança de valor fiscal pode passar calada.
+    const icmss = new Set(ocorrencias.map((o) => o.icmsRe).filter((v) => v !== ''));
+    if (ncms.size > 1 || csts.size > 1 || icmss.size > 1) {
+      const descartaORecente = resolvido.ncm !== maisRecente.ncm || resolvido.cst !== maisRecente.cst;
+      instaveis.push(
+        `  ${codigo} ${ocorrencias[0]!.nome}\n     ${ocorrencias
+          .map((o) => `${o.mes}: NCM ${o.ncm} CST ${o.cst} ICMS ${o.icmsRe || '-'}`).join('\n     ')}`
+        + `\n     -> vale: NCM ${resolvido.ncm} CST ${resolvido.cst} ICMS ${resolvido.icmsRe || '-'}`
+        + (descartaORecente ? '   (a maioria DESCARTA o mês mais recente)' : ''),
+      );
     }
-    final.set(codigo, [...ocorrencias].sort((a, b) => MESES.indexOf(a.mes) - MESES.indexOf(b.mes)).pop()!);
+    final.set(codigo, resolvido);
   }
-  console.log(`  mudaram de NCM/CST entre meses: ${instaveis.length}`);
-  if (instaveis.length) console.log(instaveis.slice(0, 6).join('\n'));
+  console.log(`  mudaram de NCM/CST/ICMS entre meses: ${instaveis.length}`);
+  // todos, sem cortar: cada um destes é um valor fiscal que a maioria decidiu
+  if (instaveis.length) console.log(instaveis.join('\n'));
 
   // ---- a tabela fiscal de hoje ----
   const { GoogleSheetsClient, a1 } = await import('@/modules/google-sheets/google-sheets.client');
