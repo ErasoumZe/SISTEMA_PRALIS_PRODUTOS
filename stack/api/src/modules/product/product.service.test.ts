@@ -448,7 +448,16 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
   });
 
   it('edição comum não consulta regra fiscal quando grupo e código de barras não mudaram', async () => {
-    const atual = fiscalDe('19051000');
+    /*
+     * O produto precisa ter CARGA fiscal para este caso existir. Com o bloco
+     * vazio, a edição agora completa o que falta — e é para completar mesmo:
+     * produto criado pela Central nunca passou por `classify()`, e abrir e
+     * salvar era a única chance de ele receber alíquota e ECF.
+     *
+     * Aqui a pergunta é outra e continua valendo: quem JÁ está classificado não
+     * é reclassificado só por alguém mexer no preço.
+     */
+    const atual = { ...fiscalDe('19051000'), aliquotaCheia: 7 } as unknown as Product['fiscal'];
     let classificacoes = 0;
     const repo = {
       async findById() { return produto({ loja: 'BASE', grupo: 'MER PADARIA', fiscal: atual }); },
@@ -614,5 +623,122 @@ describe('ProductService.update — o guarda do fiscal e os falsos positivos', (
 
     await expect(service.update(daLoja, ID, { nome: 'X', fiscal: adulterado as never }))
       .rejects.toMatchObject({ code: 'ONLY_ADMIN_FISCAL' });
+  });
+});
+
+/**
+ * Completar a carga fiscal de quem nunca a teve.
+ *
+ * Produto criado pela Central não passa por `classify()`, e produto cadastrado
+ * antes de a fonte de ECF existir ficou com CST e NCM e mais nada. Como a
+ * classificação só rodava quando o GRUPO mudava, esses produtos nunca recebiam
+ * alíquota, redução, ECF nem CEST — abrir e salvar não adiantava.
+ */
+const regraComEcf = {
+  grupo: 'MER PADARIA', cstPisCofins: '1', tributacaoSimples: 'TRIBUTADO INTEGRAL',
+  aliquotaSimples: 11.28, icmsRe: 3.69, baseFiscal: 'Regra geral', margemPadrao: null,
+  ncm: '19059090', codigoFiscal: null, produtoFiscal: null,
+  cstReforma: null, cClassTrib: null, aliquotaIbs: null, aliquotaCbs: null,
+  origem: 'grupo' as const,
+  ecf: {
+    reducaoIcms: 53.33, aliquotaCheia: 18, aliquotaFcp: 0,
+    aliquotaPis: 0, aliquotaCofins: 0,
+    aliquotaEcf: '18,00%', aliquotaEcfId: '03',
+    categoria: 'PRODUTOS DA CASA (ALIQUOTA EFETIVA)', icms: 0, cest: null,
+  },
+};
+
+function fakesCargaFiscal(p: Product, classifyEspiao: string[] = []) {
+  const repo = {
+    async findById() { return p; },
+    async update(_id: string, payload: Record<string, unknown>) { return { ...p, ...payload }; },
+    async listByBaseProductId() { return []; },
+  } as unknown as ProductRepository;
+  const sheets = {
+    async registerPending() {},
+    async syncProduct() { return { outcome: 'synced' as const, rowNumber: 12 }; },
+  } as unknown as ProductSheetService;
+  const taxRules = {
+    async classify(grupo: string, barras?: string | null, nome?: string | null) {
+      classifyEspiao.push(`${grupo}|${nome ?? ''}`);
+      return regraComEcf;
+    },
+  } as unknown as TaxRuleService;
+  return new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
+}
+
+/** Bloco fiscal como fica um produto criado pela Central: quase tudo vazio. */
+const fiscalMagro = {
+  ncm: '19059090', cest: null, categoria: null, cstPisCofins: '1',
+  aliquotaCheia: null, aliquotaFcp: null, aliquotaPis: null, aliquotaCofins: null,
+  reducaoIcms: null, icms: null,
+  tributacaoSimples: null, aliquotaSimples: null, icmsRe: null, baseFiscal: null,
+  codigoFiscal: null, produtoFiscal: null, cstReforma: null, cClassTrib: null,
+  aliquotaIbs: null, aliquotaCbs: null, origemFiscal: null,
+  aliquotaEcf: null, aliquotaEcfId: null,
+};
+
+describe('ProductService.update — completa a carga fiscal que faltava', () => {
+  it('produto com grupo e sem carga recebe alíquota, redução e ECF ao salvar', async () => {
+    const chamou: string[] = [];
+    const p = produto({ grupo: 'MER PADARIA', nome: 'BOLO REDONDO LARANJA', fiscal: fiscalMagro as never });
+    const service = fakesCargaFiscal(p, chamou);
+
+    // salva SEM tocar em grupo nem em código de barras
+    const r = await service.update(admin, ID, { nome: 'BOLO REDONDO LARANJA' });
+
+    expect(chamou).toEqual(['MER PADARIA|BOLO REDONDO LARANJA']); // o nome casa o ECF
+    expect(r.fiscal).toMatchObject({
+      aliquotaCheia: 18,
+      reducaoIcms: 53.33,
+      aliquotaEcf: '18,00%',
+      aliquotaEcfId: '03',
+      categoria: 'PRODUTOS DA CASA (ALIQUOTA EFETIVA)',
+    });
+  });
+
+  it('quem JÁ tem carga não é reclassificado — completar é ato único', async () => {
+    const chamou: string[] = [];
+    const p = produto({
+      grupo: 'MER PADARIA',
+      fiscal: { ...fiscalMagro, aliquotaCheia: 7, aliquotaEcf: 'SUBST TRIB' } as never,
+    });
+    const service = fakesCargaFiscal(p, chamou);
+
+    const r = await service.update(admin, ID, { nome: 'X' });
+
+    expect(chamou).toEqual([]); // nem chamou a regra
+    expect(r.fiscal).toMatchObject({ aliquotaCheia: 7, aliquotaEcf: 'SUBST TRIB' });
+  });
+
+  it('sem grupo não tenta nada: não há regra de onde tirar', async () => {
+    const chamou: string[] = [];
+    const p = produto({ grupo: null as never, fiscal: fiscalMagro as never });
+    const service = fakesCargaFiscal(p, chamou);
+
+    await service.update(admin, ID, { nome: 'X' });
+
+    expect(chamou).toEqual([]);
+  });
+
+  it('Google fora do ar não derruba a edição — salva sem o fiscal', async () => {
+    const p = produto({ grupo: 'MER PADARIA', fiscal: fiscalMagro as never });
+    const repo = {
+      async findById() { return p; },
+      async update(_id: string, payload: Record<string, unknown>) { return { ...p, ...payload }; },
+      async listByBaseProductId() { return []; },
+    } as unknown as ProductRepository;
+    const sheets = {
+      async registerPending() {},
+      async syncProduct() { return { outcome: 'synced' as const, rowNumber: 12 }; },
+    } as unknown as ProductSheetService;
+    const taxRules = {
+      async classify() { throw new Error('Sheets fora do ar'); },
+    } as unknown as TaxRuleService;
+    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
+
+    const r = await service.update(admin, ID, { nome: 'NOME NOVO' });
+
+    expect(r.nome).toBe('NOME NOVO'); // a edição valeu
   });
 });
