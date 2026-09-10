@@ -126,6 +126,14 @@ export const listProductQuerySchema = z.object({
    * por isso não achava o duplicado — o campo nem entrava na consulta.
    */
   codigoBarras: z.string().trim().min(1).optional(),
+  /**
+   * Só produtos que a loja já vendeu ao menos uma vez.
+   *
+   * A base tem milhares de produtos que passaram por algum cadastro em algum
+   * momento; o que a loja opera é bem menos. Sem este filtro a listagem mistura
+   * as duas coisas e a de verdade se perde no meio.
+   */
+  somenteVendidos: z.coerce.boolean().optional(),
   tipo: tipoProduto.optional(),
   status: statusProduto.optional(),
   // só admin pode listar outro catálogo; ignorado para usuários comuns

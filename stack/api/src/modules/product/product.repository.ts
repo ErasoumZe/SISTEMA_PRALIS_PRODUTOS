@@ -282,6 +282,27 @@ export class ProductRepository {
       );
     }
 
+    /*
+     * "Já vendeu" tem duas provas, e a segunda existe porque a primeira não
+     * alcança tudo:
+     *  - o código do PDV bate com o código de barras (é assim que 93% casam,
+     *    medido em 09/09/2026 sobre 1.959 produtos vendidos);
+     *  - ou alguém confirmou o de-para à mão, que é o caminho para o produto
+     *    vendido a granel, sem código nenhum.
+     * Zeros à esquerda são ignorados nos dois lados, como no resto do sistema.
+     */
+    if (filter.somenteVendidos) {
+      conditions.push(sql`(
+        EXISTS (
+          SELECT 1 FROM venda_produto_dia v
+          WHERE v.loja = ${products.loja}
+            AND ltrim(v.produto_codigo, '0') <> ''
+            AND ltrim(v.produto_codigo, '0') = ltrim(coalesce(${products.codigoBarras}, ''), '0')
+        )
+        OR EXISTS (SELECT 1 FROM produto_creare pc WHERE pc.product_id = ${products.id})
+      )`);
+    }
+
     const rows = await db.select().from(products).where(and(...conditions)).orderBy(desc(products.createdAt));
     if (rows.length === 0) return [];
     const ids = rows.map((r) => r.id);

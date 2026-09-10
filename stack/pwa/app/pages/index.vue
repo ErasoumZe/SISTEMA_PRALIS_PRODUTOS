@@ -138,15 +138,28 @@ function aplicar(lista: Product[], silent: boolean) {
   products.value = lista;
 }
 
+/*
+ * A base tem milhares de produtos que passaram por algum cadastro em algum
+ * momento. O que a loja opera e bem menos — e e o que interessa no dia a dia.
+ * Comeca DESLIGADO: esconder produto por padrao faria alguem procurar o que
+ * esta ali e nao achar.
+ */
+const somenteVendidos = ref(false);
+
 async function load(silent = false) {
   if (!silent) loading.value = true;
   erro.value = '';
   try {
     const q = search.value || undefined;
     if (isAdmin.value) {
-      aplicar(aba.value === 'BASE' ? await api.listBase(q) : await api.listProducts(q, aba.value), silent);
+      aplicar(
+        aba.value === 'BASE'
+          ? await api.listBase(q)
+          : await api.listProducts(q, aba.value, somenteVendidos.value),
+        silent,
+      );
     } else {
-      aplicar(await api.listProducts(q), silent);
+      aplicar(await api.listProducts(q, undefined, somenteVendidos.value), silent);
     }
   } catch {
     if (!silent) erro.value = 'Não foi possível carregar.';
@@ -248,6 +261,19 @@ function preco(p: Product): string | null {
         style="flex: 1 1 220px; max-width: 320px"
         @keyup.enter="load()"
       />
+      <!--
+        Fora do painel de filtros de propósito: não é um filtro a mais, é a
+        pergunta que separa o catálogo que a loja opera do histórico inteiro.
+      -->
+      <v-chip
+        :variant="somenteVendidos ? 'flat' : 'outlined'"
+        :color="somenteVendidos ? 'primary' : 'grey-darken-1'"
+        label
+        @click="somenteVendidos = !somenteVendidos; load()"
+      >
+        <v-icon start size="18">{{ somenteVendidos ? 'check' : 'sell' }}</v-icon>
+        Só os que já vendi
+      </v-chip>
       <v-spacer />
       <!-- botão que mostra/esconde o painel de filtros (estilo marketplace) -->
       <v-btn variant="outlined" color="grey-darken-2" rounded="lg" @click="mostrarFiltros = !mostrarFiltros">

@@ -51,9 +51,15 @@ describe('agrupamento sobre as fontes reais', () => {
   it('produz a ordem de grandeza do catalogo unico, nao dos 147 do Pralis', async () => {
     const t = await grupos.totais();
 
-    // medido: ~4.322 grupos para ~4.368 produtos unicos esperados
+    /*
+     * Eram ~4.322 com quatro fontes. Com a planilha nova (1.187) e os vendidos
+     * da TNP (1.677) sao ~4.906: a maioria casa com o que ja existia, e o que
+     * nao casa vira grupo proprio — que e justamente o confronto aparecendo.
+     * A margem continua larga porque o numero se mexe quando as fontes mudam;
+     * o que o teste protege e a ORDEM DE GRANDEZA, nao o valor exato.
+     */
     expect(t.grupos).toBeGreaterThan(4000);
-    expect(t.grupos).toBeLessThan(4800);
+    expect(t.grupos).toBeLessThan(5500);
   });
 
   it('une o mesmo produto de LI e TNP num grupo so', async () => {
@@ -61,7 +67,13 @@ describe('agrupamento sobre as fontes reais', () => {
     const abacaxi = r.grupos.find((g) => g.chave === '10000')!;
 
     expect(abacaxi).toBeDefined();
-    expect(abacaxi.lojas.sort()).toEqual(['LI', 'TNP']);
+    /*
+     * BASE entrou porque a planilha nova tambem tem ABACAXI, e ela e o catalogo
+     * base no modelo novo — a aba (TNP/LI) substituiu a (BASE). Ver a fonte
+     * nova no mesmo grupo do SIA e do Compilart e o confronto funcionando.
+     */
+    expect(abacaxi.lojas.sort()).toEqual(['BASE', 'LI', 'TNP']);
+    expect(abacaxi.fontes).toContain('planilha_nova');
     expect(abacaxi.fontes).toContain('sia_li');
     expect(abacaxi.fontes).toContain('compilart_tnp');
     expect(abacaxi.motivo).toBe('mesmo_cod_barras');

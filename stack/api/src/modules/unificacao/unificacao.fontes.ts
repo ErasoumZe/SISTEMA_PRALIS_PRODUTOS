@@ -7,7 +7,13 @@
  */
 
 /** Fonte de origem de cada linha do staging. */
-export const FONTES = ['sia_li', 'compilart_tnp', 'planilha_tnp', 'fiscal_tnp', 'pralis'] as const;
+export const FONTES = [
+  'sia_li', 'compilart_tnp', 'planilha_tnp', 'fiscal_tnp', 'pralis',
+  /** A planilha que passa a valer para o cadastro (1.187 produtos). */
+  'planilha_nova',
+  /** O que a TNP ja vendeu ao menos uma vez, sem preco-sentinela (1.677). */
+  'vendidos_tnp',
+] as const;
 export type Fonte = (typeof FONTES)[number];
 
 /**
@@ -182,6 +188,13 @@ export const MAPEADORES: Record<Exclude<Fonte, 'pralis'>, (raw: Record<string, s
     venda: paraNumero(raw.VENDA),
   }),
   planilha_tnp: (raw) => base('planilha_tnp', raw),
+  /*
+   * As duas novas so trazem nome, codigo de barras e ativo. O grupo fica de
+   * fora de proposito: na planilha nova ele parece valor padrao (abacaxi como
+   * "MAT. PRIMA - FARINHAS"), e grupo define regra fiscal.
+   */
+  planilha_nova: (raw) => base('planilha_nova', raw),
+  vendidos_tnp: (raw) => base('vendidos_tnp', raw),
   fiscal_tnp: (raw) => ({
     ...base('fiscal_tnp', raw),
     ncm: texto(raw.NCM),
@@ -196,6 +209,8 @@ export const ARQUIVOS: Record<Exclude<Fonte, 'pralis'>, string> = {
   compilart_tnp: 'fonte_compilart_tnp.csv',
   planilha_tnp: 'fonte_planilha_antiga_tnp.csv',
   fiscal_tnp: 'fonte_fiscal_tnp_contabilidade.csv',
+  planilha_nova: 'fonte_planilha_nova.csv',
+  vendidos_tnp: 'fonte_vendidos_tnp.csv',
 };
 
 export function lerFonte(fonte: Exclude<Fonte, 'pralis'>, conteudo: string): LinhaFonte[] {
