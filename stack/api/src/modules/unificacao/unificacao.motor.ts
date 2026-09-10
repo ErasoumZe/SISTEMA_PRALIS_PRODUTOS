@@ -104,7 +104,20 @@ class UnionFind {
   }
 }
 
-const ORDEM_NOME = ['pralis', 'compilart_tnp', 'sia_li', 'planilha_tnp', 'fiscal_tnp'];
+/**
+ * De qual fonte sai o NOME do candidato, em ordem de preferência.
+ *
+ * Fonte que não está aqui não empresta nome — e um grupo formado só por ela
+ * ficaria SEM NOME, o que o esconde da busca e da tela. Foi o que aconteceu ao
+ * acrescentar `planilha_nova` e `vendidos_tnp` sem tocar nesta lista.
+ *
+ * As duas entram no FIM de propósito: assim os grupos que já existiam mantêm
+ * exatamente o nome que tinham, e só quem não tinha nenhum passa a ter.
+ */
+const ORDEM_NOME = [
+  'pralis', 'compilart_tnp', 'sia_li', 'planilha_tnp', 'fiscal_tnp',
+  'planilha_nova', 'vendidos_tnp',
+];
 
 const primeiroPor = <T>(
   itens: ItemFonte[],

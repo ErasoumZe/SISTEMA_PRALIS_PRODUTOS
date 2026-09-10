@@ -14,6 +14,9 @@ const LOJA_DA_FONTE: Record<string, LojaFonte> = {
   compilart_tnp: 'TNP',
   planilha_tnp: 'TNP',
   fiscal_tnp: 'TNP',
+  // a planilha nova cobre as duas lojas; as vendas registradas sao da TNP
+  planilha_nova: 'BASE',
+  vendidos_tnp: 'TNP',
 };
 
 export interface FiltrosGrupos {
