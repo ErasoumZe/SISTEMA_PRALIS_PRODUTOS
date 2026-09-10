@@ -401,6 +401,38 @@ export class ProductService {
       throw e;
     }
     if (!ok) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
+
+    /*
+     * As abas `(TNP)`/`(LI) CADASTRO PRODUTOS` são cópias linha a linha da
+     * combinada: enquanto a linha delas não esvazia, o produto excluído segue
+     * lá. Limpa a MESMA linha que a combinada acabou de liberar.
+     *
+     * DEPOIS do banco, ao contrário de `removeProduct`:
+     *  - antes do banco não adiantaria. Como esta limpeza não pode abortar a
+     *    exclusão, ela só adiantaria o risco: se o `repo.delete` falhasse, o
+     *    rollback acima repõe a linha da combinada e NÃO repõe as abas de
+     *    loja — o produto voltaria vivo no banco e na combinada, e sumido nas
+     *    cópias, que é a divergência que este caminho existe para evitar;
+     *  - depois do banco a exclusão é definitiva e irreversível: abortar não
+     *    desfaria nada. O que resta é não esconder a falha, e é isso que o
+     *    `espelhoLoja` faz, do mesmo jeito que na edição.
+     *
+     * Sem linha na combinada (`absent`, `disabled`, `skipped`) não há o que
+     * limpar nas cópias: elas se localizam pela linha, não pelo ID.
+     */
+    let espelhoLoja: EspelhoLojaResultado = 'sem-aba';
+    if (remocao.rowNumber !== null) {
+      // try/catch, não `.catch()`: erro síncrono escaparia do `.catch` e viraria
+      // um 500 numa exclusão que já valeu no banco.
+      try {
+        espelhoLoja = await this.sheetsLoja.limparNasAbasDeLoja(
+          [{ produto: p, linha: remocao.rowNumber }],
+        );
+      } catch {
+        espelhoLoja = 'falhou';
+      }
+    }
+    return { espelhoLoja };
   }
 
   /** Importa produtos da BASE para a loja do usuário (pula os já importados/duplicados). */

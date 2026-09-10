@@ -10,6 +10,7 @@ import { ProductSheetService } from '@/modules/google-sheets/product-sheet.servi
 import { unifGrupo, unifGrupoItem } from './unificacao.grupo.table';
 import { unifFonteProduto } from './unificacao.table';
 import { unifDecisao } from './unificacao.decisao.table';
+import { UnificacaoGruposService, type FiltrosGrupos } from './unificacao.grupos.service';
 import type { CandidatoUnificado } from './unificacao.motor';
 
 const rand4 = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 4);
@@ -30,6 +31,26 @@ export interface ResultadoUnificar {
   lojasCriadas: LojaDestino[];
   lojasAtualizadas: LojaDestino[];
   sheetSync: string;
+}
+
+/** O que um lote de "criar todos os que faltam" devolve para a tela. */
+export interface ResultadoLoteFaltantes {
+  /** Quantos grupos este lote pegou — já com o teto por chamada aplicado. */
+  selecionados: number;
+  /** Produto que NÃO existia e passou a existir. */
+  criados: number;
+  /**
+   * Grupo que, na hora de gravar, casou com um produto que já estava no Pralis
+   * e foi COMPLETADO em vez de criado. Não é criação nem erro: é o `flagJaNoPralis`
+   * chegando atrasado (o casamento por nome/barras é mais frouxo que a flag).
+   */
+  pulados: number;
+  falhas: number;
+  /** Quantos ainda faltam DEPOIS deste lote — é assim que a tela sabe se repete. */
+  restantes: number;
+  resultados: Array<{
+    id: string; modo?: 'criado' | 'atualizado'; productId?: string; erro?: string;
+  }>;
 }
 
 /**
@@ -55,6 +76,7 @@ export class UnificacaoAplicarService {
   constructor(
     @inject(ProductRepository) private repo: ProductRepository,
     @inject(ProductSheetService) private sheets: ProductSheetService,
+    @inject(UnificacaoGruposService) private grupos: UnificacaoGruposService,
   ) {}
 
   private async novoCodigo(): Promise<string> {
@@ -272,6 +294,59 @@ export class UnificacaoAplicarService {
       return this.atualizar(user, grupo, itens, candidato, existente);
     }
     return this.criar(user, grupo, itens, candidato, barras);
+  }
+
+  /**
+   * Cria de uma vez TODOS os grupos que ainda não estão no Pralis, dentro dos
+   * filtros que estiverem ligados na tela.
+   *
+   * A seleção não é montada aqui: vem de `idsACriar`, a mesma condição que
+   * alimenta a contagem mostrada na confirmação. É isso que faz a tela poder
+   * prometer "vai criar N" e cumprir.
+   *
+   * O lote é PEQUENO e retomável de propósito — cada criação escreve na
+   * planilha, e milhares numa requisição só estouram o tempo da requisição e a
+   * cota do Google. Cada item é gravado ao terminar, então parar no meio (ou
+   * fechar a aba) não desfaz o que já passou: é só clicar de novo.
+   *
+   * IDEMPOTENTE por construção: a seleção só enxerga grupo sem decisão, e
+   * unificar grava a decisão. Rodar duas vezes seguidas não duplica produto —
+   * a segunda passada simplesmente não seleciona nada.
+   *
+   * Um item que FALHA continua sem decisão e voltaria a ser escolhido no lote
+   * seguinte. Por isso o resultado separa `falhas` e `restantes`: é com eles
+   * que a tela para quando um lote inteiro não anda, em vez de repetir os
+   * mesmos itens para sempre.
+   */
+  async criarFaltantes(
+    user: CurrentUser,
+    filtros: FiltrosGrupos = {},
+    limite = 25,
+  ): Promise<ResultadoLoteFaltantes> {
+    if (user.role !== 'admin') {
+      throw new AppError('Apenas o administrador unifica cadastros.', 403, 'ONLY_ADMIN_UNIF');
+    }
+    const ids = await this.grupos.idsACriar(filtros, limite);
+
+    const resultados: ResultadoLoteFaltantes['resultados'] = [];
+    for (const id of ids) {
+      try {
+        // um a um, e não numa transação só: o que já gravou tem de ficar gravado
+        const r = await this.unificar(user, id, false);
+        resultados.push({ id, modo: r.modo, productId: r.productId });
+      } catch (error) {
+        resultados.push({ id, erro: error instanceof Error ? error.message : 'Falha inesperada' });
+      }
+    }
+
+    return {
+      selecionados: ids.length,
+      criados: resultados.filter((r) => r.modo === 'criado').length,
+      pulados: resultados.filter((r) => r.modo === 'atualizado').length,
+      falhas: resultados.filter((r) => r.erro).length,
+      restantes: await this.grupos.contarACriar(filtros),
+      resultados,
+    };
   }
 
   /** Completa um cadastro que já existe. Não recria nada. */

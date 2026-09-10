@@ -47,6 +47,26 @@ async function carregarGruposOficiais() {
   }
 }
 
+/**
+ * A peneira que está ligada na tela, sem paginação.
+ *
+ * A ação em massa manda ESTA para o servidor: o botão promete criar "os que
+ * faltam" do que está à vista, e agir sobre outra coisa seria mentira.
+ */
+function peneiraAtual(): FiltrosUnificacao {
+  return {
+    filtro: filtros.filtro,
+    loja: filtros.loja,
+    status: filtros.status,
+    revisar: filtros.revisar,
+    semFiscalTnp: filtros.semFiscalTnp,
+    semGrupo: filtros.semGrupo,
+    somenteVendidos: filtros.somenteVendidos,
+    decisao: filtros.decisao,
+    q: busca.value.trim() || undefined,
+  };
+}
+
 async function carregar() {
   carregando.value = true;
   erro.value = '';
@@ -59,6 +79,7 @@ async function carregar() {
     dados.value = pagina;
     totais.value = health.totais;
     void carregarTotalAutomatico();
+    void carregarTotalACriar();
   } catch (e: unknown) {
     dados.value = null;
     erro.value = (e as { data?: { message?: string } })?.data?.message
@@ -93,7 +114,7 @@ const processandoLote = ref(false);
 const totalAutomatico = ref<number | null>(null);
 const processandoTodos = ref(false);
 const pararPedido = ref(false);
-const progresso = reactive({ feitos: 0, falhas: 0, alvo: 0 });
+const progresso = reactive({ rotulo: '', feitos: 0, falhas: 0, alvo: 0 });
 
 async function carregarTotalAutomatico() {
   try {
@@ -102,6 +123,39 @@ async function carregarTotalAutomatico() {
     totalAutomatico.value = null; // o botão some em vez de mentir um número
   }
 }
+
+/**
+ * "Criar no Pralis os que faltam": quantos são, sob os filtros de AGORA.
+ *
+ * Reconta a cada carregamento porque este número é a PROMESSA da confirmação —
+ * um total velho faria a tela avisar 300 e criar 12, e ninguém saberia por quê.
+ */
+const totalACriar = ref<number | null>(null);
+const processandoFaltantes = ref(false);
+const somaFaltantes = reactive({ criados: 0, pulados: 0, falhas: 0 });
+
+async function carregarTotalACriar() {
+  try {
+    totalACriar.value = (await api.unificacaoFaltantesPendentes(peneiraAtual())).total;
+  } catch {
+    totalACriar.value = null; // o botão some em vez de mentir um número
+  }
+}
+
+/** Os filtros ligados, em português, para a confirmação dizer sobre o que ela é. */
+const resumoDosFiltros = computed(() => {
+  const p: string[] = [];
+  if (filtros.somenteVendidos) p.push('só os que já vendi');
+  if (filtros.filtro) p.push(rotuloDoMotivo(filtros.filtro));
+  if (filtros.loja) p.push(`loja ${filtros.loja}`);
+  if (filtros.status) p.push(filtros.status === 'ativo' ? 'só ativos' : 'só inativos');
+  if (filtros.revisar) p.push('precisa revisar');
+  if (filtros.semFiscalTnp) p.push('sem fiscal TNP');
+  if (filtros.semGrupo) p.push('sem grupo');
+  if (filtros.decisao === 'feita') p.push('já decididos');
+  if (busca.value.trim()) p.push(`busca "${busca.value.trim()}"`);
+  return p.length ? p.join(' · ') : 'nenhum — a base inteira';
+});
 
 async function definirGrupo(g: GrupoUnificacao) {
   const grupo = grupoEscolhido[g.id]?.trim();
@@ -165,6 +219,7 @@ async function processarTodosPorBarras() {
 
   processandoTodos.value = true;
   pararPedido.value = false;
+  progresso.rotulo = 'Unificando por código de barras';
   progresso.feitos = 0;
   progresso.falhas = 0;
   progresso.alvo = total;
@@ -194,6 +249,72 @@ async function processarTodosPorBarras() {
     };
   } finally {
     processandoTodos.value = false;
+    pararPedido.value = false;
+    await carregar();
+  }
+}
+
+/**
+ * Cria de uma vez todos os grupos que ainda NÃO estão no Pralis, dentro dos
+ * filtros ligados na tela.
+ *
+ * Diferente do "Unificar todos por código de barras": aquele só pega
+ * casamento forte e sem alertas; este pega tudo o que está à vista e ainda
+ * falta — inclusive quem entra como A CLASSIFICAR. Por isso a confirmação
+ * repete o número E os filtros: é o filtro que define o tamanho do estrago.
+ *
+ * Em lotes pelo mesmo motivo do outro: cada criação escreve na planilha. A
+ * peneira é CONGELADA antes do laço — mexer num chip no meio da execução não
+ * pode trocar o alvo do que já foi prometido.
+ */
+async function criarTodosOsQueFaltam() {
+  const total = totalACriar.value ?? 0;
+  if (!total) return;
+  const aviso = `Criar no Pralis os ${total.toLocaleString('pt-BR')} produtos que faltam?\n\n`
+    + `Filtros ligados: ${resumoDosFiltros.value}.\n\n`
+    + 'Quem chega sem grupo entra como A CLASSIFICAR. Cada um grava na planilha, '
+    + 'então demora. Você pode parar no meio; o que já passou fica.';
+  if (!confirm(aviso)) return;
+
+  const peneira = peneiraAtual();
+  processandoFaltantes.value = true;
+  pararPedido.value = false;
+  progresso.rotulo = 'Criando no Pralis os que faltam';
+  progresso.feitos = 0;
+  progresso.falhas = 0;
+  progresso.alvo = total;
+  somaFaltantes.criados = 0;
+  somaFaltantes.pulados = 0;
+  somaFaltantes.falhas = 0;
+
+  try {
+    for (;;) {
+      if (pararPedido.value) break;
+      const r = await api.unificacaoCriarFaltantes(peneira, TAMANHO_DO_LOTE);
+      if (r.selecionados === 0) break; // acabou
+      somaFaltantes.criados += r.criados;
+      somaFaltantes.pulados += r.pulados;
+      somaFaltantes.falhas += r.falhas;
+      progresso.feitos += r.criados + r.pulados;
+      progresso.falhas += r.falhas;
+      // lote inteiro sem avanço: insistir repetiria os mesmos itens para sempre
+      if (r.criados + r.pulados === 0) break;
+    }
+    flash.value = {
+      texto: `${somaFaltantes.criados.toLocaleString('pt-BR')} produto(s) criado(s)`
+        + (somaFaltantes.pulados ? `; ${somaFaltantes.pulados} já existia(m) e foi(ram) completado(s)` : '')
+        + (somaFaltantes.falhas ? `; ${somaFaltantes.falhas} falha(s) — abra "Falta decidir" para ver` : '')
+        + (pararPedido.value ? '. Parado a seu pedido.' : '.'),
+      tipo: somaFaltantes.falhas ? 'warning' : 'success',
+    };
+  } catch (e: unknown) {
+    flash.value = {
+      texto: (e as { data?: { message?: string } })?.data?.message
+        || `Falhou depois de ${somaFaltantes.criados} produto(s). O que passou está gravado.`,
+      tipo: 'error',
+    };
+  } finally {
+    processandoFaltantes.value = false;
     pararPedido.value = false;
     await carregar();
   }
@@ -386,9 +507,23 @@ const nomesDoGrupo = (g: GrupoUnificacao) =>
             color="primary"
             variant="flat"
             prepend-icon="done_all"
-            :disabled="processandoLote || processandoTodos"
+            :disabled="processandoLote || processandoTodos || processandoFaltantes"
             @click="processarTodosPorBarras"
           >Unificar todos por código de barras ({{ totalAutomatico.toLocaleString('pt-BR') }})</v-btn>
+          <!--
+            A ação em massa desta tela: cria TUDO o que está à vista e ainda não
+            existe no Pralis. O número no rótulo é o mesmo que a confirmação
+            repete — sai do servidor, sob os filtros de agora.
+          -->
+          <v-btn
+            v-if="totalACriar"
+            size="small"
+            color="primary"
+            variant="flat"
+            prepend-icon="library_add"
+            :disabled="processandoLote || processandoTodos || processandoFaltantes"
+            @click="criarTodosOsQueFaltam"
+          >Criar no Pralis os que faltam ({{ totalACriar.toLocaleString('pt-BR') }})</v-btn>
           <v-btn
             size="small"
             variant="text"
@@ -399,11 +534,12 @@ const nomesDoGrupo = (g: GrupoUnificacao) =>
         </div>
       </v-card>
 
-      <v-card v-if="processandoTodos" variant="tonal" color="primary" class="pa-4 mb-4">
+      <!-- o mesmo painel serve os dois lotes; o rótulo diz qual está rodando -->
+      <v-card v-if="processandoTodos || processandoFaltantes" variant="tonal" color="primary" class="pa-4 mb-4">
         <div class="d-flex align-center flex-wrap ga-4">
           <div class="flex-grow-1" style="min-width:220px">
             <div class="text-body-2 mb-1">
-              Unificando por código de barras — {{ progresso.feitos.toLocaleString('pt-BR') }}
+              {{ progresso.rotulo }} — {{ progresso.feitos.toLocaleString('pt-BR') }}
               de {{ progresso.alvo.toLocaleString('pt-BR') }}
               <span v-if="progresso.falhas">· {{ progresso.falhas }} falha(s)</span>
             </div>

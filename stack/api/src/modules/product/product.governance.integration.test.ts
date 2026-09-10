@@ -127,7 +127,10 @@ describe('Governança (autorização) — quem pode criar/editar/excluir', () =>
       code: 'ONLY_ADMIN_DELETE',
     });
 
-    await expect(service.delete(admin, copiaTNP.id)).resolves.toBeUndefined();
+    // A exclusão devolve como terminou a limpeza das abas de loja, igual à
+    // edição devolve `espelhoLoja`. Aqui a planilha está desligada por env: não
+    // há linha liberada na aba combinada, logo não há linha a limpar nas cópias.
+    await expect(service.delete(admin, copiaTNP.id)).resolves.toEqual({ espelhoLoja: 'sem-aba' });
     expect(await repo.findById(copiaTNP.id)).toBeNull();
   });
 });

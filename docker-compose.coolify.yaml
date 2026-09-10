@@ -27,6 +27,12 @@ services:
     build:
       context: .
       dockerfile: stack/api/Dockerfile
+      args:
+        # O SHA por dois caminhos: aqui (fica gravado na imagem) e como variável
+        # em tempo de execução, logo abaixo. Se o Coolify preencher qualquer um
+        # dos dois, /health passa a mostrar o commit; se não preencher nenhum,
+        # o `buildTime` do /health ainda diz qual build está no ar.
+        SOURCE_COMMIT: ${SOURCE_COMMIT}
     environment:
       NODE_ENV: production
       # Commit publicado, exposto em GET /health. O Coolify define SOURCE_COMMIT;

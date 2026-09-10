@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import 'reflect-metadata';
 import Fastify from 'fastify';
+import { container } from 'tsyringe';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import fastifyCookie from '@fastify/cookie';
@@ -24,6 +26,8 @@ import { apoioRoutes } from '@/modules/apoio/apoio.routes';
 import { creareRoutes } from '@/modules/creare/creare.routes';
 import { unificacaoRoutes } from '@/modules/unificacao/unificacao.routes';
 import { vendasRoutes } from '@/modules/vendas/vendas.routes';
+import { reenvioRoutes } from '@/modules/google-sheets/reenvio.routes';
+import { ReenvioSheetsService } from '@/modules/google-sheets/reenvio.service';
 
 const app = Fastify({
   logger: env.NODE_ENV === 'dev',
@@ -74,6 +78,66 @@ app.register(apoioRoutes);
 app.register(creareRoutes);
 app.register(unificacaoRoutes);
 app.register(vendasRoutes);
+app.register(reenvioRoutes);
+
+/**
+ * Reenvio automático do que a planilha recusou.
+ *
+ * A fila (`product_sheet_sync`) já existia com status e tentativas, mas ninguém
+ * a lia de volta: quando o Google falhava, a tela avisava "pendente" e a linha
+ * ficava esperando alguém reabrir o produto. Agora o processo relê sozinho.
+ *
+ * Roda só em produção e só com a integração ligada — em desenvolvimento e nos
+ * testes um temporizador de fundo batendo no Google seria ruído e cota gasta.
+ *
+ * `unref()` para o intervalo não segurar o processo vivo no encerramento.
+ *
+ * PRESSUPÕE UMA INSTÂNCIA. Com duas, as duas leriam a mesma fila; o serviço
+ * tolera (a espera é calculada no banco), mas gastaria chamada à toa. Se um dia
+ * houver réplica, isto vira job com trava.
+ */
+const MINUTOS_ENTRE_REENVIOS = 5;
+if (env.NODE_ENV === 'production' && env.GOOGLE_SHEETS_ENABLED) {
+  const relogio = setInterval(() => {
+    container.resolve(ReenvioSheetsService)
+      .reprocessar()
+      .then((r) => {
+        if (r.tentados > 0) {
+          app.log.info(
+            { reenvio: r },
+            `Reenvio à planilha: ${r.sincronizados}/${r.tentados} ok, ${r.desistidos} desistido(s)`,
+          );
+        }
+      })
+      .catch((e) => app.log.error(e, 'Reenvio à planilha falhou'));
+  }, MINUTOS_ENTRE_REENVIOS * 60 * 1000);
+  relogio.unref();
+}
+
+/**
+ * Quando a imagem foi construída, gravado pelo Dockerfile em `/app/BUILD_TIME`.
+ *
+ * É a resposta de recurso para "meu merge subiu?": o SHA depende de a
+ * plataforma injetar `SOURCE_COMMIT`, e quando ela não injeta o `commit` volta
+ * `null` — indistinguível de "a API nem sabe dizer". O carimbo do build não
+ * depende de ninguém, então sempre separa deploy novo de deploy velho.
+ *
+ * Lido UMA vez: é constante durante a vida do processo, e ler arquivo a cada
+ * health-check seria I/O à toa no caminho que o balanceador mais chama.
+ */
+const carimboDoBuild = (() => {
+  let lido: string | null | undefined;
+  return (): string | null => {
+    if (lido === undefined) {
+      try {
+        lido = readFileSync('/app/BUILD_TIME', 'utf8').trim() || null;
+      } catch {
+        lido = null; // fora do contêiner (dev, teste) o arquivo não existe
+      }
+    }
+    return lido;
+  };
+})();
 
 /**
  * Liveness + qual versao esta no ar.
@@ -88,6 +152,7 @@ app.register(vendasRoutes);
 app.get('/health', async () => ({
   ok: true,
   commit: env.BUILD_COMMIT || null,
+  buildTime: carimboDoBuild(),
   ambiente: env.NODE_ENV,
 }));
 

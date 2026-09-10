@@ -20,6 +20,18 @@ COPY stack/api ./stack/api
 # eles precisam existir na imagem. São catálogo de produto, não segredo.
 COPY docs/fonte_*.csv ./docs/
 
+# Carimbo do build. NÃO depende de variável da plataforma — é a única coisa que
+# a imagem sabe sobre si mesma com certeza. Existe porque `commit` sozinho
+# voltava `null` quando o Coolify não injetava SOURCE_COMMIT, e aí o /health não
+# distinguia "deploy novo no ar" de "deploy velho no ar", que é a pergunta que
+# se faz depois de todo merge.
+RUN date -u +%Y-%m-%dT%H:%M:%SZ > /app/BUILD_TIME
+
+# SHA publicado: chega como build-arg (o compose repassa) ou como variável em
+# tempo de execução. O que existir vence, nesta ordem.
+ARG SOURCE_COMMIT=""
+ENV BUILD_COMMIT=$SOURCE_COMMIT
+
 WORKDIR /app/stack/api
 ENV NODE_ENV=production
 EXPOSE 3344

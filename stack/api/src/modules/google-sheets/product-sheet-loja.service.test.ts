@@ -448,3 +448,78 @@ describe('espelharNasAbasDeLoja — as abas de loja na MESMA linha da combinada'
     expect(naLi.get('H')).toBe('FD'); // EMB, que e entrada, continua sendo gravada
   });
 });
+
+/**
+ * Exclusao. A linha da aba combinada e limpa ha tempos; as abas de loja, nao —
+ * e como elas sao COPIAS linha a linha, o produto excluido continuava visivel
+ * na `(TNP)` e na `(LI) CADASTRO PRODUTOS` depois de sumir de todo o resto.
+ */
+describe('limparNasAbasDeLoja — a exclusão também esvazia as abas de loja', () => {
+  it('esvazia a MESMA linha nas duas abas, nas colunas que o espelho escreve', async () => {
+    const escritas: Array<{ range: string; values: unknown[][] }> = [];
+    const s = new ProductSheetLojaService(gatewayDasAbasDeLoja(escritas));
+    const base = produto({ loja: 'BASE', nome: 'PAO FRANCES', codigoBarras: '7891000100103' });
+
+    await expect(s.limparNasAbasDeLoja([{ produto: base, linha: 20 }])).resolves.toBe('espelhado');
+
+    for (const aba of ['(TNP) CADASTRO PRODUTOS', '(LI) CADASTRO PRODUTOS']) {
+      const escrito = porColuna(escritas, aba);
+      // as MESMAS colunas do espelho, agora vazias — nao o valor do produto
+      expect(escrito.get('D')).toBe(''); // nome
+      expect(escrito.get('F')).toBe(''); // codigo de barras
+      expect(escrito.get('C')).toBe(''); // status
+    }
+    // tudo o que foi escrito e vazio: nenhuma sobra do produto excluido
+    expect(escritas.every((e) => String(e.values[0]?.[0] ?? '') === '')).toBe(true);
+    // e sempre na linha do produto, nunca em outra
+    expect(escritas.every((e) => /!\w+20$/.test(e.range))).toBe(true);
+  });
+
+  it('NÃO apaga o que a própria planilha calcula na linha', async () => {
+    const escritas: Array<{ range: string; values: unknown[][] }> = [];
+    const s = new ProductSheetLojaService(gatewayDasAbasDeLoja(escritas));
+    const li = produto({ loja: 'LI', embalagem: 'FD', cDe: 'DE', qtCad: 12 });
+
+    await s.limparNasAbasDeLoja([{ produto: li, linha: 20 }]);
+
+    const naLi = porColuna(escritas, '(LI) CADASTRO PRODUTOS');
+    expect(naLi.has('I')).toBe(false); // C/DE e VLOOKUP da propria planilha
+    expect(naLi.has('K')).toBe(false); // COMO SE COMPRA idem
+    expect(naLi.get('H')).toBe(''); // EMB e entrada: essa sim e esvaziada
+  });
+
+  it('produto de loja não esvazia a faixa da OUTRA loja', async () => {
+    const escritas: Array<{ range: string; values: unknown[][] }> = [];
+    const s = new ProductSheetLojaService(gatewayDasAbasDeLoja(escritas));
+    const li = produto({ loja: 'LI', codigoInterno: '04091', estoqueMin: 11, custo: 72 });
+
+    await s.limparNasAbasDeLoja([{ produto: li, linha: 20 }]);
+
+    const naLi = porColuna(escritas, '(LI) CADASTRO PRODUTOS');
+    const naTnp = porColuna(escritas, '(TNP) CADASTRO PRODUTOS');
+    expect(naLi.get('L')).toBe(''); // CODIGO INT. dentro de "LI - CADASTRO"
+    expect(naLi.get('N')).toBe(''); // CUSTO idem
+    expect(naTnp.has('L')).toBe(false); // a aba da TNP nao perde cadastro dela
+    expect(naTnp.has('N')).toBe(false);
+  });
+
+  /* A exclusao JA valeu no Postgres quando isto roda: nao pode estourar. */
+  it('falha do Google vira "falhou" — nunca estoura para quem excluiu', async () => {
+    const quebrado = {
+      ...gatewayDasAbasDeLoja([]),
+      batchGetValues: async () => { throw new Error('quota exceeded'); },
+    } as unknown as SheetsGateway;
+    const s = new ProductSheetLojaService(quebrado);
+
+    await expect(s.limparNasAbasDeLoja([{ produto: produto(), linha: 20 }]))
+      .resolves.toBe('falhou');
+  });
+
+  it('sem linha nenhuma não chama o Google', async () => {
+    const escritas: Array<{ range: string; values: unknown[][] }> = [];
+    const s = new ProductSheetLojaService(gatewayDasAbasDeLoja(escritas));
+
+    expect(await s.limparNasAbasDeLoja([])).toBe('espelhado');
+    expect(escritas).toEqual([]);
+  });
+});
