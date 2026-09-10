@@ -305,6 +305,63 @@ export class UnificacaoGruposService {
     return linhas.map((l) => l.id);
   }
 
+  /**
+   * Os grupos que a ação em massa da Central pode criar AGORA.
+   *
+   * Três recortes somados, cada um por um motivo diferente:
+   *  - os MESMOS filtros da listagem (`condicoesDeGrupos`), para o botão agir
+   *    exatamente sobre o que está na tela — prometer "os que faltam" e mexer
+   *    em outra coisa seria mentira;
+   *  - `flagJaNoPralis = false`, porque o que já está no catálogo não FALTA;
+   *  - `decisao IS NULL` e nome não vazio, que é o que torna a ação
+   *    IDEMPOTENTE: ao unificar, o grupo ganha decisão e sai deste universo,
+   *    então rodar de novo não acha mais nada para criar. Nome vazio ficaria
+   *    preso na fila para sempre, porque `unificar()` recusa com UNIF_SEM_NOME.
+   *
+   * Ao contrário do lote automático, aqui NÃO se exige casamento forte nem nome
+   * igual entre as fontes: quem escolheu a fatia foi o humano, nos filtros da
+   * tela, e a confirmação com a contagem é o que segura o gatilho.
+   *
+   * O filtro `decisao` da tela continua valendo por cima: com "Já decididos"
+   * ligado a conta dá zero, e é isso mesmo — ali não há o que criar.
+   */
+  private condicoesACriar(f: FiltrosGrupos): SQL {
+    return and(
+      ...condicoesDeGrupos(f),
+      eq(unifGrupo.flagJaNoPralis, false),
+      sql`${unifGrupo.decisao} IS NULL`,
+      sql`length(trim(${unifGrupo.nome})) > 0`,
+    )!;
+  }
+
+  /**
+   * Quantos produtos a ação em massa criaria com os filtros de agora.
+   *
+   * Existe para a tela poder CONFIRMAR antes de escrever no catálogo: sem o
+   * número, "criar todos os que faltam" é um botão que ninguém sabe se cria 3
+   * ou 3.000 produtos.
+   */
+  async contarACriar(f: FiltrosGrupos = {}): Promise<number> {
+    const [linha] = await db.select({ total: count() }).from(unifGrupo)
+      .where(this.condicoesACriar(f));
+    return linha?.total ?? 0;
+  }
+
+  /**
+   * O próximo lote a criar. Sai da MESMA condição da contagem, de propósito: se
+   * as duas divergissem, a tela prometeria um número e o botão faria outro.
+   *
+   * Teto por chamada porque cada criação escreve na planilha — um lote maior
+   * estoura o tempo da requisição e a cota do Google. A tela repete até acabar.
+   */
+  async idsACriar(f: FiltrosGrupos, limite: number): Promise<string[]> {
+    const linhas = await db.select({ id: unifGrupo.id }).from(unifGrupo)
+      .where(this.condicoesACriar(f))
+      .orderBy(asc(unifGrupo.nome), asc(unifGrupo.chave))
+      .limit(Math.min(200, Math.max(1, limite)));
+    return linhas.map((l) => l.id);
+  }
+
   async listar(f: FiltrosGrupos) {
     const pagina = Math.max(1, f.pagina ?? 1);
     const tamanho = Math.min(200, Math.max(1, f.tamanho ?? 50));

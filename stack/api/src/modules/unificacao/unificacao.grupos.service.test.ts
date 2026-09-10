@@ -17,6 +17,8 @@ import { and, type SQL } from 'drizzle-orm';
  */
 const espiao = vi.hoisted(() => {
   const wheres: Array<SQL | undefined> = [];
+  /** O teto por chamada também é contrato: cada criação escreve na planilha. */
+  const limites: number[] = [];
   const respostas: unknown[][] = [];
 
   /** Cadeia do drizzle o bastante para o serviço rodar: encadeia e entrega linhas. */
@@ -28,7 +30,7 @@ const espiao = vi.hoisted(() => {
       from: segue,
       leftJoin: segue,
       orderBy: segue,
-      limit: segue,
+      limit: (n: number) => { limites.push(n); return eu; },
       offset: segue,
       groupBy: segue,
       where: (w: SQL | undefined) => { wheres.push(w); return eu; },
@@ -38,7 +40,7 @@ const espiao = vi.hoisted(() => {
     return eu;
   };
 
-  return { wheres, respostas, db: { select: () => cadeia() } };
+  return { wheres, limites, respostas, db: { select: () => cadeia() } };
 });
 
 vi.mock('@/db/databases', () => ({ db: espiao.db }));
@@ -56,6 +58,7 @@ const respostaDosTotais = () => espiao.respostas.push([{ grupos: 0 }], []);
 
 beforeEach(() => {
   espiao.wheres.length = 0;
+  espiao.limites.length = 0;
   espiao.respostas.length = 0;
 });
 
@@ -121,5 +124,79 @@ describe('Central de produtos — recorte "só os que já vendi"', () => {
    */
   it('a prova da venda é a fonte vendidos_tnp', () => {
     expect(FONTE_VENDIDOS).toBe('vendidos_tnp');
+  });
+});
+
+/**
+ * A ação em massa "criar todos os que faltam".
+ *
+ * O que se tranca aqui é o CONTRATO da confirmação, e ele é de SQL: a tela
+ * mostra um número e depois manda criar. Se a contagem e a seleção não saíssem
+ * da mesma peneira, o botão criaria coisa que ninguém contou — e ninguém
+ * descobriria olhando a tela.
+ */
+describe('Central de produtos — "criar todos os que faltam"', () => {
+  const respostaDaContagem = () => espiao.respostas.push([{ total: 0 }]);
+  const respostaDosIds = () => espiao.respostas.push([]);
+
+  it('a contagem e a seleção saem da MESMA peneira', async () => {
+    respostaDaContagem();
+    respostaDosIds();
+    const filtros = { somenteVendidos: true, loja: 'TNP' as const, semGrupo: true };
+
+    await servico.contarACriar(filtros);
+    await servico.idsACriar(filtros, 50);
+
+    expect(espiao.wheres).toHaveLength(2);
+    const [contagem, selecao] = espiao.wheres.map((w) => render(w));
+    expect(selecao, 'o botão criaria o que a contagem não prometeu').toEqual(contagem);
+  });
+
+  /* O botão promete agir sobre o que está À VISTA — os filtros da tela mandam. */
+  it('carrega os filtros da listagem, não uma peneira própria', async () => {
+    const filtros = { somenteVendidos: true, loja: 'TNP' as const, q: 'ARROZ' };
+    respostaDaContagem();
+
+    await servico.contarACriar(filtros);
+
+    const daTela = render(and(...condicoesDeGrupos(filtros))).params;
+    const doLote = render(espiao.wheres[0]).params;
+    for (const p of daTela) {
+      expect(doLote, `o lote ignorou o filtro ${String(p)} que está ligado na tela`).toContain(p);
+    }
+  });
+
+  /*
+   * As duas condições que fazem a ação ser idempotente e honesta: o que já está
+   * no Pralis não FALTA, e o que já foi decidido não pode voltar para a fila —
+   * é isso que impede o segundo clique de cadastrar tudo de novo.
+   */
+  it('só o que ainda não está no Pralis, e só o que ninguém decidiu', async () => {
+    respostaDaContagem();
+
+    await servico.contarACriar();
+
+    const q = render(espiao.wheres[0]);
+    expect(q.sql, 'ia recriar o que já está no catálogo').toContain('flag_ja_no_pralis');
+    expect(q.sql, 'ia reprocessar grupo já decidido — o segundo clique duplicaria')
+      .toContain('IS NULL');
+  });
+
+  /* Grupo sem nome em fonte nenhuma trava em UNIF_SEM_NOME e ficaria preso na fila. */
+  it('não seleciona grupo sem nome', async () => {
+    respostaDaContagem();
+
+    await servico.contarACriar();
+
+    expect(render(espiao.wheres[0]).sql).toContain('length(trim(');
+  });
+
+  /* Cada criação escreve na planilha: o teto por chamada é o que segura a cota. */
+  it('a seleção tem teto por chamada, mesmo pedindo mais', async () => {
+    respostaDosIds();
+
+    await servico.idsACriar({}, 9999);
+
+    expect(espiao.limites).toEqual([200]);
   });
 });

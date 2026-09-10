@@ -37,7 +37,14 @@ const nav = computed<NavItem[]>(() => {
   if (isAdmin.value) items.push({ title: 'Central de Produtos', icon: 'merge_type', to: '/produtos/central', section: 'Administração' });
   // "Duplicados" não existe mais: a Central de Produtos faz o que ela fazia e
   // mais, sobre a base inteira em vez de só o catálogo vivo.
+  if (isAdmin.value) items.push({ title: 'Conferir planilha', icon: 'fact_check', to: '/produtos/reconciliacao', section: 'Administração' });
   if (isAdmin.value) items.push({ title: 'Usuários', icon: 'group', to: '/usuarios', section: 'Administração' });
+  /*
+   * Manutenção fica por ÚLTIMO e sozinha no fim da lista: é onde mora o "zerar
+   * catálogo". Perto de "Produtos" ou "Importar" seria vizinhança de clique
+   * apressado, e ali um erro custa o catálogo inteiro.
+   */
+  if (isAdmin.value) items.push({ title: 'Manutenção', icon: 'build', to: '/produtos/manutencao', section: 'Administração' });
   return items;
 });
 const sections = computed(() => [...new Set(nav.value.map((n) => n.section))]);
@@ -50,6 +57,8 @@ const titulo = computed(() => {
     '/vendas/de-para': 'Produtos do PDV sem cadastro',
     '/vendas/produtos': 'Produtos vendidos no período',
     '/produtos/central': 'Central de Produtos',
+    '/produtos/reconciliacao': 'Conferir planilha',
+    '/produtos/manutencao': 'Manutenção do catálogo',
     '/usuarios': 'Usuários',
     '/importar': 'Importar da base',
     '/produtos/novo': 'Novo produto',
@@ -61,6 +70,8 @@ const subtitulo = computed(() => {
     '/': 'Gerencie todos os produtos cadastrados',
     '/dashboard': 'Visão geral do seu negócio',
     '/usuarios': 'Gerencie os usuários do sistema',
+    '/produtos/reconciliacao': 'O que o banco e a planilha discordam',
+    '/produtos/manutencao': 'Ações que não têm volta',
   };
   return map[route.path] ?? '';
 });

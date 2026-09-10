@@ -1027,3 +1027,87 @@ describe('ProductSheetService — diagnóstico das abas de cadastro', () => {
     expect(sheets.chamadas.getSheets).toBe(0);
   });
 });
+
+describe('ProductSheetService — exclusão no leiaute NOVO', () => {
+  /**
+   * A linha é compartilhada: BASE e lojas moram nela lado a lado. Apagar por
+   * `INPUT_COLUMNS`, que são as letras do leiaute ANTIGO, varria colunas
+   * alheias — o antigo `AJ` era CUSTO e na planilha nova é `V. VENDA`, que é
+   * fórmula.
+   */
+  function planilhaNovaParaExcluir() {
+    return new FakeSheetsGateway({ columnCount: 26 })
+      .set('D3', 'CADASTRO GERAL')
+      .set('L3', 'TNP - CADASTRO')
+      .set('O3', 'LI - CADASTRO')
+      .set('R3', 'RODAPE')
+      .set('A5', 'V')
+      .set('D5', 'CADASTRO PRODUTOS ATUALIZADO NOVO')
+      .set('F5', 'CODIGO BARRAS')
+      .set('G5', 'MARCAS')
+      .set('L5', 'CUSTO')
+      .set('M5', 'ESTOQUE MIN')
+      .set('O5', 'CUSTO')
+      .set('P5', 'ESTOQUE MIN')
+      .set('Z5', 'ID')
+      .set('D11', 'PAO FRANCES')
+      .set('G11', 'PANIFICADORA')
+      .set('L11', '1.25')
+      .set('O11', '2.5')
+      .set('Z11', ID);
+  }
+
+  /** Colunas que a exclusão escreveu (sempre com valor vazio). */
+  const limpas = (sheets: FakeSheetsGateway) => sheets.writes
+    .filter((w) => w.value === '')
+    .map((w) => /^([A-Z]+)\d+$/.exec(w.range)?.[1])
+    .filter((c): c is string => !!c)
+    .sort();
+
+  it('produto da BASE libera as colunas gerais e o ID', async () => {
+    const sheets = planilhaNovaParaExcluir();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const base = produto({ id: ID, loja: 'BASE' });
+    const service = new ProductSheetService(fakeProductRepo(base), syncRepo, sheets);
+
+    const r = await service.removeProduct(ID);
+
+    expect(r.outcome).toBe('removed');
+    const cols = limpas(sheets);
+    expect(cols).toContain('D'); // nome
+    expect(cols).toContain('Z'); // ID: é ele que devolve a linha ao pool
+    // e NÃO varre as faixas de loja de quem divide a linha
+    expect(cols).not.toContain('L');
+    expect(cols).not.toContain('O');
+  });
+
+  it('cópia de loja apaga SÓ a faixa dela — a BASE continua inteira', async () => {
+    const sheets = planilhaNovaParaExcluir();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const li = produto({ id: OUTRO_ID, loja: 'LI', baseProductId: ID });
+    const service = new ProductSheetService(fakeProductRepo(li), syncRepo, sheets);
+
+    const r = await service.removeProduct(OUTRO_ID);
+
+    expect(r.outcome).toBe('removed');
+    const cols = limpas(sheets);
+    expect(cols).toContain('O'); // CUSTO da faixa LI
+    expect(cols).toContain('P'); // ESTOQUE MIN da faixa LI
+    // o que é da BASE e da outra loja fica de pé
+    expect(cols).not.toContain('D'); // nome do produto
+    expect(cols).not.toContain('Z'); // o ID continua sendo da BASE
+    expect(cols).not.toContain('L'); // faixa da TNP
+  });
+
+  it('não apaga coluna que a planilha calcula', async () => {
+    const sheets = planilhaNovaParaExcluir().set('G11', '=UPPER(D11)');
+    const { repo: syncRepo } = fakeSyncRepo();
+    const base = produto({ id: ID, loja: 'BASE' });
+    const service = new ProductSheetService(fakeProductRepo(base), syncRepo, sheets);
+
+    await service.removeProduct(ID);
+
+    expect(limpas(sheets)).not.toContain('G');
+    expect(sheets.get('G11')).toBe('=UPPER(D11)');
+  });
+});

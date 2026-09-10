@@ -201,4 +201,28 @@ describe('toda env que o codigo le chega no container', () => {
     const ausentes = lidas.filter((k) => !new RegExp(`^\\s+${k}:`, 'm').test(compose));
     expect(ausentes).toEqual([]);
   });
+
+  /*
+   * O SHA tem de chegar por DOIS caminhos, e não por um só.
+   *
+   * Passar apenas em `environment:` deixava `/health` devolvendo
+   * `commit: null` sempre que a plataforma não preenchia a variável no momento
+   * em que o compose é interpretado. Como build-arg ele fica gravado na
+   * imagem; como variável ele ainda pode ser corrigido sem rebuild. Um dos dois
+   * pegando já resolve, e é por isso que os dois têm de existir.
+   */
+  it('o SHA vai como build-arg E como variável de execução', () => {
+    expect(/args:\s*\n\s*(#[^\n]*\n\s*)*SOURCE_COMMIT:/m.test(compose)).toBe(true);
+    expect(/^\s+SOURCE_COMMIT: \$\{SOURCE_COMMIT\}/m.test(compose)).toBe(true);
+  });
+
+  /*
+   * O carimbo do build é a rede de segurança do /health: quando o SHA não vem,
+   * é ele que separa "deploy novo no ar" de "deploy velho no ar". Se alguém
+   * tirar a linha do Dockerfile, o /health volta a não responder nada útil.
+   */
+  it('o Dockerfile grava o carimbo do build na imagem', () => {
+    const dockerfile = readFileSync(resolve(raiz, 'stack/api/Dockerfile'), 'utf8');
+    expect(dockerfile).toMatch(/> \/app\/BUILD_TIME/);
+  });
 });

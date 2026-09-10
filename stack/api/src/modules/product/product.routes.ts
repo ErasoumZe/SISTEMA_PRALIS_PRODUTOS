@@ -4,6 +4,7 @@ import { container } from 'tsyringe';
 import { z } from 'zod/v4';
 import { ProductController } from './product.controller';
 import { ProductExportController } from './product-export.controller';
+import { ProductZerarController } from './product-zerar.controller';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { apiResponseSchema } from '@/config/api.replies';
 import { authMiddleware } from '@/middlewares/auth-handler';
@@ -11,6 +12,7 @@ import { authMiddleware } from '@/middlewares/auth-handler';
 export async function productRoutes(app: FastifyInstance) {
   const controller = container.resolve(ProductController);
   const exportController = container.resolve(ProductExportController);
+  const zerarController = container.resolve(ProductZerarController);
   const a = app.withTypeProvider<ZodTypeProvider>();
 
   // todas as rotas exigem autenticação
@@ -79,5 +81,42 @@ export async function productRoutes(app: FastifyInstance) {
       },
     },
     exportController.exportar.bind(exportController),
+  );
+
+  /*
+   * Zerar o catálogo. Duas travas de propósito:
+   *  - a frase digitada, porque clique errado acontece;
+   *  - o total que a tela mostrava, porque se alguém cadastrou no meio o número
+   *    muda e a operação para em vez de apagar mais do que foi decidido.
+   *
+   * A prévia é GET separado para a tela poder mostrar o número ANTES de
+   * qualquer botão perigoso aparecer.
+   */
+  a.get(
+    '/admin/produtos/zerar/previa',
+    {
+      schema: {
+        response: { 200: apiResponseSchema(z.object({ total: z.number(), confirmacao: z.string() })) },
+        summary: 'Quantos produtos seriam apagados (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    zerarController.previa.bind(zerarController),
+  );
+
+  a.post(
+    '/admin/produtos/zerar',
+    {
+      schema: {
+        body: z.object({
+          confirmacao: z.string(),
+          totalEsperado: z.number().int().nonnegative(),
+        }),
+        response: { 200: apiResponseSchema(z.object({ apagados: z.number() })) },
+        summary: 'Apagar TODOS os produtos do catálogo (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    zerarController.zerar.bind(zerarController),
   );
 }

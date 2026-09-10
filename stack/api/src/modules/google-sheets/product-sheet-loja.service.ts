@@ -15,7 +15,7 @@ import {
   conferirAbaDeDestino,
   traduzirCelulas,
 } from './sheet-traducao';
-import { lerLeiaute, traduzirParaPlanilhaNova } from './leiaute-planilha-nova';
+import { lerLeiaute, traduzirParaPlanilhaNova, type LeiauteNovo } from './leiaute-planilha-nova';
 
 type Product = ProductSchemas.ProductEntity;
 
@@ -328,6 +328,41 @@ export class ProductSheetLojaService {
   async espelharNasAbasDeLoja(
     itens: readonly ProdutoNaLinhaDaBase[],
   ): Promise<EspelhoLojaResultado> {
+    return this.emCadaAbaDeLoja(itens, (meta, aba, loja) =>
+      this.escreverNaAbaDaLoja(meta, aba, loja, itens));
+  }
+
+  /**
+   * Esvazia a MESMA linha nas abas de loja — o outro lado de
+   * `espelharNasAbasDeLoja`, para quando o produto é EXCLUÍDO.
+   *
+   * Se as abas de loja são cópias linha a linha da combinada, elas têm de ser
+   * cópias também quando a linha esvazia: limpar só a combinada deixava o
+   * produto excluído continuar aparecendo na `(TNP)` e na `(LI)`, e a próxima
+   * linha nova reencontrava sobra em cima do que ia gravar.
+   *
+   * Limpa exatamente as colunas que o espelho ESCREVE, nunca mais: coluna de
+   * fórmula fica de pé (apagar mataria o cálculo daquela linha para sempre) e
+   * a faixa de uma loja só é esvaziada na aba dela.
+   */
+  async limparNasAbasDeLoja(
+    itens: readonly ProdutoNaLinhaDaBase[],
+  ): Promise<EspelhoLojaResultado> {
+    return this.emCadaAbaDeLoja(itens, (meta, aba, loja) =>
+      this.limparNaAbaDaLoja(meta, aba, loja, itens));
+  }
+
+  /**
+   * Percorre as abas de loja configuradas aplicando `acao` a cada uma.
+   *
+   * Nunca lança: tanto o espelho quanto a limpeza rodam DEPOIS de o Postgres já
+   * ter decidido, e uma falha do Google não pode desfazer nem esconder o que
+   * valeu lá. Quem chamou recebe o resultado e mostra na tela.
+   */
+  private async emCadaAbaDeLoja(
+    itens: readonly ProdutoNaLinhaDaBase[],
+    acao: (meta: SheetMeta, aba: string, loja: LojaEspelhada) => Promise<void>,
+  ): Promise<EspelhoLojaResultado> {
     if (itens.length === 0) return 'espelhado';
 
     const destinos = LOJAS_ESPELHADAS
@@ -340,7 +375,7 @@ export class ProductSheetLojaService {
       for (const { loja, aba } of destinos) {
         const meta = abas.find((a) => a.title === aba);
         if (!meta) return 'falhou';
-        await this.escreverNaAbaDaLoja(meta, aba, loja, itens);
+        await acao(meta, aba, loja);
       }
       return 'espelhado';
     } catch {
@@ -348,13 +383,20 @@ export class ProductSheetLojaService {
     }
   }
 
-  /** Uma aba de loja, um lote de linhas. Lança em erro para o chamador decidir. */
-  private async escreverNaAbaDaLoja(
+  /**
+   * Leiaute da aba + as FÓRMULAS de cada linha alvo, numa leitura só.
+   *
+   * Serve à escrita e à limpeza pelo mesmo motivo: nos dois casos o que a
+   * planilha calcula na linha tem de ficar de fora, e é a leitura em `FORMULA`
+   * que revela isso — em `FORMATTED_VALUE` a célula calculada é
+   * indistinguível de uma célula digitada.
+   */
+  private async lerAbaDaLoja(
     meta: SheetMeta,
     aba: string,
     loja: LojaEspelhada,
     itens: readonly ProdutoNaLinhaDaBase[],
-  ): Promise<void> {
+  ): Promise<{ layout: LeiauteNovo; formulasPorItem: string[][] }> {
     const ultimaColuna = indexToCol(Math.max(0, meta.columnCount - 1));
     const lido = await this.sheets.batchGetValues(this.spreadsheetId, [
       a1(aba, `A3:${ultimaColuna}3`),
@@ -372,18 +414,49 @@ export class ProductSheetLojaService {
       throw new Error(`A aba "${aba}" não tem a faixa "${faixaDaLoja}".`);
     }
 
+    return {
+      layout,
+      formulasPorItem: itens.map((_, i) => ((lido[i + 2] ?? [])[0] ?? []) as string[]),
+    };
+  }
+
+  /**
+   * As colunas desta aba que pertencem a este produto, já traduzidas.
+   *
+   * Uma fonte só para escrever e para limpar: se as duas listas pudessem
+   * divergir, a exclusão deixaria sobra justamente nas colunas que o espelho
+   * havia escrito. `loja` só entra quando o produto é DAQUELA loja — a faixa da
+   * TNP não é do produto da LI, nem da BASE.
+   */
+  private colunasDoProdutoNaAba(
+    produto: Product,
+    layout: LeiauteNovo,
+    loja: LojaEspelhada,
+  ): CellMap {
+    const cells = mapProductToCells(produto, {
+      defaultLojas: env.GOOGLE_SHEETS_DEFAULT_LOJAS,
+    });
+    return traduzirParaPlanilhaNova(
+      cells, layout, produto.loja === loja ? loja : null, indexToCol,
+    ).celulas;
+  }
+
+  /** Uma aba de loja, um lote de linhas. Lança em erro para o chamador decidir. */
+  private async escreverNaAbaDaLoja(
+    meta: SheetMeta,
+    aba: string,
+    loja: LojaEspelhada,
+    itens: readonly ProdutoNaLinhaDaBase[],
+  ): Promise<void> {
+    const { layout, formulasPorItem } = await this.lerAbaDaLoja(meta, aba, loja, itens);
+
     await this.garantirCapacidade(meta, Math.max(...itens.map((i) => i.linha)));
     const raw: ValueRange[] = [];
     const interpretado: ValueRange[] = [];
 
     itens.forEach(({ produto, linha }, i) => {
-      const formulasDaLinha = (lido[i + 2] ?? [])[0] ?? [];
-      const cells = mapProductToCells(produto, {
-        defaultLojas: env.GOOGLE_SHEETS_DEFAULT_LOJAS,
-      });
-      const traduzidas = traduzirParaPlanilhaNova(
-        cells, layout, produto.loja === loja ? loja : null, indexToCol,
-      ).celulas;
+      const formulasDaLinha = formulasPorItem[i] ?? [];
+      const traduzidas = this.colunasDoProdutoNaAba(produto, layout, loja);
 
       for (const [coluna, celula] of Object.entries(traduzidas)) {
         // Não troca cálculo da planilha por valor congelado.
@@ -399,6 +472,37 @@ export class ProductSheetLojaService {
       await this.sheets.batchUpdateValues(this.spreadsheetId, interpretado, 'USER_ENTERED');
     }
     if (raw.length) await this.sheets.batchUpdateValues(this.spreadsheetId, raw, 'RAW');
+  }
+
+  /**
+   * A mesma aba, as mesmas colunas — só que vazias. Lança para o chamador
+   * decidir, igual à escrita.
+   *
+   * Sem `garantirCapacidade` de propósito: apagar nunca precisa de linha nova,
+   * e o que estiver fora da grade não tem sobra para limpar.
+   *
+   * `RAW` com string vazia é o mesmo jeito com que a linha da aba combinada já
+   * é liberada — a célula fica de fato vazia, e não com um texto que só parece.
+   */
+  private async limparNaAbaDaLoja(
+    meta: SheetMeta,
+    aba: string,
+    loja: LojaEspelhada,
+    itens: readonly ProdutoNaLinhaDaBase[],
+  ): Promise<void> {
+    const { layout, formulasPorItem } = await this.lerAbaDaLoja(meta, aba, loja, itens);
+    const limpeza: ValueRange[] = [];
+
+    itens.forEach(({ produto, linha }, i) => {
+      const formulasDaLinha = formulasPorItem[i] ?? [];
+      for (const coluna of Object.keys(this.colunasDoProdutoNaAba(produto, layout, loja))) {
+        // Apagar por cima da fórmula a destruiria naquela linha para sempre.
+        if ((formulasDaLinha[colToIndex(coluna)] ?? '').startsWith('=')) continue;
+        limpeza.push({ range: a1(aba, `${coluna}${linha}`), values: [['']] });
+      }
+    });
+
+    if (limpeza.length) await this.sheets.batchUpdateValues(this.spreadsheetId, limpeza, 'RAW');
   }
 
   /**

@@ -6,10 +6,13 @@ import { authMiddleware } from '@/middlewares/auth-handler';
 import { UnificacaoController } from './unificacao.controller';
 
 /**
- * Os filtros são do SERVIDOR. A tela manda o que o usuário escolheu e recebe só
- * a página — nunca os ~4.300 grupos para peneirar no navegador.
+ * A PENEIRA, sem paginação.
+ *
+ * Mora sozinha porque três portas usam exatamente a mesma: a listagem, a
+ * contagem do "criar todos os que faltam" e a execução dele. Se cada uma
+ * declarasse a sua, a tela contaria uma base e criaria outra.
  */
-const gruposQuerySchema = z.object({
+const peneiraSchema = z.object({
   filtro: z.enum(['mesmo_cod_barras', 'mesmo_cod_interno', 'nome_parecido', 'unico']).optional(),
   loja: z.enum(['LI', 'TNP', 'BASE', 'HORA']).optional(),
   status: z.enum(['ativo', 'inativo']).optional(),
@@ -24,8 +27,24 @@ const gruposQuerySchema = z.object({
   somenteVendidos: z.coerce.boolean().optional(),
   q: z.string().optional(),
   decisao: z.enum(['pendente', 'feita']).optional(),
+});
+
+/**
+ * Os filtros são do SERVIDOR. A tela manda o que o usuário escolheu e recebe só
+ * a página — nunca os ~4.300 grupos para peneirar no navegador.
+ */
+const gruposQuerySchema = peneiraSchema.extend({
   pagina: z.coerce.number().int().positive().optional(),
   tamanho: z.coerce.number().int().positive().max(200).optional(),
+});
+
+/**
+ * O lote em massa carrega a peneira no CORPO, com o mesmo teto por chamada do
+ * lote automático: cada criação escreve na planilha, e um lote maior estoura o
+ * tempo da requisição e a cota do Google. A tela repete até acabar.
+ */
+const criarFaltantesBodySchema = peneiraSchema.extend({
+  limite: z.coerce.number().int().min(1).max(200).optional(),
 });
 
 /**
@@ -151,6 +170,35 @@ export async function unificacaoRoutes(app: FastifyInstance) {
       },
     },
     controller.unificarAutomaticos.bind(controller),
+  );
+
+  /*
+   * "Criar todos os que faltam": a contagem vem ANTES, numa porta própria, para
+   * a tela poder confirmar com um número de verdade. Sem ela a confirmação
+   * seria um "tem certeza?" sobre quantidade desconhecida.
+   */
+  typed.get<{ Querystring: z.infer<typeof peneiraSchema> }>(
+    '/admin/unificacao/criar-faltantes/pendentes',
+    {
+      schema: {
+        querystring: peneiraSchema,
+        summary: 'Quantos produtos faltam criar no Pralis com os filtros atuais (admin)',
+        tags: ['ADMIN', 'UNIFICACAO'],
+      },
+    },
+    controller.pendentesACriar.bind(controller),
+  );
+
+  typed.post<{ Body: z.infer<typeof criarFaltantesBodySchema> }>(
+    '/admin/unificacao/criar-faltantes',
+    {
+      schema: {
+        body: criarFaltantesBodySchema.optional(),
+        summary: 'Criar em lote os grupos que ainda não estão no Pralis, respeitando os filtros (admin)',
+        tags: ['ADMIN', 'UNIFICACAO'],
+      },
+    },
+    controller.criarFaltantes.bind(controller),
   );
 
   typed.get<{ Querystring: z.infer<typeof healthQuerySchema> }>(

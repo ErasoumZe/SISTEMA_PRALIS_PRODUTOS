@@ -527,3 +527,92 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
     expect((payloadGravado?.fiscal as Product['fiscal'])?.tributacaoSimples).toBe('REGRA');
   });
 });
+
+/**
+ * O guarda do fiscal não pode travar quem NÃO mexeu no fiscal.
+ *
+ * Reproduz o que aconteceu com a loja LI em 10/09/2026: o colaborador abriu um
+ * produto importado, não tocou em nada do bloco fiscal e levou "Apenas o
+ * administrador altera os dados fiscais do produto".
+ *
+ * A causa não era uma edição: era a tela não conseguir devolver o bloco
+ * idêntico. Ela monta os números com `Number(x) || null` (um zero guardado
+ * volta como `null`) e não conhece os campos derivados nem os de ECF.
+ */
+function fakesGuardaFiscal(p: Product) {
+  const repo = {
+    async findById() { return p; },
+    async update() { return { ...p, nome: 'NOME NOVO' }; },
+    async listByBaseProductId() { return []; },
+  } as unknown as ProductRepository;
+  const sheets = {
+    async registerPending() {},
+    async syncProduct() { return { outcome: 'synced' as const, rowNumber: 12 }; },
+  } as unknown as ProductSheetService;
+  return new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService);
+}
+
+const daLoja: CurrentUser = { ...admin, role: 'user', loja: 'LI' };
+
+/** Bloco fiscal como o banco guarda. */
+const fiscalGuardado = (over: Record<string, unknown> = {}) => ({
+  ncm: '18063110', cest: null, categoria: null, cstPisCofins: '1',
+  aliquotaCheia: 0, aliquotaFcp: 0, aliquotaPis: 0, aliquotaCofins: 0,
+  reducaoIcms: 0, icms: 0,
+  tributacaoSimples: 'TRIBUTADO INTEGRAL', aliquotaSimples: 11.28, icmsRe: 3.69,
+  baseFiscal: 'Regra geral', codigoFiscal: null, produtoFiscal: null,
+  cstReforma: '000', cClassTrib: '000001', aliquotaIbs: 0, aliquotaCbs: 0,
+  origemFiscal: 'grupo', aliquotaEcf: 'SUBST TRIB', aliquotaEcfId: '10',
+  ...over,
+});
+
+describe('ProductService.update — o guarda do fiscal e os falsos positivos', () => {
+  it('a loja salva mesmo com a tela devolvendo zero guardado como null', async () => {
+    const p = produto({ loja: 'LI', fiscal: fiscalGuardado() as never });
+    const service = fakesGuardaFiscal(p);
+
+    // exatamente o que `buildFiscal()` monta: zeros viram null
+    const daTela = {
+      ncm: '18063110', cest: null, categoria: null, cstPisCofins: '1',
+      aliquotaCheia: null, aliquotaFcp: null, aliquotaPis: null, aliquotaCofins: null,
+      reducaoIcms: null, icms: null,
+      tributacaoSimples: 'TRIBUTADO INTEGRAL', aliquotaSimples: 11.28, icmsRe: 3.69,
+      baseFiscal: 'Regra geral', codigoFiscal: null, produtoFiscal: null,
+      cstReforma: '000', cClassTrib: '000001', aliquotaIbs: null, aliquotaCbs: null,
+      origemFiscal: 'grupo',
+      // a tela nem conhece estes dois
+    };
+
+    const r = await service.update(daLoja, ID, { nome: 'NOME NOVO', fiscal: daTela as never });
+
+    expect(r.nome).toBe('NOME NOVO');
+  });
+
+  it('a loja salva mesmo sem devolver os campos de ECF, que a tela não conhece', async () => {
+    const p = produto({ loja: 'LI', fiscal: fiscalGuardado() as never });
+    const service = fakesGuardaFiscal(p);
+    const { aliquotaEcf: _a, aliquotaEcfId: _b, ...semEcf } = fiscalGuardado();
+
+    const r = await service.update(daLoja, ID, { nome: 'NOME NOVO', fiscal: semEcf as never });
+
+    expect(r.nome).toBe('NOME NOVO');
+  });
+
+  it('mas mudar um campo que a pessoa DIGITA continua barrado', async () => {
+    const p = produto({ loja: 'LI', fiscal: fiscalGuardado() as never });
+    const service = fakesGuardaFiscal(p);
+    const adulterado = fiscalGuardado({ ncm: '99999999' });
+
+    await expect(service.update(daLoja, ID, { nome: 'X', fiscal: adulterado as never }))
+      .rejects.toMatchObject({ code: 'ONLY_ADMIN_FISCAL' });
+  });
+
+  it('trocar a alíquota cheia por um valor de verdade também é barrado', async () => {
+    const p = produto({ loja: 'LI', fiscal: fiscalGuardado() as never });
+    const service = fakesGuardaFiscal(p);
+    const adulterado = fiscalGuardado({ aliquotaCheia: 18 });
+
+    await expect(service.update(daLoja, ID, { nome: 'X', fiscal: adulterado as never }))
+      .rejects.toMatchObject({ code: 'ONLY_ADMIN_FISCAL' });
+  });
+});

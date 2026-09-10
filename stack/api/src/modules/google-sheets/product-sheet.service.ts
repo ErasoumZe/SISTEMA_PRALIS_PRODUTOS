@@ -510,7 +510,7 @@ export class ProductSheetService {
     // enquanto ela está sendo liberada, nem ler a coluna de IDs no meio disso.
     return this.enfileirar(async () => {
       try {
-        const rowNumber = await this.limparLinha(product.id);
+        const rowNumber = await this.limparLinha(product);
         if (rowNumber === null) {
           return { outcome: 'absent' as const, rowNumber: null, message: 'O produto não estava na planilha; nada a apagar.' };
         }
@@ -536,7 +536,43 @@ export class ProductSheetService {
    * Localiza a linha pelo UUID na coluna ID e limpa as colunas de entrada.
    * Devolve a linha liberada, ou null se o produto não está na planilha.
    */
-  private async limparLinha(productId: string): Promise<number | null> {
+  /**
+   * O que apagar da linha, no leiaute novo — e o que NÃO apagar.
+   *
+   * A linha é compartilhada: guarda o produto da BASE e as faixas das lojas
+   * lado a lado. Isso divide a exclusão em dois casos opostos:
+   *
+   *  - **produto da BASE**: a linha inteira está saindo de cena. Apaga as
+   *    colunas gerais e o ID, que é o que a devolve para o pool de linhas
+   *    livres;
+   *  - **cópia de loja**: só a faixa DAQUELA loja sai. As colunas gerais e o
+   *    ID continuam sendo do produto da BASE, que segue vivo — apagá-las
+   *    destruiria o cadastro de quem não foi excluído.
+   *
+   * A faixa da loja é obtida por diferença: o que a tradução COM loja escreve
+   * menos o que ela escreve SEM loja. Assim ela acompanha o leiaute sozinha, em
+   * vez de depender de uma lista de colunas mantida à mão.
+   */
+  private colunasParaLimpar(produto: Product, layout: SheetLayout): string[] {
+    const novo = layout.novo!;
+    const celulas = mapProductToCells(produto, {
+      defaultLojas: env.GOOGLE_SHEETS_DEFAULT_LOJAS,
+      footerColumns: layout.footer,
+    });
+    const gerais = Object.keys(
+      traduzirParaPlanilhaNova(celulas, novo, null, indexToCol).celulas,
+    );
+
+    if (produto.loja === 'BASE') return [...gerais, layout.footer.id];
+
+    const comALoja = Object.keys(
+      traduzirParaPlanilhaNova(celulas, novo, produto.loja, indexToCol).celulas,
+    );
+    const soGerais = new Set(gerais);
+    return comALoja.filter((coluna) => !soGerais.has(coluna));
+  }
+
+  private async limparLinha(produto: Product): Promise<number | null> {
     const aba = await this.resolverAba();
     const layout = await this.resolverLayout(aba);
     const divergente = layout.cabecalhos.find((h) => !h.ok);
@@ -554,14 +590,43 @@ export class ProductSheetService {
       'FORMATTED_VALUE',
     );
     const ids = (colunaIds ?? []).map((r) => (r?.[0] ?? '').trim());
-    const indice = ids.indexOf(productId);
+    /*
+     * Na planilha nova a linha é do produto da BASE: a cópia de loja divide a
+     * mesma linha e não tem ID próprio nela. Procurar pelo id da cópia não
+     * achava nada e a exclusão saía como "absent", calada.
+     */
+    const idDaLinha = layout.novo ? (produto.baseProductId ?? produto.id) : produto.id;
+    const indice = ids.indexOf(idDaLinha);
     if (indice < 0) return null;
     const linha = FIRST_DATA_ROW + indice;
 
-    const limpeza: ValueRange[] = inputColumnsFor(layout.footer).map((col) => ({
-      range: a1(this.sheetName, `${col}${linha}`),
-      values: [['']],
-    }));
+    /*
+     * As colunas a limpar são as MESMAS que a escrita usaria — e por isso
+     * passam pela mesma tradução.
+     *
+     * `inputColumnsFor` devolve as letras do leiaute ANTIGO. Na planilha nova
+     * elas apontam para outro lugar: o antigo `AJ` era CUSTO e hoje é
+     * `V. VENDA`, que é FÓRMULA. Limpar por essa lista varria dezenas de
+     * colunas alheias da linha e apagava fórmula junto — o mesmo defeito de
+     * escrever sem traduzir, um andar acima.
+     *
+     * Colunas que a linha calcula ficam de fora, pelo mesmo motivo da escrita:
+     * o cálculo é da planilha e não se troca por vazio.
+     */
+    const calculadas = layout.novo
+      ? (await this.calculadasPorLinha(aba, [linha])).get(linha) ?? new Set<string>()
+      : new Set<string>();
+
+    const colunas = layout.novo
+      ? this.colunasParaLimpar(produto, layout)
+      : inputColumnsFor(layout.footer);
+
+    const limpeza: ValueRange[] = colunas
+      .filter((col) => !calculadas.has(col))
+      .map((col) => ({
+        range: a1(this.sheetName, `${col}${linha}`),
+        values: [['']],
+      }));
     await this.sheets.batchUpdateValues(this.spreadsheetId, limpeza, 'RAW');
     return linha;
   }

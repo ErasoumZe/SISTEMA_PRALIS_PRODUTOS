@@ -56,6 +56,18 @@ export interface FiltrosUnificacao {
   somenteVendidos?: boolean;
   pagina?: number; tamanho?: number;
 }
+/** O que um lote de "criar todos os que faltam" devolve. */
+export interface LoteFaltantes {
+  selecionados: number;
+  /** Produto que NÃO existia e passou a existir. */
+  criados: number;
+  /** Já estava no Pralis e foi completado em vez de criado — não é erro. */
+  pulados: number;
+  falhas: number;
+  /** Quantos ainda faltam depois deste lote. */
+  restantes: number;
+}
+
 export interface GroupTaxRule {
   grupo: string;
   cstPisCofins: string;
@@ -82,6 +94,37 @@ export interface FiscalClassification extends GroupTaxRule {
 
 /** Estado do espelhamento do produto na planilha (etapa 1: só a BASE). */
 export type SheetSyncStatus = 'synced' | 'failed' | 'disabled' | 'skipped' | 'misconfigured';
+
+// ---- reconciliação banco x planilha (somente leitura) ----
+export type EstadoReconciliacao =
+  | 'ok' | 'desligado' | 'sem-destino' | 'sem-credencial' | 'sem-aba' | 'sem-coluna' | 'falhou';
+
+export interface ResumoReconciliacao {
+  produtosNoBanco: number;
+  linhasComProduto: number;
+  linhasComId: number;
+  semLinhaNaPlanilha: number;
+  linhasOrfas: number;
+  linhasSemId: number;
+  nomeDivergente: number;
+  limite: number;
+  /** Alguma lista foi cortada; as contagens acima continuam inteiras. */
+  truncado: boolean;
+}
+
+export interface Reconciliacao {
+  estado: EstadoReconciliacao;
+  mensagem: string;
+  spreadsheetId: string;
+  aba: string;
+  colunaId: string | null;
+  colunaNome: string | null;
+  resumo: ResumoReconciliacao;
+  semLinhaNaPlanilha: Array<{ produtoId: string; codigo: string; codigoInterno: string | null; nome: string }>;
+  linhasOrfas: Array<{ linha: number; id: string; nome: string }>;
+  linhasSemId: Array<{ linha: number; nome: string }>;
+  nomeDivergente: Array<{ produtoId: string; linha: number; nomeNoBanco: string; nomeNaPlanilha: string }>;
+}
 
 /**
  * Cliente da API (envelope { message, data, details }). Tipado pelos schemas do @pralis/shared.
@@ -212,6 +255,71 @@ export function useApi() {
     unificacaoAutoUnificar: (limite = 25) =>
       unwrap($fetch<{ data: { selecionados: number; concluidos: number; falhas: number } }>(
         '/admin/unificacao/auto-unificar', { ...base, method: 'POST', body: { limite } },
+      )),
+
+    /**
+     * Quantos produtos o "criar todos os que faltam" criaria com os filtros de
+     * agora. A tela precisa do número ANTES de confirmar — sem ele o clique é
+     * no escuro, e pode ser 3 ou 3.000 cadastros.
+     */
+    unificacaoFaltantesPendentes: (filtros: FiltrosUnificacao = {}) =>
+      unwrap($fetch<{ data: { total: number } }>(
+        '/admin/unificacao/criar-faltantes/pendentes', { ...base, query: filtros },
+      )),
+    /**
+     * Um lote de criação em massa. A tela repete enquanto sobrar `restantes`:
+     * cada criação escreve na planilha, e mandar milhares numa chamada só
+     * estouraria o tempo da requisição e a cota do Google.
+     */
+    unificacaoCriarFaltantes: (filtros: FiltrosUnificacao = {}, limite = 100) =>
+      unwrap($fetch<{ data: LoteFaltantes }>(
+        '/admin/unificacao/criar-faltantes',
+        { ...base, method: 'POST', body: { ...filtros, limite } },
+      )),
+
+    /**
+     * Divergências entre o catálogo do banco e a planilha. SOMENTE LEITURA —
+     * não existe rota irmã de "corrigir", e é de propósito.
+     */
+    produtosReconciliacao: (limite?: number) =>
+      unwrap($fetch<{ data: Reconciliacao }>('/admin/produtos/reconciliacao', {
+        ...base, query: limite ? { limite } : undefined,
+      })),
+
+    // ---- manutenção do catálogo ----
+    /**
+     * URL do CSV com a base inteira. É link direto (não fetch) para o navegador
+     * salvar o arquivo com o nome que o servidor manda — mesmo caminho do CSV
+     * de vendas. Serve de backup antes de zerar.
+     */
+    produtosCsvUrl: () => `${base.baseURL}/admin/produtos/export.csv`,
+
+    /** Quantos seriam apagados e qual frase confirma. Não apaga nada. */
+    zerarPrevia: () =>
+      unwrap($fetch<{ data: { total: number; confirmacao: string } }>(
+        '/admin/produtos/zerar/previa', { ...base },
+      )),
+
+    /**
+     * `totalEsperado` é o número que a TELA mostrava. O servidor recusa se ele
+     * não bater com o de agora — se alguém cadastrou no meio, a operação para
+     * em vez de apagar mais do que foi decidido.
+     */
+    zerarCatalogo: (confirmacao: string, totalEsperado: number) =>
+      unwrap($fetch<{ data: { apagados: number } }>('/admin/produtos/zerar', {
+        ...base, method: 'POST', body: { confirmacao, totalEsperado },
+      })),
+
+    /** Quantos produtos esperam reenvio para a planilha. */
+    reenvioPendentes: () =>
+      unwrap($fetch<{ data: { aguardando: number; desistidos: number } }>(
+        '/admin/produtos/reenvio', { ...base },
+      )),
+
+    /** Reenvia agora, sem esperar o job de 5 em 5 minutos. */
+    reenviarAgora: (limite = 50) =>
+      unwrap($fetch<{ data: { tentados: number; sincronizados: number; falharam: number; desistidos: number } }>(
+        '/admin/produtos/reenvio', { ...base, method: 'POST', body: { limite } },
       )),
 
     // ---- admin ----

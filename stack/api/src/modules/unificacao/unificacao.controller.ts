@@ -111,6 +111,41 @@ export class UnificacaoController {
     return reply.status(200).send(buildResponse({ total }, `${total} item(ns) no lote automático`));
   }
 
+  /**
+   * Quantos produtos o "criar todos os que faltam" criaria AGORA.
+   *
+   * Porta separada da execução de propósito: é ela que permite uma confirmação
+   * honesta na tela. Um "tem certeza?" sem número não é confirmação — o José
+   * não teria como saber se o clique cria 3 ou 3.000 produtos.
+   */
+  async pendentesACriar(
+    request: FastifyRequest<{ Querystring: FiltrosGrupos }>,
+    reply: FastifyReply,
+  ) {
+    exigirAdmin(request);
+    const total = await this.grupos.contarACriar(request.query ?? {});
+    return reply.status(200).send(buildResponse({ total }, `${total} produto(s) a criar`));
+  }
+
+  /**
+   * Cria em lote os grupos que ainda não estão no Pralis, sob os MESMOS filtros
+   * da listagem. A tela chama de novo enquanto sobrar `restantes`.
+   */
+  async criarFaltantes(
+    request: FastifyRequest<{ Body?: FiltrosGrupos & { limite?: number } }>,
+    reply: FastifyReply,
+  ) {
+    const user = exigirAdmin(request);
+    const { limite, ...filtros } = request.body ?? {};
+    const r = await this.aplicar.criarFaltantes(user, filtros, limite ?? 25);
+    return reply.status(200).send(buildResponse(
+      r,
+      r.selecionados
+        ? `${r.criados} produto(s) criado(s) no Pralis`
+        : 'Nenhum produto faltando com esses filtros',
+    ));
+  }
+
   async unificarAutomaticos(
     request: FastifyRequest<{ Body?: { limite?: number } }>,
     reply: FastifyReply,

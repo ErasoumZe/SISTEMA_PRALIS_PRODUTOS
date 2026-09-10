@@ -15,6 +15,12 @@ const NOVA = '1iQGitC8CMl8OGgW05buMcfqr9xer0d9CexnT6U6Dwvw';
 
 async function main() {
   const linha = Number(process.argv[2] ?? 1198);
+  /*
+   * A loja é parâmetro porque o canário real só tinha sido feito na LI. TNP e
+   * LI não são simétricas por acaso: as faixas ficam em colunas diferentes e o
+   * marcador de cada uma é outro, então "funcionou na LI" não prova a TNP.
+   */
+  const loja = (process.argv[3] ?? 'LI').toUpperCase() === 'TNP' ? 'TNP' : 'LI';
   const { env } = await import('@/config/env');
   env.GOOGLE_SHEETS_SPREADSHEET_ID = NOVA;
 
@@ -38,7 +44,7 @@ async function main() {
 
   // O produto de teste, como está hoje na tela da LI.
   const produto = {
-    id: '01a0891d-689e-7cca-a0cf-464c13226894', codigo: 'PR-TESTE', loja: 'LI',
+    id: '01a0891d-689e-7cca-a0cf-464c13226894', codigo: 'PR-TESTE', loja,
     baseProductId: 'base-teste-ze', createdByName: null, createdAt: '',
     nome: 'TESTE ZE', quantidade: 2, medidaBase: 'LT', codigoBarras: '1313131313123',
     marca: 'teste ze', embalagem: 'FD', cDe: 'DE', qtCad: 12, medidaCompra: 'UN',
