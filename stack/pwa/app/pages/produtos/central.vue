@@ -19,6 +19,14 @@ const FONTES: Record<string, string> = {
   fiscal_tnp: 'Fiscal contabilidade',
   pralis: 'Pralis',
   central_manual: 'Central',
+  /*
+   * As duas últimas faltavam aqui desde que entraram no motor, e o "Vai gravar:
+   * ... (do undefined)" só não aparecia porque elas emprestam nome por último.
+   * Com o recorte dos vendidos ligado elas passam a ser a origem da maioria das
+   * linhas na tela — sem rótulo, o José leria "undefined" o dia inteiro.
+   */
+  planilha_nova: 'Planilha nova (TNP/LI)',
+  vendidos_tnp: 'Já vendidos (TNP)',
 };
 
 const filtros = reactive<FiltrosUnificacao>({ pagina: 1, tamanho: 25, decisao: 'pendente' });
@@ -45,7 +53,8 @@ async function carregar() {
   try {
     const [pagina, health] = await Promise.all([
       api.unificacaoGrupos({ ...filtros, q: busca.value || undefined }),
-      api.unificacaoHealth(),
+      // o mesmo recorte vai para o cabeçalho: KPI e lista têm de contar a mesma base
+      api.unificacaoHealth({ somenteVendidos: filtros.somenteVendidos }),
     ]);
     dados.value = pagina;
     totais.value = health.totais;
@@ -62,7 +71,8 @@ async function carregar() {
 onMounted(() => { void Promise.all([carregar(), carregarGruposOficiais()]); });
 // mudar filtro volta para a primeira página: manter a 7 com outro filtro confunde
 watch(() => [filtros.filtro, filtros.loja, filtros.status, filtros.revisar,
-  filtros.semFiscalTnp, filtros.semGrupo, filtros.decisao], () => { filtros.pagina = 1; carregar(); });
+  filtros.semFiscalTnp, filtros.semGrupo, filtros.somenteVendidos, filtros.decisao],
+() => { filtros.pagina = 1; carregar(); });
 watch(() => filtros.pagina, carregar);
 
 let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -239,6 +249,14 @@ const brl = (v: number | string | null) =>
 const corDoMotivo = (m: string) => MOTIVOS.find((x) => x.valor === m)?.cor ?? 'grey';
 const rotuloDoMotivo = (m: string) => MOTIVOS.find((x) => x.valor === m)?.rotulo ?? m;
 
+/*
+ * "Produtos únicos" sozinho quer dizer a base inteira. Com o recorte ligado o
+ * número é outro, e o cartão tem de dizer isso: 1.6xx embaixo do rótulo que
+ * vinha marcando 7.924 pareceria conta errada, não filtro ligado.
+ */
+const rotuloUnicos = computed(() =>
+  (filtros.somenteVendidos ? 'Produtos únicos que já vendi' : 'Produtos únicos'));
+
 /** Vermelho onde as fontes discordam — é o que pede olho humano. */
 const nomesDoGrupo = (g: GrupoUnificacao) =>
   [...new Set(g.itens.map((i) => i.nome).filter(Boolean))] as string[];
@@ -251,10 +269,10 @@ const nomesDoGrupo = (g: GrupoUnificacao) =>
     </v-alert>
 
     <template v-else>
-      <!-- KPI da base TODA, não do catálogo vivo -->
+      <!-- KPI da base de reconciliação, não do catálogo vivo; acompanha o recorte dos vendidos -->
       <div v-if="totais" class="d-flex flex-wrap ga-3 mb-4">
         <v-card v-for="k in [
-          { r: 'Produtos únicos', v: totais.grupos, c: undefined },
+          { r: rotuloUnicos, v: totais.grupos, c: undefined },
           { r: 'A criar no Pralis', v: totais.aCriar, c: 'primary' },
           { r: 'Já no Pralis', v: totais.jaNoPralis, c: 'success' },
           { r: 'Sem fiscal TNP', v: totais.semFiscalTnp, c: 'warning' },
@@ -282,6 +300,22 @@ const nomesDoGrupo = (g: GrupoUnificacao) =>
             prepend-inner-icon="search"
             style="min-width: 240px; max-width: 340px"
           />
+          <!--
+            Na frente dos outros chips de propósito: não é mais um recorte de
+            navegação, é a pergunta que separa o que a loja vende de verdade do
+            histórico inteiro. Começa DESLIGADO — esconder produto por padrão
+            faria alguém procurar o que está ali e não achar.
+          -->
+          <v-chip
+            :color="filtros.somenteVendidos ? 'primary' : 'grey-darken-1'"
+            :variant="filtros.somenteVendidos ? 'flat' : 'outlined'"
+            size="small"
+            @click="alternar('somenteVendidos', filtros.somenteVendidos ? undefined : true)"
+          >
+            <v-icon start size="16">{{ filtros.somenteVendidos ? 'check' : 'sell' }}</v-icon>
+            Só os que já vendi
+          </v-chip>
+          <v-divider vertical class="mx-1" />
           <v-chip
             v-for="m in MOTIVOS"
             :key="m.valor"

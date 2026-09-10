@@ -87,3 +87,32 @@ describe('traducao para a planilha nova', () => {
     expect(colunaDoCampo(leiaute, 'ID', letra)).toBeNull();
   });
 });
+
+/*
+ * `ALIQUOTA ECF` e `ALIQUOTA ECF ID` existem só na planilha nova: a BASE antiga
+ * não tinha essas colunas e nenhuma letra as carregava. Sem as chaves
+ * sintéticas `CF`/`CG`, o valor não tinha por onde chegar e as duas colunas
+ * ficavam vazias para sempre.
+ */
+const L3_FISCAL = ['', '', '', 'CADASTRO - FISCAL'];
+const L5_FISCAL = ['', 'ALIQUOTA ECF', 'ALIQUOTA ECF ID', 'CST PIS/COFINS'];
+const leiauteFiscal = lerLeiaute(L3_FISCAL, L5_FISCAL, letra);
+
+describe('faixa fiscal da planilha nova', () => {
+  it('leva alíquota de ECF e o ID dela para as colunas de mesmo nome', () => {
+    const celulas: CellMap = { CF: texto('SUBST TRIB'), CG: texto('10') };
+
+    const { celulas: r } = traduzirParaPlanilhaNova(celulas, leiauteFiscal, null, letra);
+
+    expect(r.B).toEqual(texto('SUBST TRIB'));
+    // TEXTO: "10" e "03" são códigos; virar número comeria o zero à esquerda
+    expect(r.C).toEqual(texto('10'));
+  });
+
+  it('não confunde ALIQUOTA ECF com ALIQUOTA ECF ID, que é prefixo dela', () => {
+    const { celulas: r } = traduzirParaPlanilhaNova({ CF: texto('18,00%') }, leiauteFiscal, null, letra);
+
+    expect(r.B).toEqual(texto('18,00%'));
+    expect(r.C).toBeUndefined();
+  });
+});

@@ -126,6 +126,20 @@ export const INPUT_COLUMNS: readonly string[] = [
   'BS', 'BT', 'BU', 'BV', 'BW', 'BX', 'CA', 'CB', 'CD', 'CE',
 ];
 
+/**
+ * Chaves que existem SÓ na planilha nova.
+ *
+ * `ALIQUOTA ECF` e `ALIQUOTA ECF ID` não tinham coluna na BASE antiga, então
+ * não há letra real que as carregue. `CF`/`CG` são chaves sintéticas, escolhidas
+ * entre as letras que a BASE antiga não usava.
+ *
+ * Ficam FORA de `INPUT_COLUMNS` de propósito: é `INPUT_COLUMNS` que manda no
+ * leiaute antigo, e lá as colunas CF e CG são outra coisa. Escrever nelas
+ * corromperia a planilha antiga. No leiaute novo o destino é resolvido por
+ * NOME de cabeçalho, então a letra sintética não incomoda ninguém.
+ */
+export const COLUNAS_SO_DA_NOVA = ['CF', 'CG'] as const;
+
 export const inputColumnsFor = (footer: SheetFooterColumns): string[] => [
   ...INPUT_COLUMNS,
   ...(footer.help ? [footer.help] : []),
@@ -227,6 +241,10 @@ export function mapProductToCells(product: Product, opts: MapperOptions): CellMa
     CB: text(fiscal?.categoria ?? null),
     CD: number(fiscal?.icms ?? null),
     CE: text(fiscal?.cest ?? null), // TEXTO: CEST com zero à esquerda
+    // Só existem na planilha nova; no leiaute antigo estas chaves são ignoradas.
+    // TEXTO nos dois: "SUBST TRIB" não é número e o ID "03" perderia o zero.
+    CF: text(fiscal?.aliquotaEcf ?? null),
+    CG: text(fiscal?.aliquotaEcfId ?? null),
 
   };
 

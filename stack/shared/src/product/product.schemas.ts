@@ -56,6 +56,18 @@ export const fiscalSchema = z.object({
   aliquotaIbs: z.number().nullable().default(null),
   aliquotaCbs: z.number().nullable().default(null),
   origemFiscal: z.enum(['produto', 'plu_balanca', 'grupo']).nullable().default(null),
+  /*
+   * Alíquota de ECF: TEXTO, não número.
+   *
+   * O cadastro do Creare guarda `18,00%`, `SUBST TRIB` e `ISENTO` na mesma
+   * coluna — dois dos três não são número. E o ID (`03`, `10`, `11`) tem zero
+   * à esquerda que faz parte do código.
+   *
+   * Os dois são COPIADOS do cadastro fiscal existente, nunca derivados por
+   * semelhança fiscal: é a regra de sempre para ECF.
+   */
+  aliquotaEcf: z.string().nullable().default(null),
+  aliquotaEcfId: z.string().nullable().default(null),
 });
 
 // ---- Campos editáveis do produto (identidade + comercial) ----

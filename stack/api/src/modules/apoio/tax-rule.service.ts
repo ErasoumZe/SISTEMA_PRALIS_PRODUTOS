@@ -19,10 +19,44 @@ export interface FiscalClassification extends GroupTaxRule {
   ncm: string | null; codigoFiscal: string | null; produtoFiscal: string | null;
   cstReforma: string | null; cClassTrib: string | null; aliquotaIbs: number | null; aliquotaCbs: number | null;
   origem: 'produto' | 'plu_balanca' | 'grupo';
+  /** Cadastro de ECF do produto, quando o nome casa. `null` = não encontrado. */
+  ecf: RegistroEcf | null;
 }
 interface ProductTaxRule { codigo: string; ncm: string; cst: string; icmsRe: number; nome: string }
 interface ReformRule { cst: string; cClassTrib: string; ibs: number; cbs: number }
-interface Cache { expiresAt: number; groups: GroupTaxRule[]; products: Map<string, ProductTaxRule>; reform: Map<string, ReformRule>; cst: Map<string, { tributacao: string; aliquota: number }> }
+
+/**
+ * O cadastro fiscal de ECF de um produto, como está no Creare.
+ *
+ * Vem da aba `(TNP) FISCAL - CADASTRO ECF`, que é o cadastro antigo já
+ * confrontado com o estudo tributário. É a ÚNICA fonte destes campos: nem o
+ * de-para por produto nem a tabela por grupo os têm.
+ *
+ * Tudo aqui é COPIADO. Nada é derivado por semelhança fiscal — em especial a
+ * alíquota de ECF, que só pode vir do cadastro.
+ */
+export interface RegistroEcf {
+  reducaoIcms: number | null;
+  aliquotaCheia: number | null;
+  aliquotaFcp: number | null;
+  aliquotaPis: number | null;
+  aliquotaCofins: number | null;
+  aliquotaEcf: string | null;
+  aliquotaEcfId: string | null;
+  categoria: string | null;
+  icms: number | null;
+  cest: string | null;
+}
+
+interface Cache {
+  expiresAt: number;
+  groups: GroupTaxRule[];
+  products: Map<string, ProductTaxRule>;
+  reform: Map<string, ReformRule>;
+  cst: Map<string, { tributacao: string; aliquota: number }>;
+  /** Chaveado pelo NOME normalizado; nomes repetidos ficam de fora. */
+  ecf: Map<string, RegistroEcf>;
+}
 const CACHE_MS = 5 * 60 * 1000;
 
 /**
@@ -32,6 +66,48 @@ const CACHE_MS = 5 * 60 * 1000;
 export const normalizeGroup = (value: string): string => ProductRules.normalizarGrupo(value);
 export const parseSheetPercent = (value: string): number => { const parsed = Number(value.replace('%', '').replace(/\./g, '').replace(',', '.').trim()); return Number.isFinite(parsed) ? parsed : 0; };
 const code = (value: string) => value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+
+/** Aba com o cadastro de ECF. Criada por `scripts/montar-aba-fiscal-ecf.ts`. */
+export const ABA_ECF = '(TNP) FISCAL - CADASTRO ECF';
+
+/**
+ * Chave de nome para casar produto com o cadastro de ECF.
+ *
+ * SEM ACENTO de propósito: a planilha de cadastro escreve `AÇÚCAR` e o cadastro
+ * do Creare escreve `AÇUCAR`. É a mesma palavra, e exigir o acento jogava fora
+ * casamentos legítimos — medido: 537 subiram para 565 só tirando o acento.
+ * Tirar acento não aproxima produtos diferentes, apenas junta grafias.
+ */
+export const chaveNomeEcf = (value: string): string => String(value ?? '')
+  .normalize('NFD')
+  .replace(/[̀-ͯ]/g, '')
+  .replace(/\p{Cf}/gu, '')
+  .replace(/[^A-Za-z0-9 ]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .toUpperCase();
+
+/**
+ * Campo do Creare com casas decimais IMPLÍCITAS para número.
+ *
+ * A escala não é uniforme e não dá para adivinhar pelo tamanho: `18000` em
+ * ALIQUOTA CHEIA é 18,000% (3 casas) e `5333` em REDUCAO_ICMS é 53,33% (2
+ * casas). Por isso a escala é dita por quem chama, a partir do que os dados
+ * mostram — e não inferida aqui.
+ *
+ * Também aceita o formato já pontuado (`0,00`), que aparece em % NCM e ICMS.
+ */
+export const parseCampoCreare = (value: string, casas: number): number | null => {
+  const bruto = String(value ?? '').trim();
+  if (bruto === '') return null;
+  if (bruto.includes(',') || bruto.includes('.')) {
+    const n = Number(bruto.replace(/\./g, '').replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  }
+  if (!/^\d+$/.test(bruto)) return null; // "X" e afins: lixo, não zero
+  const n = Number(bruto) / 10 ** casas;
+  return Number.isFinite(n) ? n : null;
+};
 
 /**
  * NCM tem 8 dígitos FIXOS, e o zero à esquerda faz parte do código.
@@ -165,15 +241,84 @@ export class TaxRuleService {
         'TAX_RULES_EMPTY',
       );
     }
-    this.cache = { expiresAt: Date.now() + CACHE_MS, groups, products, reform, cst: cstMap }; return this.cache;
+    const ecf = await this.carregarEcf();
+    this.cache = { expiresAt: Date.now() + CACHE_MS, groups, products, reform, cst: cstMap, ecf }; return this.cache;
+  }
+
+  /**
+   * Cadastro de ECF por produto, em leitura SEPARADA e à prova de falha.
+   *
+   * Separada de propósito: uma faixa fora da grade derruba o lote inteiro do
+   * Sheets, e já aconteceu de a aba fiscal sumir e levar junto todas as tabelas
+   * — o cadastro parou de salvar por completo. Aqui, se a aba não existir ou
+   * vier vazia, o resultado é um mapa vazio e o cadastro segue exatamente como
+   * era antes: sem os campos de ECF, nunca quebrado.
+   *
+   * Colunas, na ordem que `montar-aba-fiscal-ecf.ts` grava (linha 1 = cabeçalho):
+   *   A COD INTERNO · B NOME · C NOME NO ESTUDO · D CASOU POR
+   *   E REDUCAO_ICMS · F ALIQUOTA CHEIA · G ALIQUOTA FCP · H CST PIS/COFINS
+   *   I ALIQUOTA PIS · J ALIQUOTA COFINS · K ALIQUOTA ECF · L ALIQUOTA ECF ID
+   *   M NCM · N CATEGORIA · O % NCM · P ICMS · Q CODIGO CEST
+   */
+  private async carregarEcf(): Promise<Map<string, RegistroEcf>> {
+    const vazio = new Map<string, RegistroEcf>();
+    let linhas: string[][];
+    try {
+      const [lido] = await this.sheets.batchGetValues(
+        env.GOOGLE_SHEETS_SPREADSHEET_ID, [a1(ABA_ECF, 'A2:Q4000')], 'FORMATTED_VALUE',
+      );
+      linhas = (lido ?? []) as string[][];
+    } catch { return vazio; }
+
+    /*
+     * Nome repetido NÃO entra. Duas linhas com o mesmo nome são dois produtos
+     * diferentes, e escolher uma delas seria atribuir imposto por sorteio.
+     * Melhor deixar o campo vazio e a pessoa preencher.
+     */
+    const vistos = new Set<string>();
+    const ambiguos = new Set<string>();
+    const mapa = new Map<string, RegistroEcf>();
+
+    for (const l of linhas) {
+      const chave = chaveNomeEcf(String(l?.[1] ?? ''));
+      if (!chave) continue;
+      if (vistos.has(chave)) { ambiguos.add(chave); continue; }
+      vistos.add(chave);
+      const t = (i: number) => String(l?.[i] ?? '').trim() || null;
+      mapa.set(chave, {
+        // escalas medidas no dado real: 5333 = 53,33% e 18000 = 18,000%
+        reducaoIcms: parseCampoCreare(String(l?.[4] ?? ''), 2),
+        aliquotaCheia: parseCampoCreare(String(l?.[5] ?? ''), 3),
+        aliquotaFcp: parseCampoCreare(String(l?.[6] ?? ''), 2),
+        // PIS e COFINS são zero em todas as 3.122 linhas de hoje: a escala não
+        // é verificável no dado, e zero é zero em qualquer escala. Se um valor
+        // diferente de zero aparecer, confira a escala antes de confiar.
+        aliquotaPis: parseCampoCreare(String(l?.[8] ?? ''), 4),
+        aliquotaCofins: parseCampoCreare(String(l?.[9] ?? ''), 4),
+        aliquotaEcf: t(10),
+        aliquotaEcfId: t(11),
+        categoria: t(13),
+        icms: parseCampoCreare(String(l?.[15] ?? ''), 2),
+        cest: t(16),
+      });
+    }
+    for (const chave of ambiguos) mapa.delete(chave);
+    return mapa;
   }
 
   async list(): Promise<GroupTaxRule[]> { return (await this.load()).groups; }
   async requireForGroup(group: string): Promise<GroupTaxRule> { const rule = (await this.list()).find((item) => normalizeGroup(item.grupo) === normalizeGroup(group)); if (!rule) throw new AppError(`O grupo "${group}" não possui regra fiscal cadastrada.`, 422, 'TAX_RULE_NOT_FOUND'); return rule; }
-  async classify(group: string, barcode?: string | null): Promise<FiscalClassification> {
+  /**
+   * `nome` é opcional e serve só para o cadastro de ECF, que não tem código de
+   * barras: a coluna REFERENCIA do Creare é `0000000000000000` em todas as
+   * 3.122 linhas. Sem o nome, a classificação continua exatamente como era —
+   * grupo e de-para por barras —, apenas sem os campos de ECF.
+   */
+  async classify(group: string, barcode?: string | null, nome?: string | null): Promise<FiscalClassification> {
     const cache = await this.load(); const groupRule = await this.requireForGroup(group); const candidates = barcodeCandidates(barcode);
     const matchIndex = candidates.findIndex((candidate) => cache.products.has(candidate)); const product = matchIndex >= 0 ? cache.products.get(candidates[matchIndex]!)! : null;
     const cst = product?.cst || groupRule.cstPisCofins; const cstRule = cache.cst.get(cst); const reform = product?.ncm ? cache.reform.get(product.ncm) : null;
-    return { ...groupRule, cstPisCofins: cst, icmsRe: product?.icmsRe ?? groupRule.icmsRe, tributacaoSimples: cstRule?.tributacao || groupRule.tributacaoSimples, aliquotaSimples: cstRule?.aliquota ?? groupRule.aliquotaSimples, ncm: product?.ncm ?? null, codigoFiscal: product?.codigo ?? null, produtoFiscal: product?.nome ?? null, cstReforma: reform?.cst || null, cClassTrib: reform?.cClassTrib || null, aliquotaIbs: reform?.ibs ?? null, aliquotaCbs: reform?.cbs ?? null, origem: product ? (matchIndex === 0 ? 'produto' : 'plu_balanca') : 'grupo' };
+    const ecf = nome ? cache.ecf.get(chaveNomeEcf(nome)) ?? null : null;
+    return { ...groupRule, cstPisCofins: cst, icmsRe: product?.icmsRe ?? groupRule.icmsRe, tributacaoSimples: cstRule?.tributacao || groupRule.tributacaoSimples, aliquotaSimples: cstRule?.aliquota ?? groupRule.aliquotaSimples, ncm: product?.ncm ?? null, codigoFiscal: product?.codigo ?? null, produtoFiscal: product?.nome ?? null, cstReforma: reform?.cst || null, cClassTrib: reform?.cClassTrib || null, aliquotaIbs: reform?.ibs ?? null, aliquotaCbs: reform?.cbs ?? null, origem: product ? (matchIndex === 0 ? 'produto' : 'plu_balanca') : 'grupo', ecf };
   }
 }

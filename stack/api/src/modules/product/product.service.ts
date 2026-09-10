@@ -64,6 +64,13 @@ export class ProductService {
       aliquotaCheia: null, aliquotaFcp: null, aliquotaPis: null,
       aliquotaCofins: null, reducaoIcms: null, icms: null,
     };
+    /*
+     * O cadastro de ECF entra por ÚLTIMO e só onde o produto casou pelo nome.
+     * É cópia do cadastro que o Creare já usava — nunca derivação por
+     * semelhança fiscal. Onde não casou, `ecf` é `null` e cada campo mantém o
+     * que já estava: o comportamento de antes, sem os campos de ECF.
+     */
+    const ecf = rule.ecf;
     return {
       ...payload,
       grupo: rule.grupo,
@@ -71,6 +78,16 @@ export class ProductService {
         ...fiscal,
         ncm: rule.ncm ?? fiscal.ncm,
         cstPisCofins: rule.cstPisCofins,
+        reducaoIcms: ecf?.reducaoIcms ?? fiscal.reducaoIcms,
+        aliquotaCheia: ecf?.aliquotaCheia ?? fiscal.aliquotaCheia,
+        aliquotaFcp: ecf?.aliquotaFcp ?? fiscal.aliquotaFcp,
+        aliquotaPis: ecf?.aliquotaPis ?? fiscal.aliquotaPis,
+        aliquotaCofins: ecf?.aliquotaCofins ?? fiscal.aliquotaCofins,
+        aliquotaEcf: ecf?.aliquotaEcf ?? null,
+        aliquotaEcfId: ecf?.aliquotaEcfId ?? null,
+        categoria: ecf?.categoria ?? fiscal.categoria,
+        icms: ecf?.icms ?? fiscal.icms,
+        cest: ecf?.cest ?? fiscal.cest,
         tributacaoSimples: rule.tributacaoSimples,
         aliquotaSimples: rule.aliquotaSimples,
         icmsRe: rule.icmsRe,
