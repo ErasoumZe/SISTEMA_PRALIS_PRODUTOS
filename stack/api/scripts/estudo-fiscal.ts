@@ -308,21 +308,39 @@ async function main() {
   if (mudaIcms.length) { console.log(`\n--- %ICMS RE que o estudo corrige (primeiros 10) ---`); console.log(mudaIcms.slice(0, 10).join('\n')); }
 
   // ---- o resultado da regra, pronto para virar aba ----
-  const cabecalho = ['CÓDIGO', 'NCM', 'CST PIS/COFINS', '% ICMS RE', 'PRODUTO', 'ORIGEM'];
+  /*
+   * `NOME NO ESTUDO` é coluna própria, separada de `PRODUTO`.
+   *
+   * Os dois divergem, e a diferença importa: o código 11518 é `FANTA UVA 2L`
+   * no estudo e `HAMBURGUER` na coluna PRODUTO da aba fiscal. Quem casa por
+   * nome tem de usar o nome do ESTUDO — foi usar o outro que fez o casamento
+   * pôr NCM de refrigerante em hambúrguer.
+   */
+  const cabecalho = ['CÓDIGO', 'NCM', 'CST PIS/COFINS', '% ICMS RE', 'PRODUTO', 'ORIGEM', 'NOME NO ESTUDO'];
   const linhas: string[][] = [];
   for (const p of daPlanilha) {
     const e = final.get(p.codigo);
-    if (!e) { linhas.push([p.codigo, p.ncm, p.cst, p.icms, p.nome, 'planilha (estudo calou)']); continue; }
+    if (!e) { linhas.push([p.codigo, p.ncm, p.cst, p.icms, p.nome, 'planilha (estudo calou)', '']); continue; }
     const mudou = e.ncm !== p.ncm || e.cst !== p.cst || (!!e.icmsRe && e.icmsRe !== p.icms);
     linhas.push([
       p.codigo, e.ncm, e.cst, e.icmsRe || p.icms,
       p.nome.startsWith('(NAO VENDIDO') ? e.nome : p.nome,
       mudou ? `estudo ${e.mes} (corrige)` : 'iguais',
+      e.nome,
     ]);
   }
   for (const e of soNoEstudo) {
-    linhas.push([e.codigo, e.ncm, e.cst, e.icmsRe, e.nome, `estudo ${e.mes} (novo)`]);
+    linhas.push([e.codigo, e.ncm, e.cst, e.icmsRe, e.nome, `estudo ${e.mes} (novo)`, e.nome]);
   }
+
+  const nomeDivergente = daPlanilha.filter((p) => {
+    const e = final.get(p.codigo);
+    return e && !p.nome.startsWith('(NAO VENDIDO') && e.nome && e.nome !== p.nome;
+  });
+  console.log(`\n  a coluna PRODUTO da aba fiscal diverge do estudo em ${nomeDivergente.length} linhas`);
+  nomeDivergente.slice(0, 6).forEach((p) => {
+    console.log(`     ${p.codigo} L${p.linha}: planilha "${p.nome}"  vs  estudo "${final.get(p.codigo)!.nome}"`);
+  });
 
   const destino = resolve(process.cwd(), '../../docs/fiscal-consolidado.tsv');
   writeFileSync(destino, [cabecalho, ...linhas].map((l) => l.join('\t')).join('\r\n'), 'utf8');
@@ -330,4 +348,43 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((e) => { console.error('FALHOU:', e?.stack ?? e?.message ?? e); process.exit(1); });
+/**
+ * Bloco de COMPRAS de todos os meses, por NOME.
+ *
+ * É a segunda opinião do estudo: cobre produto que a loja comprou e não vendeu
+ * no período, que por isso não tem código e não aparece no bloco de vendas.
+ * Exportado para `montar-aba-fiscal-ecf.ts`, que só o aceita quando o NCM já
+ * concorda com o cadastro antigo — corroboração antes de atribuir imposto.
+ */
+export function lerComprasDoEstudo(): Map<string, { ncm: string; cst: string }> {
+  const arquivos = readdirSync(PASTA);
+  const nomeArquivo = arquivos.find((f) => f === ARQUIVO_ESTUDO)
+    ?? arquivos.find((f) => f.toUpperCase().includes('DADOS TNP'));
+  if (!nomeArquivo) return new Map();
+  const wb = XLSX.read(readFileSync(join(PASTA, nomeArquivo)), { type: 'buffer' });
+
+  const compras = new Map<string, { ncm: string; cst: string }>();
+  for (const mes of MESES) {
+    const aba = wb.SheetNames.find((n) => chaveNome(n).includes(mes));
+    if (!aba) continue;
+    const linhas = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[aba]!, { header: 1, raw: true, defval: '' });
+    const ini = linhas.findIndex((l) => chaveNome((l ?? [])[0]).startsWith('MERCADORIA'));
+    const fim = acharBlocoDeVendas(linhas);
+    if (ini < 0) continue;
+    for (let i = ini + 1; i < (fim > 0 ? fim : linhas.length); i += 1) {
+      const l = linhas[i] ?? [];
+      const nome = chaveNome(l[0]);
+      const cst = chaveCst(l[4]);
+      // NCM curto = a leitura saiu do bloco e pegou preço
+      if (!nome || String(l[3] ?? '').replace(/\D/g, '').length < 7 || !CST_VALIDOS.has(cst)) continue;
+      compras.set(nome, { ncm: chaveNcm(l[3]), cst });
+    }
+  }
+  return compras;
+}
+
+// Também é biblioteca: `montar-aba-fiscal-ecf.ts` importa `lerComprasDoEstudo`.
+// Sem a guarda, o import rodaria `main()` e encerraria o outro processo.
+if (process.argv[1]?.includes('estudo-fiscal')) {
+  main().catch((e) => { console.error('FALHOU:', e?.stack ?? e?.message ?? e); process.exit(1); });
+}
