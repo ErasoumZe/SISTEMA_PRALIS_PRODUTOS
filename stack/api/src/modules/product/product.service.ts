@@ -132,7 +132,17 @@ export class ProductService {
     // Depois do commit: tenta espelhar. O produto JÁ está salvo — se o Google
     // falhar, o registro fica `failed` e o usuário vê "sincronização pendente",
     // nunca um erro que o faça cadastrar de novo.
-    const sync = await this.sheets.syncProduct(created.id).catch(() => ({ outcome: 'failed' as const }));
+    const sync = await this.sheets
+      .syncProduct(created.id)
+      .catch(() => ({ outcome: 'failed' as const, rowNumber: null }));
+    /*
+     * As abas de loja são cópias linha a linha da combinada e carregam as
+     * colunas gerais de TODOS os produtos, inclusive os da BASE. Pular a BASE
+     * aqui deixaria a linha nova em branco nelas e desalinharia a seguinte.
+     */
+    if (sync.outcome === 'synced' && sync.rowNumber !== null) {
+      await this.espelharNasAbasDeLoja([{ produto: created, linha: sync.rowNumber }]);
+    }
     return { ...created, sheetSync: sync.outcome };
   }
 
@@ -233,19 +243,28 @@ export class ProductService {
     // principal decide se escreve os campos gerais ou somente a faixa LI/TNP.
     const sync = await this.sheets
       .syncProduct(updated.id)
-      .catch(() => ({ outcome: 'failed' as const }));
+      .catch(() => ({ outcome: 'failed' as const, rowNumber: null }));
     const sheetSync: SheetSyncOutcome = sync.outcome;
 
-    // O espelho direto na aba da loja existe apenas para o leiaute antigo.
-    // `skipped`/`disabled` permitem o fallback; falha no destino principal não
-    // pode ser mascarada por uma escrita em outro lugar.
-    const espelhoLoja = updated.loja === 'BASE'
-      ? 'sem-aba' as const
-      : sheetSync === 'synced'
-        ? 'espelhado' as const
-        : sheetSync === 'failed' || sheetSync === 'misconfigured'
-          ? 'falhou' as const
-          : await this.espelharNaAbaDaLoja([updated]);
+    /*
+     * Na planilha nova, as abas `(TNP)`/`(LI) CADASTRO PRODUTOS` são cópias
+     * linha a linha da combinada e precisam da MESMA linha — inclusive para
+     * produto da BASE, porque elas carregam as colunas gerais de todos.
+     *
+     * O espelho dedicado antigo só entra quando o destino principal não
+     * escreveu: `skipped`/`disabled` permitem o fallback, mas falha não pode
+     * ser mascarada por uma escrita em outro lugar.
+     */
+    let espelhoLoja: EspelhoLojaResultado;
+    if (sheetSync === 'synced' && sync.rowNumber !== null) {
+      espelhoLoja = await this.espelharNasAbasDeLoja([{ produto: updated, linha: sync.rowNumber }]);
+    } else if (updated.loja === 'BASE') {
+      espelhoLoja = 'sem-aba';
+    } else if (sheetSync === 'failed' || sheetSync === 'misconfigured') {
+      espelhoLoja = 'falhou';
+    } else {
+      espelhoLoja = await this.espelharNaAbaDaLoja([updated]);
+    }
     return { ...updated, sheetSync, lojasAtualizadas, espelhoLoja };
   }
 
@@ -359,12 +378,17 @@ export class ProductService {
     // espelho dedicado anterior sem duplicar escritas.
     const resultados = await this.sheets
       .syncStoreProducts(criados)
-      .catch(() => criados.map(() => ({ outcome: 'failed' as const })));
+      .catch(() => criados.map(() => ({ outcome: 'failed' as const, rowNumber: null })));
     const outcomes = resultados.map((r) => r.outcome);
     const espelhoLoja: EspelhoLojaResultado = outcomes.some((o) => o === 'failed' || o === 'misconfigured')
       ? 'falhou'
       : outcomes.some((o) => o === 'synced')
-        ? 'espelhado'
+        ? await this.espelharNasAbasDeLoja(
+          criados.flatMap((produto, i) => {
+            const linha = resultados[i]?.rowNumber;
+            return linha == null ? [] : [{ produto, linha }];
+          }),
+        )
         : await this.espelharNaAbaDaLoja(criados);
     return { imported, skipped, espelhoLoja };
   }
@@ -385,6 +409,23 @@ export class ProductService {
     // exemplo) escapa do `.catch` e derrubaria o cadastro que ja foi salvo.
     try {
       return await this.sheetsLoja.espelharVarios(produtos, loja as LojaEspelhada);
+    } catch {
+      return 'falhou';
+    }
+  }
+
+  /**
+   * Mantém as abas `(TNP)` e `(LI) CADASTRO PRODUTOS` na MESMA linha da aba
+   * combinada. Vale para produto da BASE também: elas guardam as colunas
+   * gerais de TODOS os produtos, e escrever só a combinada quebra o
+   * alinhamento — foi exatamente o que aconteceu com a linha 1198.
+   */
+  private async espelharNasAbasDeLoja(
+    itens: Array<{ produto: ProductSchemas.ProductEntity; linha: number }>,
+  ): Promise<EspelhoLojaResultado> {
+    if (itens.length === 0) return 'sem-aba';
+    try {
+      return await this.sheetsLoja.espelharNasAbasDeLoja(itens);
     } catch {
       return 'falhou';
     }

@@ -3,14 +3,19 @@ import type { ProductSchemas } from '@pralis/shared';
 import { env } from '@/config/env';
 import { AppError } from '@/config/api.replies';
 import { SHEETS_GATEWAY } from './google-sheets.di';
-import { a1, type SheetMeta, type SheetsGateway } from './google-sheets.client';
+import {
+  a1, colToIndex, indexToCol,
+  type SheetMeta, type SheetsGateway, type ValueRange,
+} from './google-sheets.client';
 import { mapProductToCells, type CellMap, type SheetCell } from './product-sheet.mapper';
 import {
   cabecalhosPorColuna,
+  normalizarCabecalho,
   colunasPorCabecalho,
   conferirAbaDeDestino,
   traduzirCelulas,
 } from './sheet-traducao';
+import { lerLeiaute, traduzirParaPlanilhaNova } from './leiaute-planilha-nova';
 
 type Product = ProductSchemas.ProductEntity;
 
@@ -51,6 +56,11 @@ export interface PrevisaoEspelho {
   semCorrespondencia: string[];
   /** Colunas auxiliares da BASE sem cabeçalho: não há como casar por nome. */
   semCabecalho: string[];
+}
+
+export interface ProdutoNaLinhaDaBase {
+  produto: Product;
+  linha: number;
 }
 
 const colunaPorIndice = (i: number): string => (i < 26
@@ -295,6 +305,100 @@ export class ProductSheetLojaService {
     } catch {
       return 'falhou';
     }
+  }
+
+  /**
+   * Mantém as abas de loja alinhadas com a aba combinada, na MESMA linha.
+   *
+   * As abas `(TNP)` e `(LI) CADASTRO PRODUTOS` não são vistas nem espelhos por
+   * fórmula: são CÓPIAS linha a linha da aba combinada, com uma única faixa de
+   * loja no lugar das duas. Medido na planilha em 10/09/2026: das 1.188 linhas
+   * com produto, 1.187 têm nome idêntico nas três abas — a única divergente era
+   * justamente a linha que o sistema criou escrevendo só na combinada.
+   *
+   * Daí as duas regras desta função:
+   *  - toda aba de loja recebe SEMPRE as colunas gerais, inclusive as de
+   *    produto da BASE, senão o alinhamento quebra na próxima linha nova;
+   *  - a faixa da loja só é escrita na aba DAQUELA loja — a aba da LI nunca
+   *    pode receber dado da TNP.
+   *
+   * As fórmulas que já existem na linha são preservadas: o que a planilha
+   * calcula continua sendo dela.
+   */
+  async espelharNasAbasDeLoja(
+    itens: readonly ProdutoNaLinhaDaBase[],
+  ): Promise<EspelhoLojaResultado> {
+    if (itens.length === 0) return 'espelhado';
+
+    const destinos = LOJAS_ESPELHADAS
+      .map((loja) => ({ loja, aba: this.abaDaLoja(loja) }))
+      .filter((d): d is { loja: LojaEspelhada; aba: string } => !!d.aba);
+    if (destinos.length === 0) return 'sem-aba';
+
+    try {
+      const abas = await this.sheets.getSheets(this.spreadsheetId);
+      for (const { loja, aba } of destinos) {
+        const meta = abas.find((a) => a.title === aba);
+        if (!meta) return 'falhou';
+        await this.escreverNaAbaDaLoja(meta, aba, loja, itens);
+      }
+      return 'espelhado';
+    } catch {
+      return 'falhou';
+    }
+  }
+
+  /** Uma aba de loja, um lote de linhas. Lança em erro para o chamador decidir. */
+  private async escreverNaAbaDaLoja(
+    meta: SheetMeta,
+    aba: string,
+    loja: LojaEspelhada,
+    itens: readonly ProdutoNaLinhaDaBase[],
+  ): Promise<void> {
+    const ultimaColuna = indexToCol(Math.max(0, meta.columnCount - 1));
+    const lido = await this.sheets.batchGetValues(this.spreadsheetId, [
+      a1(aba, `A3:${ultimaColuna}3`),
+      a1(aba, `A${LINHA_CABECALHO}:${ultimaColuna}${LINHA_CABECALHO}`),
+      ...itens.map(({ linha }) => a1(aba, `A${linha}:${ultimaColuna}${linha}`)),
+    ], 'FORMULA');
+
+    const layout = lerLeiaute(
+      ((lido[0] ?? [])[0] ?? []) as string[],
+      ((lido[1] ?? [])[0] ?? []) as string[],
+      indexToCol,
+    );
+    const faixaDaLoja = normalizarCabecalho(`${loja} - CADASTRO`);
+    if (!layout.faixas.some((f) => f.nome === faixaDaLoja)) {
+      throw new Error(`A aba "${aba}" não tem a faixa "${faixaDaLoja}".`);
+    }
+
+    await this.garantirCapacidade(meta, Math.max(...itens.map((i) => i.linha)));
+    const raw: ValueRange[] = [];
+    const interpretado: ValueRange[] = [];
+
+    itens.forEach(({ produto, linha }, i) => {
+      const formulasDaLinha = (lido[i + 2] ?? [])[0] ?? [];
+      const cells = mapProductToCells(produto, {
+        defaultLojas: env.GOOGLE_SHEETS_DEFAULT_LOJAS,
+      });
+      const traduzidas = traduzirParaPlanilhaNova(
+        cells, layout, produto.loja === loja ? loja : null, indexToCol,
+      ).celulas;
+
+      for (const [coluna, celula] of Object.entries(traduzidas)) {
+        // Não troca cálculo da planilha por valor congelado.
+        if ((formulasDaLinha[colToIndex(coluna)] ?? '').startsWith('=')) continue;
+        const range = a1(aba, `${coluna}${linha}`);
+        if (celula.kind === 'text') raw.push({ range, values: [[celula.value]] });
+        else if (celula.kind === 'empty') interpretado.push({ range, values: [['']] });
+        else interpretado.push({ range, values: [[celula.value]] });
+      }
+    });
+
+    if (interpretado.length) {
+      await this.sheets.batchUpdateValues(this.spreadsheetId, interpretado, 'USER_ENTERED');
+    }
+    if (raw.length) await this.sheets.batchUpdateValues(this.spreadsheetId, raw, 'RAW');
   }
 
   /**

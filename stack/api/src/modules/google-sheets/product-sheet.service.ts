@@ -369,9 +369,15 @@ export class ProductSheetService {
         if (existentes.length > 0) {
           const raw: ValueRange[] = [];
           const userEntered: ValueRange[] = [];
+          // uma leitura só para o lote inteiro: as fórmulas de cada linha alvo
+          const calculadas = await this.calculadasPorLinha(
+            aba, existentes.map(({ product }) => linhaPorId.get(product.baseProductId!)!),
+          );
           for (const { product } of existentes) {
             const linha = linhaPorId.get(product.baseProductId!)!;
-            const ranges = this.rangesParaGravar(product, linha, layout);
+            const ranges = this.rangesParaGravar(
+              product, linha, layout, calculadas.get(linha) ?? new Set<string>(),
+            );
             raw.push(...ranges.raw);
             userEntered.push(...ranges.userEntered);
           }
@@ -835,7 +841,7 @@ export class ProductSheetService {
     await this.garantirFormulas(aba, linha, layout.novo !== null);
 
     // 6) por fim, as células de entrada
-    await this.gravarCelulas(product, linha, layout);
+    await this.gravarCelulas(product, linha, layout, aba);
     return linha;
   }
 
@@ -1044,6 +1050,13 @@ export class ProductSheetService {
     product: Product,
     linha: number,
     layout: SheetLayout,
+    /**
+     * Colunas que a própria linha calcula. Gravar valor por cima de fórmula
+     * apaga a fórmula para sempre naquela linha — foi o que aconteceu com
+     * `C/DE` e `COMO SE COMPRA` na linha 1198, que viraram texto solto
+     * enquanto as outras 1.187 linhas seguiam calculando.
+     */
+    calculadas: ReadonlySet<string> = new Set(),
   ): { raw: ValueRange[]; userEntered: ValueRange[] } {
     const { footer } = layout;
     const cells: CellMap = mapProductToCells(product, {
@@ -1071,6 +1084,7 @@ export class ProductSheetService {
     for (const col of colunas) {
       const cell = paraEscrever[col];
       if (!cell) continue;
+      if (calculadas.has(col)) continue; // o cálculo é da planilha; não se troca por valor
       const range = a1(this.sheetName, `${col}${linha}`);
       if (cell.kind === 'text') raw.push({ range, values: [[cell.value]] });
       else if (cell.kind === 'number') userEntered.push({ range, values: [[cell.value]] });
@@ -1081,8 +1095,47 @@ export class ProductSheetService {
     return { raw, userEntered };
   }
 
-  private async gravarCelulas(product: Product, linha: number, layout: SheetLayout): Promise<void> {
-    const { raw, userEntered } = this.rangesParaGravar(product, linha, layout);
+  /**
+   * Colunas que a PRÓPRIA linha calcula, uma entrada por linha pedida.
+   *
+   * Lê a linha de DESTINO, não a linha-modelo: é isso que torna o guarda
+   * auto-corretivo. `garantirFormulas` roda antes e repõe a fórmula que
+   * faltava; o que voltou a ser fórmula deixa de ser gravado na mesma passada,
+   * e uma linha já estragada se conserta sozinha no próximo salvamento.
+   */
+  private async calculadasPorLinha(
+    aba: SheetMeta,
+    linhas: readonly number[],
+  ): Promise<Map<number, Set<string>>> {
+    const ultimaColuna = indexToCol(Math.max(0, aba.columnCount - 1));
+    const lido = await this.sheets.batchGetValues(
+      this.spreadsheetId,
+      linhas.map((l) => a1(this.sheetName, `A${l}:${ultimaColuna}${l}`)),
+      'FORMULA',
+    );
+    const mapa = new Map<number, Set<string>>();
+    linhas.forEach((l, i) => {
+      const calculadas = new Set<string>();
+      ((lido[i] ?? [])[0] ?? []).forEach((valor, coluna) => {
+        if (typeof valor === 'string' && valor.startsWith('=')) calculadas.add(indexToCol(coluna));
+      });
+      mapa.set(l, calculadas);
+    });
+    return mapa;
+  }
+
+  private async gravarCelulas(
+    product: Product,
+    linha: number,
+    layout: SheetLayout,
+    aba: SheetMeta,
+  ): Promise<void> {
+    // Só o leiaute novo tem fórmula no meio das colunas de entrada; no antigo a
+    // lista `INPUT_COLUMNS` já separa entrada de calculada.
+    const calculadas = layout.novo
+      ? (await this.calculadasPorLinha(aba, [linha])).get(linha) ?? new Set<string>()
+      : new Set<string>();
+    const { raw, userEntered } = this.rangesParaGravar(product, linha, layout, calculadas);
     if (userEntered.length) {
       await this.sheets.batchUpdateValues(this.spreadsheetId, userEntered, 'USER_ENTERED');
     }

@@ -322,3 +322,129 @@ describe('espelho automático em lote', () => {
     expect(escritas).toEqual([]);
   });
 });
+
+/**
+ * As abas `(TNP)` e `(LI) CADASTRO PRODUTOS` sao COPIAS linha a linha da aba
+ * combinada, com uma unica faixa de loja no lugar das duas. Medido na planilha
+ * em 10/09/2026: das 1.188 linhas com produto, 1.187 tinham nome identico nas
+ * tres abas — a unica divergente era justamente a linha que o sistema criou
+ * escrevendo so na combinada.
+ */
+const abaDeLoja = (loja: 'TNP' | 'LI', linhaAlvo: number) => {
+  const vazias = () => Array.from({ length: 14 }, () => '');
+  const faixas = vazias();
+  faixas[5] = 'CADASTRO GERAL';
+  faixas[11] = `${loja} - CADASTRO`;
+  const cabecalhos = vazias();
+  cabecalhos[2] = 'V';
+  cabecalhos[3] = 'CADASTRO PRODUTOS ATUALIZADO NOVO';
+  cabecalhos[5] = 'CODIGO BARRAS';
+  cabecalhos[6] = 'MARCAS';
+  cabecalhos[7] = 'EMB';
+  cabecalhos[8] = 'C/DE';
+  cabecalhos[9] = 'QT';
+  cabecalhos[10] = 'COMO SE COMPRA ESSE PRODUTO?';
+  cabecalhos[11] = 'CODIGO INT.';
+  cabecalhos[12] = 'ESTOQUE MIN';
+  cabecalhos[13] = 'CUSTO';
+  // duas colunas que a PROPRIA planilha calcula na linha do produto
+  const linha = vazias();
+  linha[8] = `=IFERROR(VLOOKUP(H${linhaAlvo};DE_PARA;2;0);"")`;
+  linha[10] = `=IF(I${linhaAlvo}="";"";"1 "&H${linhaAlvo})`;
+  return { faixas, cabecalhos, linha };
+};
+
+const gatewayDasAbasDeLoja = (
+  escritas: Array<{ range: string; values: unknown[][] }>,
+  linhaAlvo = 20,
+) => {
+  const abas: Record<string, ReturnType<typeof abaDeLoja>> = {
+    '(TNP) CADASTRO PRODUTOS': abaDeLoja('TNP', linhaAlvo),
+    '(LI) CADASTRO PRODUTOS': abaDeLoja('LI', linhaAlvo),
+  };
+  return {
+    getSheets: async () => Object.keys(abas).map((title, i) => ({
+      title, sheetId: i + 1, rowCount: 5000, columnCount: 14,
+    })),
+    batchGetValues: async (_id: string, faixas: string[]) => faixas.map((faixa) => {
+      const titulo = Object.keys(abas).find((t) => faixa.includes(t))!;
+      const aba = abas[titulo]!;
+      if (/!A3:/.test(faixa)) return [aba.faixas];
+      if (/!A5:/.test(faixa)) return [aba.cabecalhos];
+      return [aba.linha];
+    }),
+    batchUpdateValues: async (
+      _id: string,
+      valores: Array<{ range: string; values: unknown[][] }>,
+    ) => { escritas.push(...valores); },
+    batchUpdate: async () => {},
+  } as unknown as SheetsGateway;
+};
+
+/** O que foi escrito em UMA aba, por letra de coluna. */
+const porColuna = (
+  escritas: Array<{ range: string; values: unknown[][] }>,
+  aba: string,
+): Map<string, string> => {
+  const mapa = new Map<string, string>();
+  for (const e of escritas) {
+    if (!e.range.includes(aba)) continue;
+    const coluna = /!([A-Z]+)\d+$/.exec(e.range)?.[1];
+    if (coluna) mapa.set(coluna, String(e.values[0]?.[0] ?? ''));
+  }
+  return mapa;
+};
+
+describe('espelharNasAbasDeLoja — as abas de loja na MESMA linha da combinada', () => {
+  it('leva a faixa da loja so para a aba dela, e as gerais para as duas', async () => {
+    const escritas: Array<{ range: string; values: unknown[][] }> = [];
+    const s = new ProductSheetLojaService(gatewayDasAbasDeLoja(escritas));
+    const li = produto({
+      loja: 'LI', nome: 'TESTE ZE 2 LT', codigoInterno: '04091', estoqueMin: 11, custo: 72,
+    });
+
+    await expect(s.espelharNasAbasDeLoja([{ produto: li, linha: 20 }])).resolves.toBe('espelhado');
+
+    const naLi = porColuna(escritas, '(LI) CADASTRO PRODUTOS');
+    const naTnp = porColuna(escritas, '(TNP) CADASTRO PRODUTOS');
+
+    expect(naLi.get('L')).toBe('04091'); // CODIGO INT. dentro de "LI - CADASTRO"
+    expect(naLi.get('M')).toBe('11');
+    expect(naLi.get('N')).toBe('72');
+    // a aba da TNP nao pode ganhar nenhum dado de cadastro da LI
+    expect(naTnp.has('L')).toBe(false);
+    expect(naTnp.has('M')).toBe(false);
+    expect(naTnp.has('N')).toBe(false);
+    // ...mas recebe as colunas gerais, senao a linha 20 desalinha das outras
+    expect(naTnp.get('D')).toBe('TESTE ZE 2 LT');
+    expect(naLi.get('D')).toBe('TESTE ZE 2 LT');
+  });
+
+  it('produto da BASE alinha as duas abas sem tocar em faixa de loja', async () => {
+    const escritas: Array<{ range: string; values: unknown[][] }> = [];
+    const s = new ProductSheetLojaService(gatewayDasAbasDeLoja(escritas));
+    const base = produto({ loja: 'BASE', nome: 'PAO FRANCES', codigoInterno: '00042', custo: 3 });
+
+    await expect(s.espelharNasAbasDeLoja([{ produto: base, linha: 20 }])).resolves.toBe('espelhado');
+
+    for (const aba of ['(TNP) CADASTRO PRODUTOS', '(LI) CADASTRO PRODUTOS']) {
+      const escrito = porColuna(escritas, aba);
+      expect(escrito.get('D')).toBe('PAO FRANCES');
+      expect(escrito.has('L')).toBe(false); // CODIGO INT. e da loja, nao da BASE
+      expect(escrito.has('N')).toBe(false); // CUSTO idem
+    }
+  });
+
+  it('preserva as colunas que a propria planilha calcula na linha', async () => {
+    const escritas: Array<{ range: string; values: unknown[][] }> = [];
+    const s = new ProductSheetLojaService(gatewayDasAbasDeLoja(escritas));
+    const li = produto({ loja: 'LI', embalagem: 'FD', cDe: 'DE', qtCad: 12 });
+
+    await s.espelharNasAbasDeLoja([{ produto: li, linha: 20 }]);
+
+    const naLi = porColuna(escritas, '(LI) CADASTRO PRODUTOS');
+    expect(naLi.has('I')).toBe(false); // C/DE e VLOOKUP da propria planilha
+    expect(naLi.has('K')).toBe(false); // COMO SE COMPRA idem
+    expect(naLi.get('H')).toBe('FD'); // EMB, que e entrada, continua sendo gravada
+  });
+});

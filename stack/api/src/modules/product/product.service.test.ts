@@ -17,6 +17,7 @@ type Product = ProductSchemas.ProductEntity;
  */
 const espelhoLojaFalso = {
   async espelharVarios() { return 'desligado' as const; },
+  async espelharNasAbasDeLoja() { return 'espelhado' as const; },
 } as unknown as ProductSheetLojaService;
 
 const ID = '0197d7c4-2c9a-7000-8000-000000000001';
@@ -197,6 +198,7 @@ describe('ProductService.update — o resultado do espelho não pode sumir', () 
     } as unknown as ProductSheetService;
     const legado = {
       async espelharVarios() { chamadas.push('planilha:legado'); return 'espelhado' as const; },
+      async espelharNasAbasDeLoja() { chamadas.push('planilha:alinhada'); return 'espelhado' as const; },
     } as unknown as ProductSheetLojaService;
     const service = new ProductService(repo, sheets, legado, {} as TaxRuleService);
 
@@ -226,11 +228,12 @@ describe('ProductService.importFromBase — faixa da loja na aba geral', () => {
     const sheets = {
       async syncStoreProducts(produtos: Product[]) {
         chamadas.push(`planilha:lote:${produtos.length}`);
-        return produtos.map(() => ({ outcome: 'synced' as const }));
+        return produtos.map(() => ({ outcome: 'synced' as const, rowNumber: 11 }));
       },
     } as unknown as ProductSheetService;
     const legado = {
       async espelharVarios() { chamadas.push('planilha:legado'); return 'espelhado' as const; },
+      async espelharNasAbasDeLoja() { chamadas.push('planilha:alinhada'); return 'espelhado' as const; },
     } as unknown as ProductSheetLojaService;
     const service = new ProductService(repo, sheets, legado, {} as TaxRuleService);
     const usuarioLi: CurrentUser = { ...admin, role: 'user', loja: 'LI' };
@@ -238,7 +241,7 @@ describe('ProductService.importFromBase — faixa da loja na aba geral', () => {
     const r = await service.importFromBase(usuarioLi, [ID]);
 
     expect(r).toMatchObject({ imported: 1, skipped: 0, espelhoLoja: 'espelhado' });
-    expect(chamadas).toEqual(['banco:create', 'planilha:lote:1']);
+    expect(chamadas).toEqual(['banco:create', 'planilha:lote:1', 'planilha:alinhada']);
   });
 
   it('usa o espelho legado quando o destino principal ainda está no leiaute antigo', async () => {
