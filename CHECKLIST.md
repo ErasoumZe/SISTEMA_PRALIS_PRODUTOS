@@ -96,13 +96,12 @@ Ainda falta:
       hoje (CIGARROS: 0,2 / 0,1 / 0,3). Nos outros 73 o campo continua em
       branco para ser digitado. Preencher na coluna `N` da aba
       `(TNP/LI/HORA - EXP.) GRUPOS/REF. - VLD SAIDA` e o sistema passa a usar.
-- [ ] **Espelho nas abas de loja — só falta ligar a chave.** Tudo construído:
-      tradução por nome de cabeçalho, linha achada pelo `ID`, conferência sem
-      gravar (`GET /admin/sheets/loja/previsualizar`) e espelho automático em
-      lote na importação e na edição. Falta **uma** coisa sua: pôr
-      `GOOGLE_SHEETS_LOJA_ESPELHO_AUTO=true` no Coolify, depois de olhar a
-      conferência de um produto. HORA continua fora, de propósito. Ver
-      [`docs/espelho-abas-loja.md`](docs/espelho-abas-loja.md).
+- [x] **Espelho LI/TNP no leiaute combinado — corrigido localmente em 10/09.**
+      Importação e edição passam a escrever a faixa da loja na mesma linha da
+      BASE, localizada por `baseProductId`. A chave
+      `GOOGLE_SHEETS_LOJA_ESPELHO_AUTO` pertence ao leiaute antigo e não deve ser
+      ligada como correção da planilha atual. **Ainda não publicado/homologado
+      em produção.** Ver [`docs/espelho-abas-loja.md`](docs/espelho-abas-loja.md).
 - [ ] **Listas oficiais** de setor e local de venda (hoje são texto livre;
       viram lista fechada quando você passar).
 - [ ] **Lista oficial dos grupos de mercadoria** (backlog DB-02).

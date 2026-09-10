@@ -19,7 +19,7 @@ import {
 } from './leiaute-planilha-nova';
 
 /**
- * ETAPA 1: espelha na planilha o produto criado na BASE.
+ * Espelha na planilha o produto da BASE ou a faixa da loja correspondente.
  *
  * Princípios (não negociáveis):
  *  - o Postgres é a fonte principal; falha no Google NUNCA desfaz o cadastro;
@@ -205,7 +205,6 @@ export class ProductSheetService {
 
   /**
    * Registra o produto como `pending` DENTRO da transação de criação.
-   * Só produtos da BASE são espelhados nesta etapa.
    */
   async registerPending(productId: string, tx?: Tx): Promise<void> {
     await this.syncRepo.ensurePending(
@@ -277,6 +276,178 @@ export class ProductSheetService {
           error,
         };
       }
+    });
+  }
+
+  /**
+   * Sincroniza, em lote, as cópias criadas por "Importar da base".
+   *
+   * Na planilha nova a BASE e as lojas compartilham a mesma linha. Por isso o
+   * UUID usado para localizar a linha é `baseProductId`, enquanto cada produto
+   * grava somente a faixa da própria loja. As linhas da BASE que já existem são
+   * resolvidas com UMA leitura e escritas em DOIS lotes (RAW/USER_ENTERED).
+   * Produtos cuja linha da BASE ainda não existe usam o caminho idempotente
+   * completo, um a um, para reservar e preparar a linha com segurança.
+   */
+  async syncStoreProducts(products: readonly Product[]): Promise<SyncResult[]> {
+    if (products.length === 0) return [];
+
+    const resultadoGlobal = (outcome: SheetSyncOutcome, message: string): SyncResult[] =>
+      products.map(() => ({ outcome, rowNumber: null, message }));
+
+    if (!this.enabled) {
+      return resultadoGlobal(
+        'disabled',
+        'Integração com a planilha desligada (GOOGLE_SHEETS_ENABLED=false).',
+      );
+    }
+    const faltando = this.destinoFaltando;
+    if (faltando.length > 0) {
+      return resultadoGlobal(
+        'misconfigured',
+        `Integração ligada, mas sem destino configurado: ${faltando.join(', ')}. Nada foi escrito.`,
+      );
+    }
+
+    return this.enfileirar(async () => {
+      const resultados: Array<SyncResult | undefined> = new Array(products.length);
+      const elegiveis = products
+        .map((product, index) => ({ product, index }))
+        .filter(({ product, index }) => {
+          if (product.loja !== 'BASE' && product.baseProductId) return true;
+          resultados[index] = {
+            outcome: 'skipped',
+            rowNumber: null,
+            message: 'Produto sem loja ou sem vínculo com a BASE; nada foi escrito.',
+          };
+          return false;
+        });
+
+      if (elegiveis.length === 0) return resultados as SyncResult[];
+
+      try {
+        const aba = await this.resolverAba();
+        const layout = await this.resolverLayout(aba);
+        if (!layout.novo) {
+          for (const { index } of elegiveis) {
+            resultados[index] = {
+              outcome: 'skipped',
+              rowNumber: null,
+              message: 'A planilha usa o leiaute antigo; o espelho legado da aba da loja deve ser usado.',
+            };
+          }
+          return resultados as SyncResult[];
+        }
+
+        const divergente = layout.cabecalhos.find((h) => !h.ok);
+        if (divergente) {
+          throw new Error(
+            `Cabeçalho inesperado ou ausente na linha ${HEADER_ROW}: esperado "${divergente.esperado}".`,
+          );
+        }
+
+        await Promise.all(elegiveis.map(({ product }) => this.syncRepo.ensurePending({
+          productId: product.id,
+          spreadsheetId: this.spreadsheetId,
+          sheetName: this.sheetName,
+        })));
+
+        const [ids] = await this.sheets.batchGetValues(
+          this.spreadsheetId,
+          [a1(this.sheetName, `${layout.footer.id}${FIRST_DATA_ROW}:${layout.footer.id}`)],
+          'FORMATTED_VALUE',
+        );
+        const linhaPorId = new Map<string, number>();
+        (ids ?? []).forEach((r, i) => {
+          const id = (r?.[0] ?? '').trim();
+          if (id && !linhaPorId.has(id)) linhaPorId.set(id, FIRST_DATA_ROW + i);
+        });
+
+        const existentes = elegiveis.filter(({ product }) => linhaPorId.has(product.baseProductId!));
+        const semLinha = elegiveis.filter(({ product }) => !linhaPorId.has(product.baseProductId!));
+
+        if (existentes.length > 0) {
+          const raw: ValueRange[] = [];
+          const userEntered: ValueRange[] = [];
+          for (const { product } of existentes) {
+            const linha = linhaPorId.get(product.baseProductId!)!;
+            const ranges = this.rangesParaGravar(product, linha, layout);
+            raw.push(...ranges.raw);
+            userEntered.push(...ranges.userEntered);
+          }
+
+          try {
+            if (userEntered.length) {
+              await this.sheets.batchUpdateValues(this.spreadsheetId, userEntered, 'USER_ENTERED');
+            }
+            if (raw.length) await this.sheets.batchUpdateValues(this.spreadsheetId, raw, 'RAW');
+
+            await Promise.all(existentes.map(async ({ product, index }) => {
+              const linha = linhaPorId.get(product.baseProductId!)!;
+              await this.syncRepo.markSynced(product.id, linha);
+              resultados[index] = {
+                outcome: 'synced',
+                rowNumber: linha,
+                message: `Produto espelhado na planilha (linha ${linha}).`,
+              };
+            }));
+          } catch (e) {
+            const error = sanitizeError(e);
+            await Promise.all(existentes.map(async ({ product, index }) => {
+              await this.syncRepo.markFailed(product.id, error).catch(() => {});
+              resultados[index] = {
+                outcome: 'failed',
+                rowNumber: null,
+                message: 'Produto salvo no banco. Sincronização com a planilha pendente.',
+                error,
+              };
+            }));
+          }
+        }
+
+        for (const { product, index } of semLinha) {
+          try {
+            const linha = await this.escrever(product);
+            await this.syncRepo.markSynced(product.id, linha);
+            resultados[index] = {
+              outcome: 'synced',
+              rowNumber: linha,
+              message: `Produto espelhado na planilha (linha ${linha}).`,
+            };
+          } catch (e) {
+            const error = sanitizeError(e);
+            await this.syncRepo.markFailed(product.id, error).catch(() => {});
+            resultados[index] = {
+              outcome: 'failed',
+              rowNumber: null,
+              message: 'Produto salvo no banco. Sincronização com a planilha pendente.',
+              error,
+            };
+          }
+        }
+      } catch (e) {
+        const error = sanitizeError(e);
+        await Promise.all(elegiveis.map(async ({ product, index }) => {
+          await this.syncRepo.ensurePending({
+            productId: product.id,
+            spreadsheetId: this.spreadsheetId,
+            sheetName: this.sheetName,
+          }).catch(() => {});
+          await this.syncRepo.markFailed(product.id, error).catch(() => {});
+          resultados[index] = {
+            outcome: 'failed',
+            rowNumber: null,
+            message: 'Produto salvo no banco. Sincronização com a planilha pendente.',
+            error,
+          };
+        }));
+      }
+
+      return resultados.map((r) => r ?? ({
+        outcome: 'failed' as const,
+        rowNumber: null,
+        message: 'Produto salvo no banco. Sincronização com a planilha pendente.',
+      }));
     });
   }
 
@@ -869,7 +1040,11 @@ export class ProductSheetService {
    * Dois lotes: RAW (texto literal, preserva zero à esquerda) e USER_ENTERED
    * (números, hora e percentual que a planilha precisa interpretar).
    */
-  private async gravarCelulas(product: Product, linha: number, layout: SheetLayout): Promise<void> {
+  private rangesParaGravar(
+    product: Product,
+    linha: number,
+    layout: SheetLayout,
+  ): { raw: ValueRange[]; userEntered: ValueRange[] } {
     const { footer } = layout;
     const cells: CellMap = mapProductToCells(product, {
       defaultLojas: env.GOOGLE_SHEETS_DEFAULT_LOJAS,
@@ -903,7 +1078,14 @@ export class ProductSheetService {
       else userEntered.push({ range, values: [['']] }); // limpa
     }
 
-    await this.sheets.batchUpdateValues(this.spreadsheetId, userEntered, 'USER_ENTERED');
-    await this.sheets.batchUpdateValues(this.spreadsheetId, raw, 'RAW');
+    return { raw, userEntered };
+  }
+
+  private async gravarCelulas(product: Product, linha: number, layout: SheetLayout): Promise<void> {
+    const { raw, userEntered } = this.rangesParaGravar(product, linha, layout);
+    if (userEntered.length) {
+      await this.sheets.batchUpdateValues(this.spreadsheetId, userEntered, 'USER_ENTERED');
+    }
+    if (raw.length) await this.sheets.batchUpdateValues(this.spreadsheetId, raw, 'RAW');
   }
 }

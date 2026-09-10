@@ -11,6 +11,7 @@ type Product = ProductSchemas.ProductEntity;
 
 const ID = '0197d7c4-2c9a-7000-8000-000000000001';
 const OUTRO_ID = '0197d7c4-2c9a-7000-8000-000000000002';
+const TERCEIRO_ID = '0197d7c4-2c9a-7000-8000-000000000003';
 
 function produto(over: Partial<Product> = {}): Product {
   return {
@@ -762,6 +763,63 @@ describe('ProductSheetService — health (somente leitura)', () => {
 
     expect(health).toMatchObject({ enabled: false, ok: false, erro: 'GOOGLE_SHEETS_ENABLED=false' });
     expect(sheets.chamadas.getSheets).toBe(0);
+  });
+});
+
+describe('ProductSheetService — importação em lote no leiaute novo', () => {
+  function planilhaNovaComBase() {
+    return new FakeSheetsGateway({ columnCount: 26 })
+      // As seções da linha 3 são o contrato que distingue o leiaute novo.
+      .set('D3', 'CADASTRO GERAL')
+      .set('L3', 'TNP - CADASTRO')
+      .set('O3', 'LI - CADASTRO')
+      .set('R3', 'RODAPE')
+      .set('A5', 'V')
+      .set('D5', 'CADASTRO PRODUTOS ATUALIZADO NOVO')
+      .set('F5', 'CODIGO BARRAS')
+      .set('G5', 'MARCAS')
+      .set('L5', 'CUSTO')
+      .set('M5', 'ESTOQUE MIN')
+      .set('O5', 'CUSTO')
+      .set('P5', 'ESTOQUE MIN')
+      .set('Z5', 'ID')
+      .set('D11', 'PAO FRANCES')
+      .set('Z11', ID);
+  }
+
+  it('localiza uma vez a linha da BASE e escreve cada loja somente na sua faixa', async () => {
+    const sheets = planilhaNovaComBase();
+    const { rows, repo: syncRepo } = fakeSyncRepo();
+    const tnp = produto({ id: OUTRO_ID, loja: 'TNP', baseProductId: ID, custo: 1.25, estoqueMin: 7 });
+    const li = produto({ id: TERCEIRO_ID, loja: 'LI', baseProductId: ID, custo: 2.5, estoqueMin: 9 });
+    const service = new ProductSheetService(fakeProductRepo(tnp, li), syncRepo, sheets);
+
+    const res = await service.syncStoreProducts([tnp, li]);
+
+    expect(res).toEqual([
+      expect.objectContaining({ outcome: 'synced', rowNumber: 11 }),
+      expect.objectContaining({ outcome: 'synced', rowNumber: 11 }),
+    ]);
+    expect(sheets.get('L11')).toBe('1.25'); // TNP - CADASTRO
+    expect(sheets.get('M11')).toBe('7');
+    expect(sheets.get('O11')).toBe('2.5'); // LI - CADASTRO
+    expect(sheets.get('P11')).toBe('9');
+    expect(rows.get(OUTRO_ID)).toMatchObject({ status: 'synced', rowNumber: 11 });
+    expect(rows.get(TERCEIRO_ID)).toMatchObject({ status: 'synced', rowNumber: 11 });
+    // Uma leitura do layout (linhas 5 e 3), uma da coluna ID; não relê por produto.
+    expect(sheets.chamadas.batchGet).toBe(3);
+  });
+
+  it('no leiaute antigo devolve skipped para permitir o fallback dedicado', async () => {
+    const sheets = planilha();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const li = produto({ id: OUTRO_ID, loja: 'LI', baseProductId: ID });
+    const service = new ProductSheetService(fakeProductRepo(li), syncRepo, sheets);
+
+    await expect(service.syncStoreProducts([li])).resolves.toEqual([
+      expect.objectContaining({ outcome: 'skipped' }),
+    ]);
+    expect(sheets.writes).toHaveLength(0);
   });
 });
 

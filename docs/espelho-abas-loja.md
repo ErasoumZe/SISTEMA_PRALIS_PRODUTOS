@@ -1,4 +1,29 @@
-# Espelho nas abas de loja — o que descobri e a decisão que falta
+# Espelho dos produtos por loja
+
+> **Atualização de 10/09/2026 — leiaute atual.** A planilha hoje usada é
+> `1iQGitC8CMl8OGgW05buMcfqr9xer0d9CexnT6U6Dwvw`, cuja aba principal é
+> `(TNP/LI) CADASTRO PRODUTOS`. Nela, BASE, TNP e LI compartilham a mesma linha:
+> os dados gerais ficam uma vez e cada loja tem sua própria faixa lateral.
+> Portanto, importar/editar LI ou TNP deve atualizar essa mesma linha, localizada
+> pelo `baseProductId`. As abas `(TNP) CADASTRO PRODUTOS` e
+> `(LI) CADASTRO PRODUTOS` são projeções do cadastro combinado, não o destino
+> primário da API.
+>
+> O fluxo antigo descrito abaixo — escrita direta nas abas dedicadas, controlada
+> por `GOOGLE_SHEETS_LOJA_ESPELHO_AUTO` — permanece somente como compatibilidade
+> para o leiaute anterior. **Não se deve ligar essa chave para corrigir a planilha
+> nova.** Em 10/09/2026 ela estava vazia/desligada no Coolify, e as colunas
+> `ID`/`NOME` citadas abaixo não estavam presentes nas posições do documento.
+
+## Fluxo vigente
+
+1. O cadastro novo é criado na BASE e ganha uma linha na aba combinada.
+2. Ao importar para LI/TNP, a cópia no Postgres guarda `baseProductId`.
+3. A importação em lote localiza a linha por esse ID e preenche apenas a faixa
+   da loja; uma edição posterior repete a sincronização de forma idempotente.
+4. Se a planilha detectada for a antiga, o sistema recorre ao espelho dedicado.
+
+## Histórico do leiaute anterior
 
 **Pedido:** "planilha é espelho do sistema — base e abas de cada loja devem
 funcionar igual". Concordo com o objetivo. Mas as abas, como estão hoje, não

@@ -176,13 +176,95 @@ describe('ProductService.update — o resultado do espelho não pode sumir', () 
     expect(r.sheetSync).toBe('failed');
   });
 
-  it('produto de loja não é espelhado nesta etapa: skipped, sem chamar o Google', async () => {
+  it('produto de loja chama o espelho principal para preencher a faixa TNP/LI', async () => {
     const { service, chamadas } = fakesUpdate({ loja: 'TNP' });
 
     const r = await service.update(admin, ID, { nome: 'NOME NOVO' });
 
-    expect(r.sheetSync).toBe('skipped');
-    expect(chamadas).toEqual(['banco:update']);
+    expect(r.sheetSync).toBe('synced');
+    expect(r.espelhoLoja).toBe('espelhado');
+    expect(chamadas).toEqual(['banco:update', 'planilha:sync']);
+  });
+
+  it('produto de loja usa o espelho legado somente quando o leiaute principal pula a escrita', async () => {
+    const chamadas: string[] = [];
+    const repo = {
+      async findById() { return produto({ loja: 'LI', baseProductId: 'base-1' }); },
+      async update() { chamadas.push('banco:update'); return produto({ loja: 'LI', baseProductId: 'base-1' }); },
+    } as unknown as ProductRepository;
+    const sheets = {
+      async syncProduct() { chamadas.push('planilha:sync'); return { outcome: 'skipped' as const }; },
+    } as unknown as ProductSheetService;
+    const legado = {
+      async espelharVarios() { chamadas.push('planilha:legado'); return 'espelhado' as const; },
+    } as unknown as ProductSheetLojaService;
+    const service = new ProductService(repo, sheets, legado, {} as TaxRuleService);
+
+    const r = await service.update(admin, ID, { nome: 'NOME NOVO' });
+
+    expect(r.espelhoLoja).toBe('espelhado');
+    expect(chamadas).toEqual(['banco:update', 'planilha:sync', 'planilha:legado']);
+  });
+});
+
+describe('ProductService.importFromBase — faixa da loja na aba geral', () => {
+  it('sincroniza o lote novo no espelho principal e não chama o legado', async () => {
+    const chamadas: string[] = [];
+    const base = produto({ id: ID, loja: 'BASE' });
+    const copia = produto({
+      id: '0197d7c4-2c9a-7000-8000-000000000010',
+      loja: 'LI',
+      baseProductId: ID,
+    });
+    const repo = {
+      async findById(id: string) { return id === ID ? base : null; },
+      async existsByBase() { return false; },
+      async findDuplicate() { return null; },
+      async findByCodigo() { return null; },
+      async create() { chamadas.push('banco:create'); return copia; },
+    } as unknown as ProductRepository;
+    const sheets = {
+      async syncStoreProducts(produtos: Product[]) {
+        chamadas.push(`planilha:lote:${produtos.length}`);
+        return produtos.map(() => ({ outcome: 'synced' as const }));
+      },
+    } as unknown as ProductSheetService;
+    const legado = {
+      async espelharVarios() { chamadas.push('planilha:legado'); return 'espelhado' as const; },
+    } as unknown as ProductSheetLojaService;
+    const service = new ProductService(repo, sheets, legado, {} as TaxRuleService);
+    const usuarioLi: CurrentUser = { ...admin, role: 'user', loja: 'LI' };
+
+    const r = await service.importFromBase(usuarioLi, [ID]);
+
+    expect(r).toMatchObject({ imported: 1, skipped: 0, espelhoLoja: 'espelhado' });
+    expect(chamadas).toEqual(['banco:create', 'planilha:lote:1']);
+  });
+
+  it('usa o espelho legado quando o destino principal ainda está no leiaute antigo', async () => {
+    const chamadas: string[] = [];
+    const base = produto({ id: ID, loja: 'BASE' });
+    const copia = produto({ loja: 'TNP', baseProductId: ID });
+    const repo = {
+      async findById() { return base; },
+      async existsByBase() { return false; },
+      async findDuplicate() { return null; },
+      async findByCodigo() { return null; },
+      async create() { return copia; },
+    } as unknown as ProductRepository;
+    const sheets = {
+      async syncStoreProducts() { chamadas.push('planilha:lote'); return [{ outcome: 'skipped' as const }]; },
+    } as unknown as ProductSheetService;
+    const legado = {
+      async espelharVarios() { chamadas.push('planilha:legado'); return 'espelhado' as const; },
+    } as unknown as ProductSheetLojaService;
+    const service = new ProductService(repo, sheets, legado, {} as TaxRuleService);
+    const usuarioTnp: CurrentUser = { ...admin, role: 'user', loja: 'TNP' };
+
+    const r = await service.importFromBase(usuarioTnp, [ID]);
+
+    expect(r.espelhoLoja).toBe('espelhado');
+    expect(chamadas).toEqual(['planilha:lote', 'planilha:legado']);
   });
 });
 

@@ -23,6 +23,7 @@ export type CreatedProduct = ProductSchemas.ProductEntity & { sheetSync: SheetSy
 export type UpdatedProduct = ProductSchemas.ProductEntity & {
   sheetSync: SheetSyncOutcome;
   lojasAtualizadas: number;
+  espelhoLoja: EspelhoLojaResultado;
 };
 
 /**
@@ -225,17 +226,26 @@ export class ProductService {
     // aquele campo. Roda antes do espelho porque não depende do Google.
     const lojasAtualizadas = updated.loja === 'BASE' ? await this.propagarParaLojas(p, updated) : 0;
 
-    let sheetSync: SheetSyncOutcome = 'skipped';
     if (updated.loja === 'BASE') {
       await this.sheets.registerPending(updated.id).catch(() => undefined);
-      const sync = await this.sheets
-        .syncProduct(updated.id)
-        .catch(() => ({ outcome: 'failed' as const }));
-      sheetSync = sync.outcome;
     }
-    // Produto de loja espelha na ABA DA LOJA. Desligado por padrao
-    // (GOOGLE_SHEETS_LOJA_ESPELHO_AUTO) e nunca derruba a edicao.
-    const espelhoLoja = await this.espelharNaAbaDaLoja([updated]);
+    // Na planilha nova, BASE e lojas compartilham a mesma linha. O serviço
+    // principal decide se escreve os campos gerais ou somente a faixa LI/TNP.
+    const sync = await this.sheets
+      .syncProduct(updated.id)
+      .catch(() => ({ outcome: 'failed' as const }));
+    const sheetSync: SheetSyncOutcome = sync.outcome;
+
+    // O espelho direto na aba da loja existe apenas para o leiaute antigo.
+    // `skipped`/`disabled` permitem o fallback; falha no destino principal não
+    // pode ser mascarada por uma escrita em outro lugar.
+    const espelhoLoja = updated.loja === 'BASE'
+      ? 'sem-aba' as const
+      : sheetSync === 'synced'
+        ? 'espelhado' as const
+        : sheetSync === 'failed' || sheetSync === 'misconfigured'
+          ? 'falhou' as const
+          : await this.espelharNaAbaDaLoja([updated]);
     return { ...updated, sheetSync, lojasAtualizadas, espelhoLoja };
   }
 
@@ -344,9 +354,18 @@ export class ProductService {
       criados.push(criado);
       imported++;
     }
-    // Uma chamada so para o lote inteiro: produto a produto, importar 500 itens
-    // estouraria a cota do Google muito antes do fim.
-    const espelhoLoja = await this.espelharNaAbaDaLoja(criados);
+    // A planilha nova recebe a faixa da loja na MESMA linha da BASE, em lote.
+    // Se o destino ainda usar o leiaute antigo, o resultado `skipped` aciona o
+    // espelho dedicado anterior sem duplicar escritas.
+    const resultados = await this.sheets
+      .syncStoreProducts(criados)
+      .catch(() => criados.map(() => ({ outcome: 'failed' as const })));
+    const outcomes = resultados.map((r) => r.outcome);
+    const espelhoLoja: EspelhoLojaResultado = outcomes.some((o) => o === 'failed' || o === 'misconfigured')
+      ? 'falhou'
+      : outcomes.some((o) => o === 'synced')
+        ? 'espelhado'
+        : await this.espelharNaAbaDaLoja(criados);
     return { imported, skipped, espelhoLoja };
   }
 

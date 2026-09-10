@@ -58,13 +58,8 @@ export class ProductController {
     const herdaram = lojasAtualizadas > 0
       ? ` A mudança desceu para ${lojasAtualizadas} produto(s) de loja.`
       : '';
-    /*
-     * O espelho da ABA DA LOJA é um destino separado do da BASE e falha
-     * sozinho. Antes o resultado caía dentro do produto e o schema de resposta
-     * o descartava: a tela dizia "atualizado com sucesso" com a aba parada.
-     * Falha de destino externo não é erro de cadastro — o produto está salvo —,
-     * mas tem de aparecer.
-     */
+    // No leiaute novo, "aba da loja" é a faixa LI/TNP da aba geral; no antigo,
+    // é o espelho dedicado. Nos dois casos, uma falha precisa aparecer na tela.
     const aba = espelhoLoja === 'falhou'
       ? ' A aba da loja não recebeu a alteração; ela fica pendente de reenvio.'
       : '';
