@@ -14,6 +14,9 @@ import {
   mapProductToCells, inputColumnsFor,
   type CellMap, type SheetFooterColumns,
 } from './product-sheet.mapper';
+import {
+  lerLeiaute, traduzirParaPlanilhaNova, colunaDoCampo, type LeiauteNovo,
+} from './leiaute-planilha-nova';
 
 /**
  * ETAPA 1: espelha na planilha o produto criado na BASE.
@@ -122,6 +125,16 @@ const REQUIRED_FIXED_HEADERS = [
 interface SheetLayout {
   footer: SheetFooterColumns;
   cabecalhos: SheetsHealth['cabecalhos'];
+  /**
+   * Preenchido quando a aba marca FAIXAS na linha 3 — é a planilha nova.
+   *
+   * Nela as mesmas letras significam outra coisa (`F` era QUANTIDADE e agora é
+   * CODIGO BARRAS), e os campos comerciais existem uma vez por loja. Escrever
+   * por posição fixa ali grava gramatura dentro do código de barras.
+   */
+  novo: LeiauteNovo | null;
+  /** Coluna do nome do produto, que muda de lugar entre os dois leiautes. */
+  colunaNome: string;
 }
 
 /** Compara cabeçalho ignorando acento, caixa, espaço extra e ponto final. */
@@ -486,7 +499,22 @@ export class ProductSheetService {
       [a1(this.sheetName, `A${HEADER_ROW}:${ultimaColuna}${HEADER_ROW}`)],
       'FORMATTED_VALUE',
     );
-    const headers = range?.[0] ?? [];
+    const headers = (range?.[0] ?? []) as string[];
+
+    /*
+     * A linha 3 marca as seções na planilha nova. Se houver rótulos ali, é ela;
+     * a antiga não tem nada nessa linha. Detectar em vez de configurar evita
+     * mais uma flag que alguém esquece de virar.
+     */
+    const [faixasRange] = await this.sheets.batchGetValues(
+      this.spreadsheetId,
+      [a1(this.sheetName, `A3:${ultimaColuna}3`)],
+      'FORMATTED_VALUE',
+    );
+    const linhaFaixas = ((faixasRange?.[0] ?? []) as string[]);
+    const temFaixas = linhaFaixas.some((x) => String(x ?? '').trim() !== '');
+    const novo = temFaixas ? lerLeiaute(linhaFaixas, headers, indexToCol) : null;
+
     const encontrado = (coluna: string) => headers[colToIndex(coluna)] ?? '';
     const localizar = (nome: string): string | null => {
       const alvo = normalizeHeader(nome);
@@ -496,17 +524,39 @@ export class ProductSheetService {
     const id = localizar('ID');
     const photo = localizar('FOTO');
     const help = localizar('HABILITAR AJUDA');
-    const cabecalhos: SheetsHealth['cabecalhos'] = [
-      ...REQUIRED_FIXED_HEADERS.map((h) => ({
-        coluna: h.coluna,
-        esperado: h.esperado,
-        encontrado: encontrado(h.coluna),
-        ok: normalizeHeader(encontrado(h.coluna)) === normalizeHeader(h.esperado),
-      })),
-      { coluna: id ?? '?', esperado: 'ID', encontrado: id ? encontrado(id) : '', ok: !!id },
-      { coluna: photo ?? '?', esperado: 'FOTO', encontrado: photo ? encontrado(photo) : '', ok: !!photo },
-    ];
-    const layout = { footer: { id: id ?? '', photo: photo ?? '', help }, cabecalhos };
+    /*
+     * Os cabeçalhos em posição fixa são do leiaute ANTIGO. Na planilha nova o
+     * casamento é por nome, então cobrar `NOME` em `E` reprovaria uma aba
+     * perfeitamente válida. O que a nova precisa mesmo é do `ID`: sem ele o
+     * espelho não reencontra o produto e duplica a cada sincronismo.
+     */
+    const nomeNaNova = novo ? colunaDoCampo(novo, 'CADASTRO PRODUTOS ATUALIZADO NOVO', indexToCol) : null;
+    const cabecalhos: SheetsHealth['cabecalhos'] = novo
+      ? [
+        { coluna: id ?? '?', esperado: 'ID', encontrado: id ? encontrado(id) : '', ok: !!id },
+        {
+          coluna: nomeNaNova ?? '?',
+          esperado: 'CADASTRO PRODUTOS ATUALIZADO NOVO',
+          encontrado: nomeNaNova ? encontrado(nomeNaNova) : '',
+          ok: !!nomeNaNova,
+        },
+      ]
+      : [
+        ...REQUIRED_FIXED_HEADERS.map((h) => ({
+          coluna: h.coluna,
+          esperado: h.esperado,
+          encontrado: encontrado(h.coluna),
+          ok: normalizeHeader(encontrado(h.coluna)) === normalizeHeader(h.esperado),
+        })),
+        { coluna: id ?? '?', esperado: 'ID', encontrado: id ? encontrado(id) : '', ok: !!id },
+        { coluna: photo ?? '?', esperado: 'FOTO', encontrado: photo ? encontrado(photo) : '', ok: !!photo },
+      ];
+    const layout: SheetLayout = {
+      footer: { id: id ?? '', photo: photo ?? '', help },
+      cabecalhos,
+      novo,
+      colunaNome: (novo ? nomeNaNova : 'E') ?? 'E',
+    };
     // Um layout inválido não é cacheado: o health consegue explicar o problema
     // e uma correção feita na planilha passa a valer sem reiniciar a API.
     if (cabecalhos.every((h) => h.ok)) this.layoutCache = layout;
@@ -527,14 +577,20 @@ export class ProductSheetService {
     // 1 round-trip: coluna de IDs localizada pelo cabeçalho + nomes
     const ranges = [
       a1(this.sheetName, `${layout.footer.id}${FIRST_DATA_ROW}:${layout.footer.id}`),
-      a1(this.sheetName, `E${FIRST_DATA_ROW}:E`),
+      a1(this.sheetName, `${layout.colunaNome}${FIRST_DATA_ROW}:${layout.colunaNome}`),
     ];
     const lido = await this.sheets.batchGetValues(this.spreadsheetId, ranges, 'FORMATTED_VALUE');
     const colunaIds = (lido[0] ?? []).map((r) => (r?.[0] ?? '').trim());
     const colunaNomes = (lido[1] ?? []).map((r) => (r?.[0] ?? '').trim());
 
     // 2) idempotência: a linha já existe? (busca pelo UUID na coluna ID, nunca só pelo row_number)
-    const existente = colunaIds.indexOf(product.id);
+    /*
+     * Na planilha nova, UMA linha guarda o produto e as duas lojas lado a lado.
+     * A cópia da loja e a BASE dividem a mesma linha, e a identidade é o ID da
+     * BASE — senão a loja abriria uma linha nova e a faixa dela ficaria órfã.
+     */
+    const idDaLinha = layout.novo ? (product.baseProductId ?? product.id) : product.id;
+    const existente = colunaIds.indexOf(idDaLinha);
     const linhaExistente = existente >= 0 ? FIRST_DATA_ROW + existente : null;
 
     const linha = linhaExistente ?? this.primeiraLinhaLivre(colunaNomes, colunaIds);
@@ -566,10 +622,10 @@ export class ProductSheetService {
 
     // 5) garante as fórmulas também em retries de uma linha já reservada. Isso
     // repara sincronizações interrompidas sem criar outra linha.
-    await this.garantirFormulas(aba, linha);
+    await this.garantirFormulas(aba, linha, layout.novo !== null);
 
     // 6) por fim, as células de entrada
-    await this.gravarCelulas(product, linha, layout.footer);
+    await this.gravarCelulas(product, linha, layout);
     return linha;
   }
 
@@ -658,7 +714,7 @@ export class ProductSheetService {
    * o modelo completo. A linha imediatamente anterior não é uma fonte segura:
    * ela pode ter sido incluída manualmente e estar parcialmente preenchida.
    */
-  private async garantirFormulas(aba: SheetMeta, linha: number): Promise<void> {
+  private async garantirFormulas(aba: SheetMeta, linha: number, novo: boolean): Promise<void> {
     if (linha === FIRST_DATA_ROW || linha === FORMULA_TEMPLATE_ROW) return;
 
     const ultimaColuna = indexToCol(Math.max(0, aba.columnCount - 1));
@@ -673,9 +729,28 @@ export class ProductSheetService {
     const modelo = modeloRange?.[0] ?? [];
     const destinoAtual = destinoRange?.[0] ?? [];
 
-    const formulaAusenteNoModelo = REQUIRED_FORMULA_COLUMNS.find((coluna) => {
+    /*
+     * A lista fixa de colunas de fórmula é do leiaute ANTIGO. Na planilha nova
+     * as fórmulas estão em outras colunas, e cobrar a lista velha reprovaria
+     * uma linha-modelo perfeitamente boa.
+     *
+     * Ali a regra é derivada da própria linha 12: o que for fórmula nela é
+     * fórmula. Mais robusto, e acompanha a planilha sem tocar em código.
+     */
+    const ehFormula = (v: unknown) => typeof v === 'string' && v.startsWith('=');
+    const colunasComFormula: string[] = novo
+      ? modelo.map((v, i) => (ehFormula(v) ? indexToCol(i) : '')).filter(Boolean)
+      : [...REQUIRED_FORMULA_COLUMNS];
+
+    if (colunasComFormula.length === 0) {
+      throw new Error(
+        `Linha-modelo ${FORMULA_TEMPLATE_ROW} sem fórmula nenhuma. Nada foi gravado nas células do produto.`,
+      );
+    }
+
+    const formulaAusenteNoModelo = novo ? undefined : colunasComFormula.find((coluna) => {
       const valor = modelo[colToIndex(coluna)];
-      return typeof valor !== 'string' || !valor.startsWith('=');
+      return !ehFormula(valor);
     });
     if (formulaAusenteNoModelo) {
       throw new Error(
@@ -683,7 +758,7 @@ export class ProductSheetService {
       );
     }
 
-    const faltantes = REQUIRED_FORMULA_COLUMNS
+    const faltantes = colunasComFormula
       .map(colToIndex)
       .filter((coluna) => {
         const valor = destinoAtual[coluna];
@@ -755,17 +830,32 @@ export class ProductSheetService {
    * Dois lotes: RAW (texto literal, preserva zero à esquerda) e USER_ENTERED
    * (números, hora e percentual que a planilha precisa interpretar).
    */
-  private async gravarCelulas(product: Product, linha: number, footer: SheetFooterColumns): Promise<void> {
+  private async gravarCelulas(product: Product, linha: number, layout: SheetLayout): Promise<void> {
+    const { footer } = layout;
     const cells: CellMap = mapProductToCells(product, {
       defaultLojas: env.GOOGLE_SHEETS_DEFAULT_LOJAS,
       footerColumns: footer,
     });
 
+    /*
+     * Na planilha nova o mapa e traduzido antes de virar range: as letras do
+     * mapper sao do leiaute ANTIGO, e la significam outra coisa. Produto da
+     * BASE passa loja `null` e nao escreve nas faixas de loja — quem preenche
+     * custo, estoque e promocao e a loja, ao importar.
+     */
+    const paraEscrever: CellMap = layout.novo
+      ? traduzirParaPlanilhaNova(
+        cells, layout.novo, product.loja === 'BASE' ? null : product.loja, indexToCol,
+      ).celulas
+      : cells;
+
+    const colunas = layout.novo ? Object.keys(paraEscrever) : inputColumnsFor(footer);
+
     const raw: ValueRange[] = [];
     const userEntered: ValueRange[] = [];
 
-    for (const col of inputColumnsFor(footer)) {
-      const cell = cells[col];
+    for (const col of colunas) {
+      const cell = paraEscrever[col];
       if (!cell) continue;
       const range = a1(this.sheetName, `${col}${linha}`);
       if (cell.kind === 'text') raw.push({ range, values: [[cell.value]] });
