@@ -6,5 +6,7 @@
 --
 -- Aditivo e idempotente: `IF NOT EXISTS` porque `start:prod` roda
 -- `drizzle-kit push --force` no boot e a coluna pode já ter sido criada por ele.
-ALTER TABLE "product_fiscal" ADD COLUMN IF NOT EXISTS "aliquota_ecf" text;
+-- O separador NÃO é decoração: o migrator do drizzle quebra o arquivo por ele.
+-- Sem o separador, os dois ALTER viram uma única instrução e a migration falha.
+ALTER TABLE "product_fiscal" ADD COLUMN IF NOT EXISTS "aliquota_ecf" text;--> statement-breakpoint
 ALTER TABLE "product_fiscal" ADD COLUMN IF NOT EXISTS "aliquota_ecf_id" text;
