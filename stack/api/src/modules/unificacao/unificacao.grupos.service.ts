@@ -19,6 +19,16 @@ const LOJA_DA_FONTE: Record<string, LojaFonte> = {
   vendidos_tnp: 'TNP',
 };
 
+/**
+ * A fonte que PROVA que o produto já saiu no caixa.
+ *
+ * Não é regra nova: o arquivo dos vendidos já chega depois do corte do
+ * preço-sentinela e da fusão do delivery, então estar nele é o mesmo que ter
+ * vendido ao menos uma vez. Por isso "já vendi isso?" se responde olhando as
+ * FONTES do grupo, e não recontando venda por aqui.
+ */
+export const FONTE_VENDIDOS = 'vendidos_tnp';
+
 export interface FiltrosGrupos {
   filtro?: 'mesmo_cod_barras' | 'mesmo_cod_interno' | 'nome_parecido' | 'unico';
   loja?: LojaFonte;
@@ -29,6 +39,8 @@ export interface FiltrosGrupos {
   semFiscalTnp?: boolean;
   /** Só os que ficariam "A CLASSIFICAR". */
   semGrupo?: boolean;
+  /** Só os grupos com ao menos um item vindo da fonte dos vendidos da TNP. */
+  somenteVendidos?: boolean;
   q?: string;
   decisao?: 'pendente' | 'feita';
   pagina?: number;
@@ -49,6 +61,49 @@ export interface TotaisUnificacao {
 }
 
 const numero = (v: string | null): number | null => (v == null ? null : Number(v));
+
+/**
+ * Os filtros viram SQL — a tela nunca recebe a base inteira para peneirar.
+ *
+ * Mora FORA da classe porque a lista e o cabeçalho têm de usar a MESMA peneira:
+ * se cada um montasse a sua, o cabeçalho contaria uma base e a tabela mostraria
+ * outra, e ninguém saberia qual dos dois números acreditar.
+ */
+export function condicoesDeGrupos(f: FiltrosGrupos): SQL[] {
+  const onde: SQL[] = [];
+  if (f.filtro) onde.push(eq(unifGrupo.motivo, f.filtro));
+  if (f.loja) onde.push(sql`${unifGrupo.lojas} @> ARRAY[${f.loja}]::text[]`);
+  if (f.status) onde.push(eq(unifGrupo.ativo, f.status === 'ativo'));
+  if (f.semFiscalTnp) onde.push(eq(unifGrupo.flagSemFiscalTnp, true));
+  if (f.semGrupo) onde.push(eq(unifGrupo.flagSemGrupo, true));
+  /*
+   * O recorte que o José pediu: ver só o que já vendeu. A prova mora na coluna
+   * `fontes` do próprio grupo — um item vindo de `vendidos_tnp` basta, porque o
+   * grupo é o mesmo produto visto por fontes diferentes.
+   */
+  if (f.somenteVendidos) {
+    onde.push(sql`${unifGrupo.fontes} @> ARRAY[${FONTE_VENDIDOS}]::text[]`);
+  }
+  if (f.revisar) {
+    onde.push(or(
+      eq(unifGrupo.flagNomesDivergentes, true),
+      eq(unifGrupo.flagSemFiscalTnp, true),
+      eq(unifGrupo.flagSemGrupo, true),
+      eq(unifGrupo.flagBarrasConflitante, true),
+    )!);
+  }
+  if (f.decisao === 'pendente') onde.push(sql`${unifGrupo.decisao} IS NULL`);
+  if (f.decisao === 'feita') onde.push(sql`${unifGrupo.decisao} IS NOT NULL`);
+  if (f.q?.trim()) {
+    const termo = `%${f.q.trim()}%`;
+    onde.push(or(
+      ilike(unifGrupo.nome, termo),
+      ilike(unifGrupo.chave, termo),
+      ilike(unifGrupo.nomeNormalizado, `%${normalizarNome(f.q)}%`),
+    )!);
+  }
+  return onde;
+}
 
 @injectable()
 export class UnificacaoGruposService {
@@ -250,39 +305,10 @@ export class UnificacaoGruposService {
     return linhas.map((l) => l.id);
   }
 
-  /** Os filtros viram SQL — a tela nunca recebe a base inteira para peneirar. */
-  private condicoes(f: FiltrosGrupos): SQL[] {
-    const onde: SQL[] = [];
-    if (f.filtro) onde.push(eq(unifGrupo.motivo, f.filtro));
-    if (f.loja) onde.push(sql`${unifGrupo.lojas} @> ARRAY[${f.loja}]::text[]`);
-    if (f.status) onde.push(eq(unifGrupo.ativo, f.status === 'ativo'));
-    if (f.semFiscalTnp) onde.push(eq(unifGrupo.flagSemFiscalTnp, true));
-    if (f.semGrupo) onde.push(eq(unifGrupo.flagSemGrupo, true));
-    if (f.revisar) {
-      onde.push(or(
-        eq(unifGrupo.flagNomesDivergentes, true),
-        eq(unifGrupo.flagSemFiscalTnp, true),
-        eq(unifGrupo.flagSemGrupo, true),
-        eq(unifGrupo.flagBarrasConflitante, true),
-      )!);
-    }
-    if (f.decisao === 'pendente') onde.push(sql`${unifGrupo.decisao} IS NULL`);
-    if (f.decisao === 'feita') onde.push(sql`${unifGrupo.decisao} IS NOT NULL`);
-    if (f.q?.trim()) {
-      const termo = `%${f.q.trim()}%`;
-      onde.push(or(
-        ilike(unifGrupo.nome, termo),
-        ilike(unifGrupo.chave, termo),
-        ilike(unifGrupo.nomeNormalizado, `%${normalizarNome(f.q)}%`),
-      )!);
-    }
-    return onde;
-  }
-
   async listar(f: FiltrosGrupos) {
     const pagina = Math.max(1, f.pagina ?? 1);
     const tamanho = Math.min(200, Math.max(1, f.tamanho ?? 50));
-    const onde = this.condicoes(f);
+    const onde = condicoesDeGrupos(f);
     const filtro = onde.length ? and(...onde) : undefined;
 
     const [{ total }] = await db.select({ total: count() }).from(unifGrupo).where(filtro);
@@ -330,7 +356,20 @@ export class UnificacaoGruposService {
     };
   }
 
-  async totais(): Promise<TotaisUnificacao> {
+  /**
+   * Os números do cabeçalho da Central.
+   *
+   * Aceitam recorte porque o cabeçalho é a legenda da lista: com "só os que já
+   * vendi" ligado, "Produtos únicos" tem de contar os vendidos — senão a tela
+   * mostraria 1.6xx linhas embaixo de um total de 7.924.
+   *
+   * Só o recorte dos vendidos entra aqui, de propósito: os outros filtros são
+   * de navegação, e deixá-los mexer no cabeçalho apagaria a referência do total.
+   */
+  async totais(f: Pick<FiltrosGrupos, 'somenteVendidos'> = {}): Promise<TotaisUnificacao> {
+    const onde = condicoesDeGrupos(f);
+    const filtro = onde.length ? and(...onde) : undefined;
+
     const [r] = await db
       .select({
         grupos: count(),
@@ -343,11 +382,13 @@ export class UnificacaoGruposService {
         pendentes: sql<number>`count(*) FILTER (WHERE ${unifGrupo.decisao} IS NULL)::int`,
         decididos: sql<number>`count(*) FILTER (WHERE ${unifGrupo.decisao} IS NOT NULL)::int`,
       })
-      .from(unifGrupo);
+      .from(unifGrupo)
+      .where(filtro);
 
     const motivos = await db
       .select({ motivo: unifGrupo.motivo, quantos: count() })
       .from(unifGrupo)
+      .where(filtro)
       .groupBy(unifGrupo.motivo);
 
     return {

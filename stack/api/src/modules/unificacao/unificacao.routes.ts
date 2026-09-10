@@ -16,10 +16,24 @@ const gruposQuerySchema = z.object({
   revisar: z.coerce.boolean().optional(),
   semFiscalTnp: z.coerce.boolean().optional(),
   semGrupo: z.coerce.boolean().optional(),
+  /*
+   * `z.coerce.boolean()` como no resto do sistema: qualquer texto vira `true`.
+   * Por isso a tela OMITE o parâmetro quando o recorte está desligado, em vez
+   * de mandar `somenteVendidos=false` — que ligaria o filtro sem querer.
+   */
+  somenteVendidos: z.coerce.boolean().optional(),
   q: z.string().optional(),
   decisao: z.enum(['pendente', 'feita']).optional(),
   pagina: z.coerce.number().int().positive().optional(),
   tamanho: z.coerce.number().int().positive().max(200).optional(),
+});
+
+/**
+ * O cabeçalho da Central sai daqui. Aceita só o recorte dos vendidos: os demais
+ * filtros são de navegação e não podem mexer no total de referência.
+ */
+const healthQuerySchema = z.object({
+  somenteVendidos: z.coerce.boolean().optional(),
 });
 
 export async function unificacaoRoutes(app: FastifyInstance) {
@@ -139,10 +153,11 @@ export async function unificacaoRoutes(app: FastifyInstance) {
     controller.unificarAutomaticos.bind(controller),
   );
 
-  typed.get(
+  typed.get<{ Querystring: z.infer<typeof healthQuerySchema> }>(
     '/admin/unificacao/health',
     {
       schema: {
+        querystring: healthQuerySchema,
         summary: 'Contagem por fonte e totais dos grupos (admin)',
         tags: ['ADMIN', 'UNIFICACAO'],
       },

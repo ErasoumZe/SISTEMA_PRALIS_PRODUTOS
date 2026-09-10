@@ -48,6 +48,12 @@ export interface TotaisUnificacao {
 export interface FiltrosUnificacao {
   filtro?: string; loja?: string; status?: string; revisar?: boolean;
   semFiscalTnp?: boolean; semGrupo?: boolean; q?: string; decisao?: string;
+  /**
+   * Só o que já vendeu ao menos uma vez. Vai como `undefined` quando desligado
+   * (nunca `false`): o servidor coage qualquer texto para `true`, então mandar
+   * "false" ligaria o recorte sem querer.
+   */
+  somenteVendidos?: boolean;
   pagina?: number; tamanho?: number;
 }
 export interface GroupTaxRule {
@@ -179,8 +185,14 @@ export function useApi() {
     /** Recarrega as fontes e reagrupa. Não toca no catálogo vivo. */
     unificacaoCarregar: () =>
       $fetch('/admin/unificacao/carregar', { ...base, method: 'POST' }),
-    unificacaoHealth: () =>
-      unwrap($fetch<{ data: { totais: TotaisUnificacao } }>('/admin/unificacao/health', { ...base })),
+    /**
+     * O cabeçalho da Central. Recebe o recorte dos vendidos para os KPIs
+     * contarem o MESMO universo da lista que aparece logo abaixo deles.
+     */
+    unificacaoHealth: (query: { somenteVendidos?: boolean } = {}) =>
+      unwrap($fetch<{ data: { totais: TotaisUnificacao } }>(
+        '/admin/unificacao/health', { ...base, query },
+      )),
     /** Os filtros vão para o SERVIDOR: a tela nunca peneira 4.300 no navegador. */
     unificacaoGrupos: (query: FiltrosUnificacao) =>
       unwrap($fetch<{ data: PaginaGrupos }>('/admin/unificacao/grupos', { ...base, query })),

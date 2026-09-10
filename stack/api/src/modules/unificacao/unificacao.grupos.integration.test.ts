@@ -141,6 +141,30 @@ describe('os filtros funcionam sobre a base inteira', () => {
       g.flagNomesDivergentes || g.flagSemFiscalTnp || g.flagSemGrupo || g.flagBarrasConflitante)).toBe(true);
   });
 
+  /*
+   * O recorte que o Jose pediu na Central: ver so o que ja vendeu. A fonte
+   * `vendidos_tnp` ja chega peneirada (preco-sentinela fora, delivery fundido),
+   * entao estar nela E a prova da venda — nao se reconta venda aqui.
+   */
+  it('filtra so o que ja vendeu ao menos uma vez', async () => {
+    const todos = await grupos.totais();
+    const r = await naoVazio({ somenteVendidos: true }, 'somenteVendidos');
+
+    expect(r.grupos.every((g) => g.fontes.includes('vendidos_tnp'))).toBe(true);
+    // medido em 10/09/2026 sobre as fontes reais: 1.657 vendidos de 4.906 grupos
+    expect(r.total).toBeGreaterThan(1000);
+    expect(r.total).toBeLessThan(todos.grupos);
+  });
+
+  /* O KPI "Produtos unicos" tem de contar EXATAMENTE a lista que aparece embaixo dele. */
+  it('o cabecalho conta o mesmo recorte da lista', async () => {
+    const lista = await grupos.listar({ somenteVendidos: true, tamanho: 5 });
+    const cabecalho = await grupos.totais({ somenteVendidos: true });
+
+    expect(cabecalho.grupos).toBe(lista.total);
+    expect(cabecalho.grupos).toBeLessThan((await grupos.totais()).grupos);
+  });
+
   it('busca por texto acha pelo nome', async () => {
     const r = await naoVazio({ q: 'ACUCAR' }, 'q=ACUCAR');
 

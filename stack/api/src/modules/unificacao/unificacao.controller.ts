@@ -35,9 +35,19 @@ export class UnificacaoController {
     return reply.status(200).send(buildResponse(await this.grupos.recalcular(), 'Grupos recalculados'));
   }
 
-  async health(request: FastifyRequest, reply: FastifyReply) {
+  /**
+   * O cabeçalho da Central. Repassa o recorte dos vendidos para os totais
+   * caírem no mesmo universo da lista que aparece logo abaixo deles.
+   */
+  async health(
+    request: FastifyRequest<{ Querystring: { somenteVendidos?: boolean } }>,
+    reply: FastifyReply,
+  ) {
     exigirAdmin(request);
-    const [staging, totais] = await Promise.all([this.service.health(), this.grupos.totais()]);
+    const [staging, totais] = await Promise.all([
+      this.service.health(),
+      this.grupos.totais({ somenteVendidos: request.query?.somenteVendidos }),
+    ]);
     return reply.status(200).send(buildResponse({ staging, totais }, 'Diagnóstico da unificação'));
   }
 
