@@ -6,14 +6,19 @@ import type { ProductRepository } from './product.repository';
 let container: StartedPostgreSqlContainer;
 let repo: ProductRepository;
 let dbClient: { $client: { end: () => Promise<void> } };
+// handle do banco para semear venda e de-para direto, sem passar por repositorio
+let db: { execute: (q: unknown) => Promise<unknown> };
+let sqlTag: typeof import('drizzle-orm')['sql'];
 
 beforeAll(async () => {
   container = await new PostgreSqlContainer('postgres:18.1-alpine').start();
   process.env.DATABASE_URL = container.getConnectionUri();
   const { migrate } = await import('drizzle-orm/node-postgres/migrator');
-  const { db } = await import('@/db/databases');
-  dbClient = db as unknown as typeof dbClient;
-  await migrate(db, { migrationsFolder: './drizzle' });
+  const dbMod = await import('@/db/databases');
+  dbClient = dbMod.db as unknown as typeof dbClient;
+  db = dbMod.db as unknown as typeof db;
+  ({ sql: sqlTag } = await import('drizzle-orm'));
+  await migrate(dbMod.db, { migrationsFolder: './drizzle' });
   const { ProductRepository } = await import('./product.repository');
   repo = new ProductRepository();
 }, 120000);
@@ -170,5 +175,57 @@ describe('ProductRepository multi-loja (Postgres real via Testcontainers)', () =
 
     await repo.delete(copia.id);
     await repo.delete(base.id);
+  });
+  /*
+   * A base tem milhares de produtos que passaram por algum cadastro; o que a
+   * loja opera e bem menos. O filtro separa os dois — e a prova de "ja vendeu"
+   * e o codigo do PDV batendo com o codigo de barras, que e como 93% casam.
+   */
+  it('somenteVendidos deixa passar so o que tem venda', async () => {
+    const vendido = await repo.create(
+      { ...payload, nome: 'PAO FRANCES VENDIDO', codigoBarras: '7891111000011' },
+      { loja: 'TNP', codigo: 'PR-VEND-01', createdByUserId: null, createdByName: 'Jose' },
+    );
+    const nuncaVendido = await repo.create(
+      { ...payload, nome: 'PRODUTO ENCALHADO', codigoBarras: '7892222000022' },
+      { loja: 'TNP', codigo: 'PR-VEND-02', createdByUserId: null, createdByName: 'Jose' },
+    );
+
+    await db.execute(sqlTag`
+      INSERT INTO venda_produto_dia
+        (id, loja, data, produto_codigo, produto, quantidade, valor_unitario, total, hash, origem_atualizada_em)
+      VALUES (gen_random_uuid()::text, 'TNP', '2026-01-15', '00007891111000011',
+              'PAO FRANCES VENDIDO', 3, 1.50, 4.50, 'h-vend-01', now())`);
+
+    const so = await repo.list('TNP', { somenteVendidos: true });
+    const todos = await repo.list('TNP', {});
+
+    expect(so.map((p) => p.id)).toContain(vendido.id);
+    expect(so.map((p) => p.id)).not.toContain(nuncaVendido.id);
+    // sem o filtro os dois aparecem — senao o teste passaria por acidente
+    expect(todos.map((p) => p.id)).toEqual(expect.arrayContaining([vendido.id, nuncaVendido.id]));
+
+    await db.execute(sqlTag`DELETE FROM venda_produto_dia WHERE hash = 'h-vend-01'`);
+    await repo.delete(vendido.id);
+    await repo.delete(nuncaVendido.id);
+  });
+
+  /* Produto a granel nao tem codigo: o de-para confirmado a mao e a prova dele. */
+  it('de-para confirmado tambem conta como vendido', async () => {
+    const granel = await repo.create(
+      { ...payload, nome: 'BROA DE FUBA KG', codigoBarras: null },
+      { loja: 'TNP', codigo: 'PR-VEND-03', createdByUserId: null, createdByName: 'Jose' },
+    );
+
+    expect((await repo.list('TNP', { somenteVendidos: true })).map((p) => p.id)).not.toContain(granel.id);
+
+    await db.execute(sqlTag`
+      INSERT INTO produto_creare (id, loja, produto_codigo, produto, product_id)
+      VALUES (gen_random_uuid()::text, 'TNP', '', 'BROA DE FUBA KG', ${granel.id})`);
+
+    expect((await repo.list('TNP', { somenteVendidos: true })).map((p) => p.id)).toContain(granel.id);
+
+    await db.execute(sqlTag`DELETE FROM produto_creare WHERE product_id = ${granel.id}`);
+    await repo.delete(granel.id);
   });
 });

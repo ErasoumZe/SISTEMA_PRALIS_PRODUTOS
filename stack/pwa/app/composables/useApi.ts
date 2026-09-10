@@ -87,10 +87,14 @@ export function useApi() {
 
   return {
     // `loja` só tem efeito para admin (visualizar outro catálogo); ignorado p/ usuário comum
-    listProducts: (q?: string, loja?: string) =>
+    listProducts: (q?: string, loja?: string, somenteVendidos?: boolean) =>
       unwrap($fetch<{ data: Product[] }>('/products', {
         ...base,
-        query: { ...(q ? { q } : {}), ...(loja ? { loja } : {}) },
+        query: {
+          ...(q ? { q } : {}),
+          ...(loja ? { loja } : {}),
+          ...(somenteVendidos ? { somenteVendidos: 'true' } : {}),
+        },
       })),
 
     listBase: (q?: string) =>
@@ -132,6 +136,10 @@ export function useApi() {
      * marca e código do sistema. Era essa a causa do aviso de duplicado não
      * achar o duplicado.
      */
+    /** Lista com filtros; `somenteVendidos` esconde o que a loja nunca vendeu. */
+    listProductsFiltrado: (query: Record<string, string | boolean>) =>
+      unwrap($fetch<{ data: Product[] }>('/products', { ...base, query })),
+
     findByCodigoBarras: (codigoBarras: string) =>
       unwrap($fetch<{ data: Product[] }>('/products', { ...base, query: { codigoBarras } })),
 
