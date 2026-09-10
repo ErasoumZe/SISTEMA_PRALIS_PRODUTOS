@@ -235,7 +235,19 @@ export class ProductSheetService {
 
     const product = await this.products.findById(productId);
     if (!product) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
-    if (product.loja !== 'BASE') {
+    /*
+     * Na planilha ANTIGA só a BASE tem aba espelhada — as de loja entraram
+     * depois, por outro caminho.
+     *
+     * Na NOVA a mesma linha guarda o produto e as duas lojas lado a lado: a
+     * cópia da loja precisa escrever a FAIXA dela na linha do produto da BASE.
+     * Recusar aqui deixaria custo, estoque e promoção sem nunca chegar.
+     *
+     * Produto de loja sem `baseProductId` continua fora: sem ele não há linha
+     * a que pertencer, e abrir uma nova duplicaria o produto na planilha.
+     */
+    const podeEspelharLoja = (await this.leiauteEhNovo()) && !!product.baseProductId;
+    if (product.loja !== 'BASE' && !podeEspelharLoja) {
       return { outcome: 'skipped', rowNumber: null, message: 'Nesta etapa só o catálogo BASE é espelhado na planilha.' };
     }
 
@@ -301,7 +313,19 @@ export class ProductSheetService {
 
     const product = await this.products.findById(productId);
     if (!product) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
-    if (product.loja !== 'BASE') {
+    /*
+     * Na planilha ANTIGA só a BASE tem aba espelhada — as de loja entraram
+     * depois, por outro caminho.
+     *
+     * Na NOVA a mesma linha guarda o produto e as duas lojas lado a lado: a
+     * cópia da loja precisa escrever a FAIXA dela na linha do produto da BASE.
+     * Recusar aqui deixaria custo, estoque e promoção sem nunca chegar.
+     *
+     * Produto de loja sem `baseProductId` continua fora: sem ele não há linha
+     * a que pertencer, e abrir uma nova duplicaria o produto na planilha.
+     */
+    const podeEspelharLoja = (await this.leiauteEhNovo()) && !!product.baseProductId;
+    if (product.loja !== 'BASE' && !podeEspelharLoja) {
       return { outcome: 'skipped', rowNumber: null, message: 'Nesta etapa só o catálogo BASE é espelhado na planilha.' };
     }
 
@@ -563,6 +587,19 @@ export class ProductSheetService {
     return layout;
   }
 
+  /**
+   * A aba de destino usa o leiaute NOVO? Reaproveita o cache do layout, então
+   * não custa uma leitura a mais por produto.
+   */
+  private async leiauteEhNovo(): Promise<boolean> {
+    try {
+      const aba = await this.resolverAba();
+      return (await this.resolverLayout(aba)).novo !== null;
+    } catch {
+      return false; // sem conseguir olhar, mantém o comportamento antigo
+    }
+  }
+
   /** Grava o produto e devolve a linha usada. Lança em qualquer erro do Google. */
   private async escrever(product: Product): Promise<number> {
     const aba = await this.resolverAba();
@@ -608,7 +645,9 @@ export class ProductSheetService {
       //    pelo próprio ID mesmo se o resto falhar no meio.
       await this.sheets.batchUpdateValues(
         this.spreadsheetId,
-        [{ range: a1(this.sheetName, `${layout.footer.id}${linha}`), values: [[product.id]] }],
+        // o MESMO id usado para achar a linha: na planilha nova a linha e do
+        // produto da BASE, e gravar o id da copia faria a BASE perder a linha dela
+        [{ range: a1(this.sheetName, `${layout.footer.id}${linha}`), values: [[idDaLinha]] }],
         'RAW',
       );
 
