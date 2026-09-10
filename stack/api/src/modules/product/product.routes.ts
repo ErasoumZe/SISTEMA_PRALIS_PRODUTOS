@@ -21,7 +21,7 @@ export async function productRoutes(app: FastifyInstance) {
   const importReply = apiResponseSchema(z.object({
     imported: z.number(),
     skipped: z.number(),
-    // como terminou o espelho na aba da loja; 'desligado' enquanto a flag estiver off
+    // faixa LI/TNP da aba geral (leiaute novo) ou aba dedicada (legado)
     espelhoLoja: z.enum(['desligado', 'sem-aba', 'espelhado', 'falhou']),
   }));
   const okReply = apiResponseSchema(z.any());
