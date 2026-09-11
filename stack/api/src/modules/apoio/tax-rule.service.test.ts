@@ -368,3 +368,137 @@ describe('parseCampoCreare — casas decimais implícitas', () => {
     expect(parseCampoCreare('', 2)).toBeNull();
   });
 });
+
+/**
+ * `classificar()` — a classificação com o PORQUÊ junto.
+ *
+ * Antes, tudo que não desse certo virava `null` num `.catch()`: grupo fora das
+ * regras, nome repetido na fonte, Google fora do ar e produto sem registro
+ * ficavam indistinguíveis. Quem olhava a tela via "cadastro salvo" e concluía
+ * que o fiscal estava resolvido.
+ */
+const LINHA_ECF = (nome: string, over: Record<number, string> = {}) => {
+  const l = ['012658', nome, nome, 'COD INTERNO', '5333', '18000', '0000', '1',
+    '00000000', '00000000', '18,00%', '03', '19059090', 'PRODUTOS DA CASA', '', '', ''];
+  for (const [i, v] of Object.entries(over)) l[Number(i)] = v;
+  return l;
+};
+
+const gatewayFiscal = (opcoes: {
+  ecf?: string[][];
+  ecfQuebra?: boolean;
+  grupos?: string[][];
+} = {}) => ({
+  async batchGetValues(_id: string, faixas: string[]) {
+    if (faixas.some((f) => f.includes('CADASTRO ECF'))) {
+      if (opcoes.ecfQuebra) throw new Error('Unable to parse range');
+      return [opcoes.ecf ?? []];
+    }
+    return faixas.map((faixa) => {
+      if (/AB4:AG79/.test(faixa)) {
+        return opcoes.grupos ?? [['MER PADARIA', '1', 'TRIBUTADO INTEGRAL', '11,28%', '3,69%', 'Regra geral']];
+      }
+      if (/O4:Q20/.test(faixa)) return [['1', 'TRIBUTADO INTEGRAL', '11,28%']];
+      return [];
+    });
+  },
+  async getSheets() { return []; },
+  async batchUpdateValues() {},
+  async batchUpdate() {},
+}) as unknown as SheetsGateway;
+
+describe('TaxRuleService.classificar — estado e motivo', () => {
+  it('completa quando o nome casa exatamente no cadastro de ECF', async () => {
+    const s = new TaxRuleService(gatewayFiscal({ ecf: [LINHA_ECF('BOLO REDONDO LARANJA')] }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: 'Bolo Redondo Laranja' });
+
+    expect(r.estado).toBe('completo');
+    expect(r.classificacao?.ecf).toMatchObject({
+      reducaoIcms: 53.33, aliquotaCheia: 18, aliquotaEcf: '18,00%', aliquotaEcfId: '03',
+    });
+  });
+
+  it('grupo fora das regras oficiais vira pendência, não sucesso silencioso', async () => {
+    const s = new TaxRuleService(gatewayFiscal({ ecf: [LINHA_ECF('BOLO REDONDO LARANJA')] }));
+
+    const r = await s.classificar({ grupo: 'SORVETES', nome: 'BOLO REDONDO LARANJA' });
+
+    expect(r.estado).toBe('pendente_grupo_invalido');
+    expect(r.motivo).toContain('SORVETES');
+    expect(r.classificacao).toBeNull(); // sem regra não há classificação nenhuma
+  });
+
+  it('sem grupo nenhum também é pendência de grupo', async () => {
+    const s = new TaxRuleService(gatewayFiscal({ ecf: [] }));
+
+    const r = await s.classificar({ grupo: null, nome: 'QUALQUER' });
+
+    expect(r.estado).toBe('pendente_grupo_invalido');
+  });
+
+  it('nome repetido na fonte NÃO escolhe linha', async () => {
+    const s = new TaxRuleService(gatewayFiscal({
+      ecf: [
+        LINHA_ECF('COXINHA CAMARAO'),
+        LINHA_ECF('COXINHA CAMARAO', { 10: 'SUBST TRIB', 11: '10' }),
+      ],
+    }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: 'COXINHA CAMARAO' });
+
+    expect(r.estado).toBe('pendente_ambiguo');
+    expect(r.motivo).toContain('sortear');
+  });
+
+  it('produto sem registro na fonte é PARCIAL, com motivo — não é erro', async () => {
+    const s = new TaxRuleService(gatewayFiscal({ ecf: [LINHA_ECF('OUTRA COISA')] }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: 'AGUA CRYSTAL S/GAS 300ML DELIVERY' });
+
+    expect(r.estado).toBe('parcial');
+    expect(r.motivo).toContain('não existe no cadastro de ECF');
+    expect(r.classificacao).not.toBeNull(); // a regra do grupo continua valendo
+  });
+
+  it('fonte fora do ar NÃO é o mesmo que produto sem registro', async () => {
+    const s = new TaxRuleService(gatewayFiscal({ ecfQuebra: true }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: 'BOLO REDONDO LARANJA' });
+
+    expect(r.estado).toBe('fonte_indisponivel');
+    expect(r.classificacao).not.toBeNull();
+  });
+
+  it('CST do grupo contra CST da fonte vira conflito, e nenhum vence sozinho', async () => {
+    const s = new TaxRuleService(gatewayFiscal({
+      // a fonte afirma CST 4; o grupo diz 1
+      ecf: [LINHA_ECF('BEBIDA LACTEA PIRAKIDS 200ML', { 7: '4' })],
+    }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: 'BEBIDA LACTEA PIRAKIDS 200ML' });
+
+    expect(r.estado).toBe('pendente_conflito');
+    expect(r.conflitos).toEqual([{ campo: 'cstPisCofins', doGrupo: '1', doEcf: '4' }]);
+  });
+
+  it('CST 99 do ECF é marcação genérica e NÃO conta como conflito', async () => {
+    const s = new TaxRuleService(gatewayFiscal({
+      ecf: [LINHA_ECF('BOLO REDONDO LARANJA', { 7: '99' })],
+    }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: 'BOLO REDONDO LARANJA' });
+
+    expect(r.estado).toBe('completo');
+    expect(r.conflitos).toEqual([]);
+  });
+
+  it('sem nome, aplica a regra do grupo e diz que não consultou o ECF', async () => {
+    const s = new TaxRuleService(gatewayFiscal({ ecf: [LINHA_ECF('BOLO REDONDO LARANJA')] }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: null });
+
+    expect(r.estado).toBe('parcial');
+    expect(r.motivo).toContain('Sem nome');
+  });
+});

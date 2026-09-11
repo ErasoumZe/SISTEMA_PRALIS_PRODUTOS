@@ -762,3 +762,51 @@ describe('ProductService.update — completa a carga fiscal que faltava', () => 
     expect(r.nome).toBe('NOME NOVO'); // a edição valeu
   });
 });
+
+/**
+ * `estado` e `motivo` do fiscal pertencem ao SERVIDOR.
+ *
+ * A tela monta o bloco fiscal campo a campo e não conhece os dois; o zod os
+ * preenche com `null` por padrão. Sem a limpeza na entrada, cada salvamento
+ * apagaria a pendência — e um produto com grupo inválido voltaria a parecer
+ * resolvido na primeira edição de preço.
+ */
+describe('ProductService — estado fiscal é do servidor', () => {
+  const comPendencia = {
+    ...fiscalMagro,
+    aliquotaCheia: 7, // já tem carga: não entra no caminho de completar
+    estado: 'pendente_conflito',
+    motivo: 'O grupo diz CST 1 e o ECF diz CST 4.',
+  };
+
+  it('payload do cliente não apaga a pendência gravada', async () => {
+    let gravado: Record<string, unknown> | undefined;
+    const p = produto({ grupo: 'MER PADARIA', fiscal: comPendencia as never });
+    const repo = {
+      async findById() { return p; },
+      async update(_id: string, payload: Record<string, unknown>) { gravado = payload; return p; },
+      async listByBaseProductId() { return []; },
+    } as unknown as ProductRepository;
+    const sheets = {
+      async registerPending() {},
+      async syncProduct() { return { outcome: 'synced' as const, rowNumber: 12 }; },
+    } as unknown as ProductSheetService;
+    const service = new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService);
+
+    // é o que a tela manda: bloco fiscal completo, com estado NULO
+    await service.update(admin, ID, {
+      nome: 'NOME NOVO',
+      fiscal: { ...comPendencia, estado: null, motivo: null } as never,
+    });
+
+    const fiscalGravado = (gravado?.fiscal ?? {}) as Record<string, unknown>;
+    /*
+     * A asserção é sobre a PRESENÇA da chave, não sobre o valor: `estado: null`
+     * e "sem a chave" gravam coisas diferentes no banco — o primeiro apaga a
+     * pendência, o segundo a preserva. Comparar valores com `??` mascarava
+     * justamente essa diferença.
+     */
+    expect(Object.prototype.hasOwnProperty.call(fiscalGravado, 'estado')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(fiscalGravado, 'motivo')).toBe(false);
+  });
+});

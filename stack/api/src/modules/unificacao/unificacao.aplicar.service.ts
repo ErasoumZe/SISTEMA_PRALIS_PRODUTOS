@@ -122,10 +122,19 @@ export class UnificacaoAplicarService {
       tributacaoSimples: null, aliquotaSimples: null, icmsRe: null, baseFiscal: null,
       codigoFiscal: null, produtoFiscal: null, cstReforma: null, cClassTrib: null,
       aliquotaIbs: null, aliquotaCbs: null, origemFiscal: null,
-    aliquotaEcf: null,
-    aliquotaEcfId: null,
-    estado: null,
-    motivo: null,
+      aliquotaEcf: null,
+      aliquotaEcfId: null,
+      /*
+       * A Central NÃO classifica: ela copia o fiscal que as fontes dela trazem
+       * e para aí. Consultar a regra do grupo e o cadastro de ECF para cada
+       * grupo do lote seriam milhares de chamadas ao Google dentro de uma
+       * requisição — o backfill existe justamente para isso.
+       *
+       * Marcar `nao_classificado` é o que impede o produto de parecer pronto:
+       * `null` aqui era indistinguível de "já foi classificado e está completo".
+       */
+      estado: 'nao_classificado' as const,
+      motivo: 'Criado pela Central; a carga fiscal ainda não foi buscada.',
     };
     if (loja === 'LI') {
       if (!c.fiscalLi) return null;

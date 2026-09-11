@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { container } from 'tsyringe';
 import { z } from 'zod/v4';
-import { apiResponseSchema, buildResponse } from '@/config/api.replies';
+import { apiResponseSchema, buildResponse, AppError } from '@/config/api.replies';
 import { authMiddleware } from '@/middlewares/auth-handler';
 import { TaxRuleService } from './tax-rule.service';
+import { BackfillFiscalService } from './backfill-fiscal.service';
 
 /**
  * O serializador do Zod remove tudo que não está declarado aqui — silenciosamente.
@@ -57,5 +58,73 @@ export async function apoioRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const query = request.query as { grupo: string; codigoBarras?: string };
     return reply.send(buildResponse(await service.classify(query.grupo, query.codigoBarras), 'Classificação fiscal'));
+  });
+
+  const backfill = container.resolve(BackfillFiscalService);
+  const exigirAdmin = (request: { currentUser?: { role: string } }) => {
+    if (!request.currentUser) throw new AppError('Não autenticado', 401, 'UNAUTHENTICATED');
+    if (request.currentUser.role !== 'admin') {
+      throw new AppError('Acesso restrito a administradores.', 403, 'FORBIDDEN');
+    }
+  };
+
+  /** Quantos produtos há em cada estado fiscal. É o health do fiscal. */
+  app.get('/admin/fiscal/panorama', {
+    schema: {
+      response: { 200: apiResponseSchema(z.record(z.string(), z.number())) },
+      summary: 'Quantos produtos em cada estado fiscal (admin)',
+      tags: ['ADMIN', 'FISCAL'],
+    },
+  }, async (request, reply) => {
+    exigirAdmin(request);
+    const panorama = await backfill.panorama();
+    return reply.send(buildResponse(panorama, 'Panorama fiscal'));
+  });
+
+  /**
+   * Completa a carga fiscal em lote.
+   *
+   * `aplicar` é FALSO por padrão e precisa vir explícito: reescrever fiscal de
+   * mil produtos não pode ser o caminho fácil. Sem ele, a rota só relata.
+   */
+  app.post('/admin/fiscal/backfill', {
+    schema: {
+      body: z.object({
+        aplicar: z.boolean().default(false),
+        limite: z.number().int().min(1).max(500).optional(),
+        cursor: z.string().optional(),
+        loja: z.string().optional(),
+        productId: z.string().optional(),
+      }),
+      response: {
+        200: apiResponseSchema(z.object({
+          aplicou: z.boolean(),
+          analisados: z.number(),
+          porEstado: z.record(z.string(), z.number()),
+          alterados: z.array(z.object({
+            id: z.string(), nome: z.string(), de: z.string(),
+            para: z.string(), motivo: z.string(),
+          })),
+          proximoCursor: z.string().nullable(),
+        })),
+      },
+      summary: 'Completar carga fiscal em lote — confere por padrão (admin)',
+      tags: ['ADMIN', 'FISCAL'],
+    },
+  }, async (request, reply) => {
+    exigirAdmin(request);
+    const b = request.body as {
+      aplicar: boolean; limite?: number; cursor?: string; loja?: string; productId?: string;
+    };
+    const r = await backfill.executar(
+      { limite: b.limite, cursor: b.cursor, loja: b.loja, productId: b.productId },
+      b.aplicar,
+    );
+    return reply.send(buildResponse(
+      r,
+      b.aplicar
+        ? `${r.alterados.length} produto(s) atualizados de ${r.analisados} analisados`
+        : `${r.alterados.length} de ${r.analisados} seriam atualizados (nada foi gravado)`,
+    ));
   });
 }

@@ -39,6 +39,8 @@ const form = reactive({
   promoDias: [false, false, false, false, false, false, false] as boolean[],
   // fiscal
   ncm: '', cest: '', categoria: '', cstPisCofins: '',
+  // estado fiscal: so leitura, vem do servidor e nunca e enviado de volta
+  estadoFiscal: '', motivoFiscal: '',
   aliquotaCheia: 0, aliquotaFcp: 0, aliquotaPis: 0, aliquotaCofins: 0, reducaoIcms: 0, icms: 0,
   tributacaoSimples: '', aliquotaSimples: 0, icmsRe: 0, baseFiscal: '',
   codigoFiscal: '', produtoFiscal: '', cstReforma: '', cClassTrib: '',
@@ -399,6 +401,45 @@ const dicas: Record<string, string> = {
 const ajuda = (campo: string) => (form.habilitarAjuda ? dicas[campo] : undefined);
 
 /**
+ * Como cada estado fiscal aparece na tela.
+ *
+ * O texto técnico do servidor (`pendente_grupo_invalido`) não serve para quem
+ * está cadastrando. E `quemResolve` existe porque a loja não pode consertar
+ * grupo — o campo é somente leitura para ela —, então mandar "corrija o grupo"
+ * sem dizer ONDE seria pedir o impossível.
+ */
+const FISCAL_NA_TELA: Record<string, {
+  rotulo: string; cor: string; icone: string; tipo: 'success' | 'warning' | 'info';
+  quemResolve?: string;
+}> = {
+  completo: { rotulo: 'completo', cor: 'success', icone: 'check_circle', tipo: 'success' },
+  nao_classificado: { rotulo: 'não classificado', cor: 'warning', icone: 'schedule', tipo: 'info' },
+  parcial: { rotulo: 'parcial', cor: 'warning', icone: 'info', tipo: 'info' },
+  pendente_grupo_invalido: {
+    rotulo: 'grupo inválido', cor: 'error', icone: 'error', tipo: 'warning',
+    quemResolve: 'O grupo é definido na BASE pelo administrador.',
+  },
+  pendente_sem_correspondencia: { rotulo: 'sem registro fiscal', cor: 'warning', icone: 'help', tipo: 'info' },
+  pendente_ambiguo: {
+    rotulo: 'ambíguo', cor: 'error', icone: 'help', tipo: 'warning',
+    quemResolve: 'Precisa de decisão: há mais de um registro com este nome.',
+  },
+  pendente_conflito: {
+    rotulo: 'conflito fiscal', cor: 'error', icone: 'warning', tipo: 'warning',
+    quemResolve: 'Precisa de decisão do contador.',
+  },
+  fonte_indisponivel: { rotulo: 'fonte fora do ar', cor: 'grey', icone: 'cloud_off', tipo: 'info' },
+};
+
+const estadoFiscal = computed(() => {
+  const estado = form.estadoFiscal;
+  if (!estado) return null;
+  const visual = FISCAL_NA_TELA[estado];
+  if (!visual) return null;
+  return { ...visual, motivo: estado === 'completo' ? '' : form.motivoFiscal };
+});
+
+/**
  * Impede que a roda do mouse altere um campo numérico.
  *
  * É comportamento padrão do navegador: com o campo FOCADO, rolar a página
@@ -582,6 +623,7 @@ onMounted(async () => {
     });
     if (p.fiscal) Object.assign(form, {
       ncm: p.fiscal.ncm ?? '', cest: p.fiscal.cest ?? '', categoria: p.fiscal.categoria ?? '', cstPisCofins: p.fiscal.cstPisCofins ?? '',
+      estadoFiscal: p.fiscal.estado ?? '', motivoFiscal: p.fiscal.motivo ?? '',
       aliquotaCheia: p.fiscal.aliquotaCheia ?? 0, aliquotaFcp: p.fiscal.aliquotaFcp ?? 0,
       aliquotaPis: p.fiscal.aliquotaPis ?? 0, aliquotaCofins: p.fiscal.aliquotaCofins ?? 0,
       reducaoIcms: p.fiscal.reducaoIcms ?? 0, icms: p.fiscal.icms ?? 0,
@@ -940,9 +982,35 @@ onMounted(async () => {
 
     <!-- FISCAL — da LOJA: so aparece depois que o produto foi importado -->
     <v-card v-if="modoLoja" flat border rounded="lg" class="mb-4">
-      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">FISCAL</v-card-title>
+      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">
+        FISCAL
+        <!--
+          O estado vem ao lado do título de propósito: "cadastro salvo" e
+          "fiscal resolvido" eram indistinguíveis, e a pessoa saía achando que
+          tinha terminado. Quando falta fonte, o motivo aparece logo abaixo em
+          português — não adianta dizer "pendente" sem dizer de quê.
+        -->
+        <v-chip
+          v-if="estadoFiscal"
+          size="small"
+          label
+          class="ml-2"
+          :color="estadoFiscal.cor"
+          :prepend-icon="estadoFiscal.icone"
+        >
+          {{ estadoFiscal.rotulo }}
+        </v-chip>
+      </v-card-title>
       <v-card-text>
         <v-row dense>
+          <v-col v-if="estadoFiscal && estadoFiscal.motivo" cols="12">
+            <v-alert :type="estadoFiscal.tipo" variant="tonal" density="compact" class="mb-2">
+              {{ estadoFiscal.motivo }}
+              <template v-if="estadoFiscal.quemResolve">
+                <br><strong>{{ estadoFiscal.quemResolve }}</strong>
+              </template>
+            </v-alert>
+          </v-col>
           <v-col v-if="!isAdmin" cols="12">
             <v-alert type="info" variant="tonal" density="compact" class="mb-2">
               Os dados fiscais são definidos pelo administrador e calculados a partir do grupo.

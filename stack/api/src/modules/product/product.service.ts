@@ -88,6 +88,23 @@ const semCargaFiscal = (f: Record<string, unknown> | null | undefined): boolean 
   ['aliquotaEcf', 'aliquotaCheia', 'reducaoIcms', 'categoria', 'cest', 'aliquotaPis']
     .every((campo) => fiscalVazio(f?.[campo]));
 
+/**
+ * `estado` e `motivo` são do SERVIDOR, nunca do cliente.
+ *
+ * A tela monta o bloco fiscal campo a campo e não conhece os dois; o zod
+ * preenche com `null` por padrão, e isso APAGARIA a pendência a cada
+ * salvamento — o produto com grupo inválido voltaria a parecer resolvido na
+ * primeira edição de preço.
+ *
+ * Tirá-los da entrada é mais seguro que confiar em quem chama: só
+ * `comResultadoFiscal` escreve esses dois.
+ */
+const semEstadoFiscal = <T extends { fiscal?: unknown }>(payload: T): T => {
+  if (!payload.fiscal || typeof payload.fiscal !== 'object') return payload;
+  const { estado: _e, motivo: _m, ...resto } = payload.fiscal as Record<string, unknown>;
+  return { ...payload, fiscal: resto } as T;
+};
+
 /** Compara SÓ o que a pessoa digita, normalizando as grafias de vazio. */
 const mesmoFiscalManual = (
   a: Record<string, unknown> | null | undefined,
@@ -193,7 +210,9 @@ export class ProductService {
     return codigo;
   }
 
-  async create(user: CurrentUser, payload: ProductRequests.CreateProductRequest): Promise<CreatedProduct> {
+  async create(user: CurrentUser, entrada: ProductRequests.CreateProductRequest): Promise<CreatedProduct> {
+    // `estado`/`motivo` do fiscal são do servidor; o que vier do cliente sai aqui
+    const payload = semEstadoFiscal(entrada);
     // Governança: produto NOVO só o admin cria, e sempre na base geral.
     // As lojas recebem produtos por importação (importFromBase), nunca por cadastro direto.
     if (user.role !== 'admin') {
@@ -281,7 +300,9 @@ export class ProductService {
     return p;
   }
 
-  async update(user: CurrentUser, id: string, payload: ProductRequests.UpdateProductRequest) {
+  async update(user: CurrentUser, id: string, entrada: ProductRequests.UpdateProductRequest) {
+    // `estado`/`motivo` do fiscal são do servidor; o que vier do cliente sai aqui
+    const payload = semEstadoFiscal(entrada);
     // editar: admin (qualquer produto) ou colaborador (produtos da própria loja)
     const p = await this.repo.findById(id);
     if (!p) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');

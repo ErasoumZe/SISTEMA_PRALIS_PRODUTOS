@@ -31,6 +31,15 @@ export interface FiscalClassification extends GroupTaxRule {
  * diferença importa: um pede decisão, o outro pede paciência.
  */
 export type EstadoFiscal =
+  /**
+   * Nunca passou pela classificação. É o estado dos produtos que a Central
+   * cria: ela grava o fiscal que as fontes dela trazem e NÃO consulta a regra
+   * do grupo nem o cadastro de ECF — fazer isso no lote seriam milhares de
+   * chamadas ao Google dentro de uma requisição. Quem resolve é o backfill.
+   *
+   * Existe para não confundir "ainda não olhei" com "olhei e não achei".
+   */
+  | 'nao_classificado'
   | 'completo'
   | 'parcial'
   | 'pendente_grupo_invalido'

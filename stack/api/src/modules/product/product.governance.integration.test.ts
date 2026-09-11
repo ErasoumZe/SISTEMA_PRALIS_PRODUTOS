@@ -54,14 +54,22 @@ beforeAll(async () => {
   repo = new ProductRepository();
   // governança não testa planilha: Google mockado e integração desligada por env
   const sheetService = new ProductSheetService(repo, new ProductSheetRepository(), new FakeSheetsGateway());
+  const regraFalsa = (grupo: string) => ({
+    grupo, cstPisCofins: '6', tributacaoSimples: 'ALÍQUOTA ZERO',
+    aliquotaSimples: 7.4, icmsRe: 0, baseFiscal: 'Cesta básica', margemPadrao: null,
+    ncm: null, codigoFiscal: null, produtoFiscal: null, cstReforma: null,
+    cClassTrib: null, aliquotaIbs: null, aliquotaCbs: null, origem: 'grupo' as const,
+    ecf: null,
+  });
   const taxRules = {
-    classify: async (grupo: string) => ({
-      grupo, cstPisCofins: '6', tributacaoSimples: 'ALÍQUOTA ZERO',
-      aliquotaSimples: 7.4, icmsRe: 0, baseFiscal: 'Cesta básica',
-      ncm: null, codigoFiscal: null, produtoFiscal: null, cstReforma: null,
-      cClassTrib: null, aliquotaIbs: null, aliquotaCbs: null, origem: 'grupo' as const,
+    classify: async (grupo: string) => regraFalsa(grupo),
+    classificar: async (entrada: { grupo?: string | null }) => ({
+      estado: 'parcial' as const,
+      motivo: 'sem cadastro de ECF neste teste',
+      classificacao: regraFalsa(entrada.grupo ?? ''),
+      conflitos: [],
     }),
-  } as TaxRuleService;
+  } as unknown as TaxRuleService;
   // espelho das abas de loja desligado: teste de integração não fala com o Google
   const espelhoLoja = {
     async espelharVarios() { return 'desligado' as const; },
