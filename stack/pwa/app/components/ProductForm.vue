@@ -398,6 +398,21 @@ const dicas: Record<string, string> = {
 };
 const ajuda = (campo: string) => (form.habilitarAjuda ? dicas[campo] : undefined);
 
+/**
+ * Impede que a roda do mouse altere um campo numérico.
+ *
+ * É comportamento padrão do navegador: com o campo FOCADO, rolar a página
+ * incrementa ou decrementa o número. Quem preencheu "Estoque mín." e rolou a
+ * tela para continuar o cadastro via o 10 virar 9 sem tocar em nada — e o
+ * cadastro seguia para a planilha errado, sem aviso nenhum.
+ *
+ * Tirar o foco no `wheel` devolve a rolagem à página, que é o que a pessoa
+ * queria fazer.
+ */
+function semRolagemNoNumero(e: WheelEvent) {
+  (e.target as HTMLElement | null)?.blur();
+}
+
 function buildFiscal() {
   const automatic = automaticFiscal.value;
   const has =
@@ -746,7 +761,7 @@ onMounted(async () => {
             <v-text-field v-model="form.nome" label="Nome do produto *" variant="outlined" density="comfortable" :hint="ajuda('nome')" />
           </v-col>
           <v-col cols="6">
-            <v-text-field v-model.number="form.quantidade" type="number" label="Gramatura" variant="outlined" density="comfortable" :hint="ajuda('quantidade')" />
+            <v-text-field v-model.number="form.quantidade" type="number" @wheel="semRolagemNoNumero" label="Gramatura" variant="outlined" density="comfortable" :hint="ajuda('quantidade')" />
           </v-col>
           <v-col cols="6">
             <v-select v-model="form.medidaBase" :items="MEDIDAS_BASE" label="Medida base" variant="outlined" density="comfortable" :hint="ajuda('medidaBase')" />
@@ -764,7 +779,7 @@ onMounted(async () => {
             <v-select v-model="form.cDe" :items="['C/', 'DE']" label="C/DE" variant="outlined" density="comfortable" :hint="ajuda('cDe')" />
           </v-col>
           <v-col cols="6" sm="3">
-            <v-text-field v-model.number="form.qtCad" type="number" label="Qt. embalagem" variant="outlined" density="comfortable" :hint="ajuda('qtCad')" />
+            <v-text-field v-model.number="form.qtCad" type="number" @wheel="semRolagemNoNumero" label="Qt. embalagem" variant="outlined" density="comfortable" :hint="ajuda('qtCad')" />
           </v-col>
           <v-col cols="6" sm="3">
             <v-select v-model="form.medidaCompra" :items="MEDIDAS_COMPRA" label="Medida de compra" variant="outlined" density="comfortable" clearable :hint="ajuda('medidaCompra')" />
@@ -849,10 +864,10 @@ onMounted(async () => {
             <v-select v-model="form.setorEstoque" :items="SETORES" label="Setor de estoque" variant="outlined" density="comfortable" clearable :hint="ajuda('setorEstoque')" />
           </v-col>
           <v-col cols="6" sm="3">
-            <v-text-field v-model.number="form.estoqueMin" type="number" label="Estoque mín." variant="outlined" density="comfortable" :hint="ajuda('estoqueMin')" :error-messages="errosEstoque.estoqueMin" />
+            <v-text-field v-model.number="form.estoqueMin" type="number" @wheel="semRolagemNoNumero" label="Estoque mín." variant="outlined" density="comfortable" :hint="ajuda('estoqueMin')" :error-messages="errosEstoque.estoqueMin" />
           </v-col>
           <v-col cols="6" sm="3">
-            <v-text-field v-model.number="form.estoqueMax" type="number" label="Estoque máx." variant="outlined" density="comfortable" :hint="ajuda('estoqueMax')" :error-messages="errosEstoque.estoqueMax" />
+            <v-text-field v-model.number="form.estoqueMax" type="number" @wheel="semRolagemNoNumero" label="Estoque máx." variant="outlined" density="comfortable" :hint="ajuda('estoqueMax')" :error-messages="errosEstoque.estoqueMax" />
           </v-col>
 
           <v-col cols="12" sm="6">
@@ -873,7 +888,7 @@ onMounted(async () => {
           <v-col cols="6" sm="3">
             <v-text-field
               v-model.number="form.margemPct"
-              type="number"
+              type="number" @wheel="semRolagemNoNumero"
               label="Margem"
               suffix="%"
               :min="0"
@@ -904,7 +919,7 @@ onMounted(async () => {
               <v-select v-model="form.precisao" :items="['EXATOS', 'APROXIMADOS']" label="Precisão" variant="outlined" density="comfortable" :hint="ajuda('precisao')" />
             </v-col>
             <v-col cols="6" sm="4">
-              <v-text-field v-model.number="form.qtdTransf" type="number" label="Quantidade" variant="outlined" density="comfortable" :hint="ajuda('qtdTransf')" />
+              <v-text-field v-model.number="form.qtdTransf" type="number" @wheel="semRolagemNoNumero" label="Quantidade" variant="outlined" density="comfortable" :hint="ajuda('qtdTransf')" />
             </v-col>
             <v-col cols="12" sm="4">
               <v-select v-model="form.unidadeTransf" :items="UNIDADES_TR" label="Unidade" variant="outlined" density="comfortable" :hint="ajuda('unidadeTransf')" />
@@ -974,7 +989,7 @@ onMounted(async () => {
               <MoneyField v-model="form.promoValor" label="Valor promo" />
             </v-col>
             <v-col v-if="form.promoTipo === 'desconto'" cols="6" sm="4">
-              <v-text-field v-model.number="form.promoDescontoPct" type="number" label="Desconto %" variant="outlined" density="comfortable" />
+              <v-text-field v-model.number="form.promoDescontoPct" type="number" @wheel="semRolagemNoNumero" label="Desconto %" variant="outlined" density="comfortable" />
             </v-col>
             <v-col cols="6" sm="4"><v-text-field v-model="form.promoHoraInicio" type="time" label="Início" variant="outlined" density="comfortable" /></v-col>
             <v-col cols="6" sm="4"><v-text-field v-model="form.promoHoraFim" type="time" label="Término" variant="outlined" density="comfortable" /></v-col>

@@ -73,6 +73,21 @@ const FISCAIS_MANUAIS = [
 const fiscalVazio = (v: unknown): boolean =>
   v == null || v === '' || v === 0;
 
+/**
+ * O produto está sem CARGA fiscal — só com a classificação básica, ou com nada.
+ *
+ * `cstPisCofins` e `ncm` NÃO contam: os dois vêm do grupo e do de-para por
+ * código de barras, e chegam desde sempre. O que falta nos produtos antigos é a
+ * carga em si — alíquotas, redução, ECF, categoria, CEST —, que só existe no
+ * cadastro de ECF e só passou a ser lida depois.
+ *
+ * Basta UM desses estar preenchido para o produto contar como já classificado:
+ * completar deve ser um ato único, não algo que reescreve a cada salvamento.
+ */
+const semCargaFiscal = (f: Record<string, unknown> | null | undefined): boolean =>
+  ['aliquotaEcf', 'aliquotaCheia', 'reducaoIcms', 'categoria', 'cest', 'aliquotaPis']
+    .every((campo) => fiscalVazio(f?.[campo]));
+
 /** Compara SÓ o que a pessoa digita, normalizando as grafias de vazio. */
 const mesmoFiscalManual = (
   a: Record<string, unknown> | null | undefined,
@@ -277,6 +292,26 @@ export class ProductService {
         comFiscalAnterior,
         await this.taxRules.classify(grupoEfetivo, codigoBarrasEfetivo),
       );
+    } else if (grupoEfetivo?.trim() && semCargaFiscal(p.fiscal)) {
+      /*
+       * COMPLETAR o que nunca foi preenchido — não é reclassificar.
+       *
+       * Produto criado pela Central não passa por `classify()` de propósito, e
+       * produto cadastrado antes de a fonte de ECF existir ficou com CST e NCM
+       * e mais nada. Como a carga fiscal só era buscada quando o GRUPO mudava,
+       * esses produtos nunca a recebiam: abrir e salvar não adiantava, e trocar
+       * o grupo só para forçar seria pedir para a pessoa mentir no cadastro.
+       *
+       * Só entra quando o bloco está vazio, então nunca sobrescreve o que já
+       * existe. E falha do Google não derruba a edição: sem a regra, salva sem
+       * o fiscal, como salvava antes.
+       */
+      const regra = await this.taxRules
+        .classify(grupoEfetivo, payload.codigoBarras ?? p.codigoBarras ?? undefined, payload.nome ?? p.nome)
+        .catch(() => null);
+      if (regra) {
+        payloadFinal = this.withAutomaticTax({ ...payload, fiscal: p.fiscal }, regra);
+      }
     } else if (payload.fiscal !== undefined && mesmoValor(payload.fiscal, p.fiscal)) {
       // Não regrava a relação fiscal quando ela apenas voltou idêntica no
       // payload completo da tela.
