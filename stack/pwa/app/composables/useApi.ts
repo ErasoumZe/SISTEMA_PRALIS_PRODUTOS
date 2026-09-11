@@ -286,6 +286,25 @@ export function useApi() {
         ...base, query: limite ? { limite } : undefined,
       })),
 
+    // ---- estado fiscal ----
+    /** Quantos produtos em cada estado fiscal. É o health do fiscal. */
+    fiscalPanorama: () =>
+      unwrap($fetch<{ data: Record<string, number> }>('/admin/fiscal/panorama', { ...base })),
+
+    /**
+     * Completa a carga fiscal em lote. `aplicar` é FALSO por padrão e vai
+     * explícito: reescrever fiscal de mil produtos não pode ser o caminho fácil.
+     */
+    fiscalBackfill: (corpo: {
+      aplicar?: boolean; limite?: number; cursor?: string; loja?: string; productId?: string;
+    }) =>
+      unwrap($fetch<{ data: {
+        aplicou: boolean; analisados: number;
+        porEstado: Record<string, number>;
+        alterados: Array<{ id: string; nome: string; de: string; para: string; motivo: string }>;
+        proximoCursor: string | null;
+      } }>('/admin/fiscal/backfill', { ...base, method: 'POST', body: corpo })),
+
     // ---- manutenção do catálogo ----
     /**
      * URL do CSV com a base inteira. É link direto (não fetch) para o navegador

@@ -91,14 +91,23 @@ beforeAll(async () => {
   // quando E/CP estão vazios. O fake reproduz esse contrato sem ocupar a linha.
   sheets = new FakeSheetsGateway().comCabecalhos().comLinhaModelo(12);
   sheetService = new ProductSheetService(repo, syncRepo, sheets);
+  const regraFalsa = (grupo: string) => ({
+    grupo, cstPisCofins: '6', tributacaoSimples: 'ALÍQUOTA ZERO',
+    aliquotaSimples: 7.4, icmsRe: 0, baseFiscal: 'Cesta básica', margemPadrao: null,
+    ncm: null, codigoFiscal: null, produtoFiscal: null, cstReforma: null,
+    cClassTrib: null, aliquotaIbs: null, aliquotaCbs: null, origem: 'grupo' as const,
+    ecf: null,
+  });
   const taxRules = {
-    classify: async (grupo: string) => ({
-      grupo, cstPisCofins: '6', tributacaoSimples: 'ALÍQUOTA ZERO',
-      aliquotaSimples: 7.4, icmsRe: 0, baseFiscal: 'Cesta básica',
-      ncm: null, codigoFiscal: null, produtoFiscal: null, cstReforma: null,
-      cClassTrib: null, aliquotaIbs: null, aliquotaCbs: null, origem: 'grupo' as const,
+    classify: async (grupo: string) => regraFalsa(grupo),
+    // `classificar` é o caminho dos cadastros: devolve o estado junto
+    classificar: async (entrada: { grupo?: string | null }) => ({
+      estado: 'parcial' as const,
+      motivo: 'sem cadastro de ECF neste teste',
+      classificacao: regraFalsa(entrada.grupo ?? ''),
+      conflitos: [],
     }),
-  } as TaxRuleService;
+  } as unknown as TaxRuleService;
   // espelho das abas de loja desligado: teste de integracao nao fala com o Google
   const espelhoLoja = {
     async espelharVarios() { return 'desligado' as const; },

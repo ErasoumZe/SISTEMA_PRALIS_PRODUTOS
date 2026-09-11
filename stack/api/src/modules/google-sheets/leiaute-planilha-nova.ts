@@ -46,8 +46,34 @@ export const CAMPO_DA_COLUNA: Readonly<Record<string, string>> = {
    * entram em `INPUT_COLUMNS`: no leiaute antigo elas são simplesmente
    * ignoradas, então nada muda lá.
    */
-  CF: 'ALIQUOTA ECF', CG: 'ALIQUOTA ECF ID',
+  CF: 'ALIQUOTA ECF', CG: 'ALIQUOTA ECF ID', CH: '% NCM',
 };
+
+/*
+ * OS DOIS CABEÇALHOS `REDUCAO_ICMS` DA FAIXA FISCAL — `DC` e `DP`.
+ *
+ * O que o dado mostra: não são dois dados, são o MESMO número em duas
+ * notações. No cadastro de origem as duas colunas também existem (`AC` e `AZ`):
+ *
+ *     AC = 5333   6111       formato do Creare, 2 casas implícitas
+ *     AZ = 53,33  61,11      o mesmo valor, escrito como percentual
+ *
+ * Das 709 linhas com `AZ` preenchido, `AC` e `AZ` coincidem como texto em 1 —
+ * exatamente o que se espera de duas grafias do mesmo número.
+ *
+ * O que o dado NÃO mostra: qual das duas notações o consumidor da planilha
+ * nova espera em cada coluna. As duas estão vazias em todas as linhas, então
+ * não há precedente ali, e o TXT do Creare é gerado do BANCO, não da planilha.
+ *
+ * DECISÃO: escrevemos só `DC`, na grafia percentual que o sistema já usava, e
+ * deixamos `DP` em branco. Passar a gravar `5333` seria mudar formato fiscal
+ * com base em analogia de posição; escrever o percentual nas duas seria o
+ * "mesmo valor nos dois lugares por conveniência". Entre errar o formato e
+ * deixar uma coluna vazia, a coluna vazia é reversível.
+ *
+ * Para fechar isto falta UMA resposta: `DC` e `DP` devem receber `5333` e
+ * `53,33`, ou o contrário?
+ */
 
 /** Mesmo campo, nome diferente nas duas planilhas. Cada um provado no dado. */
 export const APELIDO_NA_NOVA: Readonly<Record<string, string>> = {

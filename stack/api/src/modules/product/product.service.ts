@@ -11,7 +11,7 @@ import {
 } from '@/modules/google-sheets/product-sheet-loja.service';
 import { AppError } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
-import { TaxRuleService, type FiscalClassification } from '@/modules/apoio/tax-rule.service';
+import { TaxRuleService, type FiscalClassification, type ResultadoFiscal } from '@/modules/apoio/tax-rule.service';
 
 const rand4 = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', 4);
 const genCodigo = () => `PR-${rand4()}-${rand4()}`;
@@ -88,6 +88,23 @@ const semCargaFiscal = (f: Record<string, unknown> | null | undefined): boolean 
   ['aliquotaEcf', 'aliquotaCheia', 'reducaoIcms', 'categoria', 'cest', 'aliquotaPis']
     .every((campo) => fiscalVazio(f?.[campo]));
 
+/**
+ * `estado` e `motivo` são do SERVIDOR, nunca do cliente.
+ *
+ * A tela monta o bloco fiscal campo a campo e não conhece os dois; o zod
+ * preenche com `null` por padrão, e isso APAGARIA a pendência a cada
+ * salvamento — o produto com grupo inválido voltaria a parecer resolvido na
+ * primeira edição de preço.
+ *
+ * Tirá-los da entrada é mais seguro que confiar em quem chama: só
+ * `comResultadoFiscal` escreve esses dois.
+ */
+const semEstadoFiscal = <T extends { fiscal?: unknown }>(payload: T): T => {
+  if (!payload.fiscal || typeof payload.fiscal !== 'object') return payload;
+  const { estado: _e, motivo: _m, ...resto } = payload.fiscal as Record<string, unknown>;
+  return { ...payload, fiscal: resto } as T;
+};
+
 /** Compara SÓ o que a pessoa digita, normalizando as grafias de vazio. */
 const mesmoFiscalManual = (
   a: Record<string, unknown> | null | undefined,
@@ -108,9 +125,33 @@ export class ProductService {
     @inject(TaxRuleService) private taxRules: TaxRuleService,
   ) {}
 
+  /**
+   * Aplica o resultado da classificação ao payload — inclusive quando ela NÃO
+   * deu certo.
+   *
+   * Quando não há classificação (grupo sem regra, fonte fora do ar), o fiscal
+   * do produto fica como estava e só o `estado`/`motivo` mudam. É o que torna a
+   * pendência visível em vez de o cadastro parecer concluído: antes, esse caso
+   * saía do `.catch(() => null)` sem deixar rastro.
+   */
+  private comResultadoFiscal<T extends ProductRequests.CreateProductRequest | ProductRequests.UpdateProductRequest>(
+    payload: T,
+    resultado: ResultadoFiscal,
+  ): T {
+    if (!resultado.classificacao) {
+      const anterior = payload.fiscal ?? null;
+      return {
+        ...payload,
+        fiscal: { ...(anterior ?? {}), estado: resultado.estado, motivo: resultado.motivo },
+      } as T;
+    }
+    return this.withAutomaticTax(payload, resultado.classificacao, resultado);
+  }
+
   private withAutomaticTax<T extends ProductRequests.CreateProductRequest | ProductRequests.UpdateProductRequest>(
     payload: T,
     rule: FiscalClassification,
+    resultado?: ResultadoFiscal,
   ): T {
     const fiscal = payload.fiscal ?? {
       ncm: null, cest: null, categoria: null, cstPisCofins: null,
@@ -141,6 +182,8 @@ export class ProductService {
         categoria: ecf?.categoria ?? fiscal.categoria,
         icms: ecf?.icms ?? fiscal.icms,
         cest: ecf?.cest ?? fiscal.cest,
+        // existe em 908 das 3.122 linhas da fonte; ausência continua ausência
+        pctNcm: ecf?.pctNcm ?? (fiscal as { pctNcm?: number | null }).pctNcm ?? null,
         tributacaoSimples: rule.tributacaoSimples,
         aliquotaSimples: rule.aliquotaSimples,
         icmsRe: rule.icmsRe,
@@ -152,6 +195,13 @@ export class ProductService {
         aliquotaIbs: rule.aliquotaIbs,
         aliquotaCbs: rule.aliquotaCbs,
         origemFiscal: rule.origem,
+        /*
+         * Sem `resultado`, quem chamou usou o caminho antigo e não sabe dizer o
+         * estado — então não inventamos um. `completo` só é afirmado quando a
+         * classificação inteira passou por `classificar()`.
+         */
+        estado: resultado?.estado ?? null,
+        motivo: resultado?.motivo ?? null,
       },
     } as T;
   }
@@ -162,7 +212,9 @@ export class ProductService {
     return codigo;
   }
 
-  async create(user: CurrentUser, payload: ProductRequests.CreateProductRequest): Promise<CreatedProduct> {
+  async create(user: CurrentUser, entrada: ProductRequests.CreateProductRequest): Promise<CreatedProduct> {
+    // `estado`/`motivo` do fiscal são do servidor; o que vier do cliente sai aqui
+    const payload = semEstadoFiscal(entrada);
     // Governança: produto NOVO só o admin cria, e sempre na base geral.
     // As lojas recebem produtos por importação (importFromBase), nunca por cadastro direto.
     if (user.role !== 'admin') {
@@ -172,9 +224,23 @@ export class ProductService {
     if (!payload.grupo?.trim()) {
       throw new AppError('Selecione o grupo de mercadorias para aplicar a regra fiscal.', 422, 'GROUP_REQUIRED');
     }
-    const payloadComImposto = this.withAutomaticTax(
+    /*
+     * O NOME vai junto desde a criação.
+     *
+     * O cadastro de ECF não tem código de barras — a coluna REFERENCIA do
+     * Creare é `0000000000000000` nas 3.122 linhas —, então o nome é a única
+     * chave. Sem ele aqui, o produto nascia sem alíquota e sem código de ECF, e
+     * só recebia a carga se alguém abrisse e salvasse de novo. Ninguém salva
+     * duas vezes de propósito.
+     */
+    const payloadComImposto = this.comResultadoFiscal(
       payload,
-      await this.taxRules.classify(payload.grupo, payload.codigoBarras ?? undefined),
+      await this.taxRules.classificar({
+        nome: payload.nome,
+        codigoBarras: payload.codigoBarras,
+        grupo: payload.grupo,
+        loja: alvo,
+      }),
     );
 
     if (!payloadComImposto.forcar) {
@@ -236,7 +302,9 @@ export class ProductService {
     return p;
   }
 
-  async update(user: CurrentUser, id: string, payload: ProductRequests.UpdateProductRequest) {
+  async update(user: CurrentUser, id: string, entrada: ProductRequests.UpdateProductRequest) {
+    // `estado`/`motivo` do fiscal são do servidor; o que vier do cliente sai aqui
+    const payload = semEstadoFiscal(entrada);
     // editar: admin (qualquer produto) ou colaborador (produtos da própria loja)
     const p = await this.repo.findById(id);
     if (!p) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
@@ -288,9 +356,15 @@ export class ProductService {
         ? { ...payload, fiscal: p.fiscal }
         : payload;
       const codigoBarrasEfetivo = payload.codigoBarras ?? p.codigoBarras ?? undefined;
-      payloadFinal = this.withAutomaticTax(
+      payloadFinal = this.comResultadoFiscal(
         comFiscalAnterior,
-        await this.taxRules.classify(grupoEfetivo, codigoBarrasEfetivo),
+        await this.taxRules.classificar({
+          nome: payload.nome ?? p.nome,
+          codigoBarras: codigoBarrasEfetivo,
+          codigoInterno: p.codigoInterno,
+          grupo: grupoEfetivo,
+          loja: p.loja,
+        }),
       );
     } else if (grupoEfetivo?.trim() && semCargaFiscal(p.fiscal)) {
       /*
@@ -306,12 +380,16 @@ export class ProductService {
        * existe. E falha do Google não derruba a edição: sem a regra, salva sem
        * o fiscal, como salvava antes.
        */
-      const regra = await this.taxRules
-        .classify(grupoEfetivo, payload.codigoBarras ?? p.codigoBarras ?? undefined, payload.nome ?? p.nome)
-        .catch(() => null);
-      if (regra) {
-        payloadFinal = this.withAutomaticTax({ ...payload, fiscal: p.fiscal }, regra);
-      }
+      payloadFinal = this.comResultadoFiscal(
+        { ...payload, fiscal: p.fiscal },
+        await this.taxRules.classificar({
+          nome: payload.nome ?? p.nome,
+          codigoBarras: payload.codigoBarras ?? p.codigoBarras,
+          codigoInterno: p.codigoInterno,
+          grupo: grupoEfetivo,
+          loja: p.loja,
+        }),
+      );
     } else if (payload.fiscal !== undefined && mesmoValor(payload.fiscal, p.fiscal)) {
       // Não regrava a relação fiscal quando ela apenas voltou idêntica no
       // payload completo da tela.

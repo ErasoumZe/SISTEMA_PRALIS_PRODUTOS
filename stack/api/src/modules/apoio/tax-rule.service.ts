@@ -4,6 +4,8 @@ import { env, credenciaisSheetsFaltando, destinoSheetsFaltando } from '@/config/
 import { AppError } from '@/config/api.replies';
 import { SHEETS_GATEWAY } from '@/modules/google-sheets/google-sheets.di';
 import { a1, type SheetsGateway } from '@/modules/google-sheets/google-sheets.client';
+import { parseCampoCreare } from '@/modules/apoio/formato-creare';
+import { grupoOficialDe } from '@/modules/apoio/grupos-legados';
 
 export interface GroupTaxRule {
   grupo: string; cstPisCofins: string; tributacaoSimples: string;
@@ -22,6 +24,62 @@ export interface FiscalClassification extends GroupTaxRule {
   /** Cadastro de ECF do produto, quando o nome casa. `null` = não encontrado. */
   ecf: RegistroEcf | null;
 }
+/**
+ * Em que pé está o fiscal de um produto. É o que a tela, o health e o backfill
+ * leem — e o que impede "cadastro salvo" ser lido como "fiscal resolvido".
+ *
+ * Os estados `pendente_*` são situações que só uma pessoa resolve; o
+ * `fonte_indisponivel` é temporário e some sozinho quando o Google volta. A
+ * diferença importa: um pede decisão, o outro pede paciência.
+ */
+export type EstadoFiscal =
+  /**
+   * Nunca passou pela classificação. É o estado dos produtos que a Central
+   * cria: ela grava o fiscal que as fontes dela trazem e NÃO consulta a regra
+   * do grupo nem o cadastro de ECF — fazer isso no lote seriam milhares de
+   * chamadas ao Google dentro de uma requisição. Quem resolve é o backfill.
+   *
+   * Existe para não confundir "ainda não olhei" com "olhei e não achei".
+   */
+  | 'nao_classificado'
+  | 'completo'
+  | 'parcial'
+  | 'pendente_grupo_invalido'
+  | 'pendente_sem_correspondencia'
+  | 'pendente_ambiguo'
+  | 'pendente_conflito'
+  /**
+   * A loja do produto não tem cadastro de ECF exportado.
+   *
+   * Não é falha nem ausência do produto: é ausência da FONTE. O produto pode
+   * existir no Creare da loja e ninguém aqui tem como saber. Retentar não
+   * muda nada — só entrar o export daquela loja muda.
+   */
+  | 'pendente_fonte_da_loja'
+  | 'fonte_indisponivel';
+
+/** O que se sabe do produto na hora de classificar. */
+export interface EntradaFiscal {
+  nome?: string | null;
+  codigoBarras?: string | null;
+  codigoInterno?: string | null;
+  grupo?: string | null;
+  loja?: string | null;
+}
+
+export interface ResultadoFiscal {
+  estado: EstadoFiscal;
+  /** Frase curta, em português, para aparecer na tela sem tradução. */
+  motivo: string;
+  /** `null` quando o grupo não tem regra: aí não há classificação nenhuma. */
+  classificacao: FiscalClassification | null;
+  /**
+   * Divergências entre fontes que ninguém deve resolver no código.
+   * Cada uma vira uma pergunta para o contador.
+   */
+  conflitos: Array<{ campo: string; doGrupo: string; doEcf: string }>;
+}
+
 interface ProductTaxRule { codigo: string; ncm: string; cst: string; icmsRe: number; nome: string }
 interface ReformRule { cst: string; cClassTrib: string; ibs: number; cbs: number }
 
@@ -46,6 +104,36 @@ export interface RegistroEcf {
   categoria: string | null;
   icms: number | null;
   cest: string | null;
+  /**
+   * NCM e CST como o cadastro de ECF os traz.
+   *
+   * Não são a mesma coisa que os do produto: o NCM do produto vem do de-para
+   * por código de barras, e o CST de PIS/COFINS vem da regra do GRUPO. Aqui
+   * eles servem para CONFRONTAR as fontes — e o CST do ECF é `99` ("outras
+   * operações") na maioria das linhas, marcação genérica que não substitui a
+   * classificação de verdade.
+   */
+  ncm: string | null;
+  cstEcf: string | null;
+  /** `% NCM`: só 908 das 3.122 linhas têm. Ausência aqui é ausência mesmo. */
+  pctNcm: number | null;
+}
+
+/**
+ * O cadastro de ECF inteiro, com o que falhou junto.
+ *
+ * Antes isto era um `Map` e a ambiguidade era resolvida apagando a chave — o
+ * produto ficava indistinguível de "não existe na fonte". São coisas
+ * diferentes: um precisa de decisão humana, o outro simplesmente não tem
+ * registro. Guardar as duas listas é o que permite dizer POR QUE o fiscal não
+ * veio.
+ */
+export interface FonteEcf {
+  porNome: Map<string, RegistroEcf>;
+  /** Nomes com mais de uma linha. Escolher uma seria sortear imposto. */
+  ambiguos: Set<string>;
+  /** `true` quando a aba não pôde ser lida — falha temporária, não ausência. */
+  indisponivel: boolean;
 }
 
 interface Cache {
@@ -54,8 +142,11 @@ interface Cache {
   products: Map<string, ProductTaxRule>;
   reform: Map<string, ReformRule>;
   cst: Map<string, { tributacao: string; aliquota: number }>;
-  /** Chaveado pelo NOME normalizado; nomes repetidos ficam de fora. */
-  ecf: Map<string, RegistroEcf>;
+  /**
+   * Uma fonte de ECF por ABA, porque o cadastro é de uma loja só.
+   * Cada `FonteEcf` é chaveada pelo NOME normalizado; nomes repetidos ficam de fora.
+   */
+  ecf: Map<string, FonteEcf>;
 }
 const CACHE_MS = 5 * 60 * 1000;
 
@@ -67,8 +158,35 @@ export const normalizeGroup = (value: string): string => ProductRules.normalizar
 export const parseSheetPercent = (value: string): number => { const parsed = Number(value.replace('%', '').replace(/\./g, '').replace(',', '.').trim()); return Number.isFinite(parsed) ? parsed : 0; };
 const code = (value: string) => value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
 
-/** Aba com o cadastro de ECF. Criada por `scripts/montar-aba-fiscal-ecf.ts`. */
+/** Aba com o cadastro de ECF da TNP. Criada por `scripts/montar-aba-fiscal-ecf.ts`. */
 export const ABA_ECF = '(TNP) FISCAL - CADASTRO ECF';
+
+/**
+ * De qual aba sai o cadastro de ECF de cada loja.
+ *
+ * `ALIQUOTA ECF` e `ALIQUOTA ECF ID` são códigos do Creare INSTALADO NAQUELA
+ * loja. O mesmo produto pode ter IDs diferentes na TNP e na Lisboa, e não há
+ * nada no dado que prove o contrário — a aba que existe hoje foi exportada da
+ * TNP e se chama assim. Aplicá-la a um produto da LI seria afirmar uma
+ * equivalência que ninguém verificou.
+ *
+ * Por isso a fonte é DECLARADA, não deduzida. Loja fora deste mapa não recebe
+ * carga de ECF: recebe a regra do grupo e o de-para por código de barras, e
+ * fica em `pendente_fonte_da_loja` até alguém trazer o export dela. No dia em
+ * que a Lisboa exportar o Creare dela, isto vira uma linha a mais aqui.
+ *
+ * `BASE` usa a da TNP porque a faixa fiscal da planilha é UMA só por produto e
+ * o que já havia nela veio da TNP — é o estado de hoje, reproduzido, não uma
+ * escolha nova.
+ */
+export const FONTES_ECF: Readonly<Record<string, string>> = {
+  BASE: ABA_ECF,
+  TNP: ABA_ECF,
+};
+
+/** A aba de ECF da loja, ou `null` quando essa loja ainda não tem cadastro. */
+export const fonteEcfDaLoja = (loja?: string | null): string | null =>
+  FONTES_ECF[String(loja ?? 'BASE').trim().toUpperCase()] ?? null;
 
 /**
  * Chave de nome para casar produto com o cadastro de ECF.
@@ -86,28 +204,6 @@ export const chaveNomeEcf = (value: string): string => String(value ?? '')
   .replace(/\s+/g, ' ')
   .trim()
   .toUpperCase();
-
-/**
- * Campo do Creare com casas decimais IMPLÍCITAS para número.
- *
- * A escala não é uniforme e não dá para adivinhar pelo tamanho: `18000` em
- * ALIQUOTA CHEIA é 18,000% (3 casas) e `5333` em REDUCAO_ICMS é 53,33% (2
- * casas). Por isso a escala é dita por quem chama, a partir do que os dados
- * mostram — e não inferida aqui.
- *
- * Também aceita o formato já pontuado (`0,00`), que aparece em % NCM e ICMS.
- */
-export const parseCampoCreare = (value: string, casas: number): number | null => {
-  const bruto = String(value ?? '').trim();
-  if (bruto === '') return null;
-  if (bruto.includes(',') || bruto.includes('.')) {
-    const n = Number(bruto.replace(/\./g, '').replace(',', '.'));
-    return Number.isFinite(n) ? n : null;
-  }
-  if (!/^\d+$/.test(bruto)) return null; // "X" e afins: lixo, não zero
-  const n = Number(bruto) / 10 ** casas;
-  return Number.isFinite(n) ? n : null;
-};
 
 /**
  * NCM tem 8 dígitos FIXOS, e o zero à esquerda faz parte do código.
@@ -241,7 +337,15 @@ export class TaxRuleService {
         'TAX_RULES_EMPTY',
       );
     }
-    const ecf = await this.carregarEcf();
+    /*
+     * Uma leitura por ABA distinta — hoje uma só, porque TNP e BASE apontam
+     * para a mesma. `new Set` é o que garante que continue sendo uma só quando
+     * outra loja for mapeada para a mesma aba.
+     */
+    const ecf = new Map<string, FonteEcf>();
+    for (const aba of new Set(Object.values(FONTES_ECF))) {
+      ecf.set(aba, await this.carregarEcf(aba));
+    }
     this.cache = { expiresAt: Date.now() + CACHE_MS, groups, products, reform, cst: cstMap, ecf }; return this.cache;
   }
 
@@ -260,15 +364,25 @@ export class TaxRuleService {
    *   I ALIQUOTA PIS · J ALIQUOTA COFINS · K ALIQUOTA ECF · L ALIQUOTA ECF ID
    *   M NCM · N CATEGORIA · O % NCM · P ICMS · Q CODIGO CEST
    */
-  private async carregarEcf(): Promise<Map<string, RegistroEcf>> {
-    const vazio = new Map<string, RegistroEcf>();
+  /** A fonte de ECF da loja, ou `null` quando ela não tem cadastro mapeado. */
+  private fonteDa(cache: Cache, loja?: string | null): FonteEcf | null {
+    const aba = fonteEcfDaLoja(loja);
+    return aba ? cache.ecf.get(aba) ?? null : null;
+  }
+
+  private async carregarEcf(aba: string): Promise<FonteEcf> {
     let linhas: string[][];
     try {
       const [lido] = await this.sheets.batchGetValues(
-        env.GOOGLE_SHEETS_SPREADSHEET_ID, [a1(ABA_ECF, 'A2:Q4000')], 'FORMATTED_VALUE',
+        env.GOOGLE_SHEETS_SPREADSHEET_ID, [a1(aba, 'A2:Q4000')], 'FORMATTED_VALUE',
       );
       linhas = (lido ?? []) as string[][];
-    } catch { return vazio; }
+    } catch {
+      // falha de LEITURA, não ausência de registro: quem chama precisa saber a
+      // diferença para não marcar como "sem correspondência" o que só não pôde
+      // ser consultado agora
+      return { porNome: new Map(), ambiguos: new Set(), indisponivel: true };
+    }
 
     /*
      * Nome repetido NÃO entra. Duas linhas com o mesmo nome são dois produtos
@@ -286,6 +400,9 @@ export class TaxRuleService {
       vistos.add(chave);
       const t = (i: number) => String(l?.[i] ?? '').trim() || null;
       mapa.set(chave, {
+        ncm: ncmCode(String(l?.[12] ?? '')) || null,
+        cstEcf: t(7),
+        pctNcm: parseCampoCreare(String(l?.[14] ?? ''), 2),
         // escalas medidas no dado real: 5333 = 53,33% e 18000 = 18,000%
         reducaoIcms: parseCampoCreare(String(l?.[4] ?? ''), 2),
         aliquotaCheia: parseCampoCreare(String(l?.[5] ?? ''), 3),
@@ -303,7 +420,7 @@ export class TaxRuleService {
       });
     }
     for (const chave of ambiguos) mapa.delete(chave);
-    return mapa;
+    return { porNome: mapa, ambiguos, indisponivel: false };
   }
 
   async list(): Promise<GroupTaxRule[]> { return (await this.load()).groups; }
@@ -314,11 +431,144 @@ export class TaxRuleService {
    * 3.122 linhas. Sem o nome, a classificação continua exatamente como era —
    * grupo e de-para por barras —, apenas sem os campos de ECF.
    */
-  async classify(group: string, barcode?: string | null, nome?: string | null): Promise<FiscalClassification> {
+  /**
+   * A classificação com o PORQUÊ junto — é esta que os cadastros usam.
+   *
+   * `classify()` continua existindo para quem só quer a regra e sabe lidar com
+   * a exceção; aqui nada lança, porque o cadastro não pode ser derrubado por
+   * fiscal: o produto é salvo e a pendência fica visível.
+   *
+   * A ordem das decisões é a ordem em que elas se tornam impossíveis:
+   *  1. sem grupo com regra não existe classificação nenhuma;
+   *  2. sem nome não há como consultar o cadastro de ECF;
+   *  3. nome ambíguo na fonte não escolhe linha;
+   *  4. fonte fora do ar não é o mesmo que produto sem registro;
+   *  5. CST do grupo contra CST da fonte é divergência, não preferência.
+   */
+  async classificar(entrada: EntradaFiscal): Promise<ResultadoFiscal> {
+    /*
+     * Grupo legado vira o oficial ANTES de qualquer consulta — mas só se
+     * alguém já tiver decidido a equivalência em `grupos-legados.ts`. Enquanto
+     * o de-para estiver vazio, isto não faz nada, e o produto segue caindo em
+     * `pendente_grupo_invalido`, que é o correto: ninguém decidiu ainda.
+     */
+    const equivalencia = grupoOficialDe(entrada.grupo);
+    const grupo = (equivalencia?.oficial ?? entrada.grupo)?.trim();
+    if (!grupo) {
+      return {
+        estado: 'pendente_grupo_invalido',
+        motivo: 'Produto sem grupo de mercadorias: não há regra fiscal para aplicar.',
+        classificacao: null,
+        conflitos: [],
+      };
+    }
+
+    let cache: Cache;
+    let classificacao: FiscalClassification;
+    try {
+      cache = await this.load();
+      classificacao = await this.classify(grupo, entrada.codigoBarras, entrada.nome, entrada.loja);
+    } catch (e) {
+      const semRegra = e instanceof AppError && e.code === 'TAX_RULE_NOT_FOUND';
+      return {
+        estado: semRegra ? 'pendente_grupo_invalido' : 'fonte_indisponivel',
+        motivo: semRegra
+          ? `O grupo "${grupo}" não está entre as regras fiscais oficiais. Corrija o grupo na BASE.`
+          : 'Não consegui ler a tabela fiscal agora. O cadastro foi salvo; o fiscal será completado sozinho.',
+        classificacao: null,
+        conflitos: [],
+      };
+    }
+
+    /*
+     * A loja não tem cadastro de ECF exportado.
+     *
+     * Vem ANTES de tudo que consulta a fonte, porque sem fonte não há
+     * "ambíguo" nem "sem correspondência" a apurar: só não há de onde olhar.
+     * O que a regra do grupo e o de-para já deram fica gravado; o que é do
+     * Creare da loja fica em branco, e o estado diz exatamente por quê.
+     */
+    const fonte = this.fonteDa(cache, entrada.loja);
+    if (!fonte) {
+      const loja = String(entrada.loja ?? '').trim().toUpperCase() || 'desta loja';
+      return {
+        estado: 'pendente_fonte_da_loja',
+        motivo: `Não há cadastro de ECF da ${loja}. Alíquota e código de ECF são do Creare de cada loja `
+          + 'e não podem ser copiados de outra. Regra do grupo e NCM foram aplicados.',
+        classificacao,
+        conflitos: [],
+      };
+    }
+
+    const chave = entrada.nome ? chaveNomeEcf(entrada.nome) : '';
+    if (!chave) {
+      return {
+        estado: 'parcial',
+        motivo: 'Sem nome para consultar o cadastro de ECF: só a regra do grupo foi aplicada.',
+        classificacao,
+        conflitos: [],
+      };
+    }
+    if (fonte.ambiguos.has(chave)) {
+      return {
+        estado: 'pendente_ambiguo',
+        motivo: 'Há mais de um registro de ECF com este nome. Escolher um seria sortear imposto.',
+        classificacao,
+        conflitos: [],
+      };
+    }
+    if (!classificacao.ecf) {
+      return {
+        estado: fonte.indisponivel ? 'fonte_indisponivel' : 'parcial',
+        motivo: fonte.indisponivel
+          ? 'Cadastro de ECF indisponível agora. O fiscal será completado sozinho depois.'
+          : 'Este produto não existe no cadastro de ECF: alíquota e código de ECF ficam em branco até serem cadastrados lá.',
+        classificacao,
+        conflitos: [],
+      };
+    }
+
+    /*
+     * CST do GRUPO contra CST da fonte de ECF.
+     *
+     * O `99` do ECF é "outras operações" — marcação genérica do cadastro antigo,
+     * não classificação. Só vira conflito quando a fonte afirma um CST de
+     * verdade e ele discorda do grupo. Medido hoje: 1 produto.
+     */
+    const conflitos: ResultadoFiscal['conflitos'] = [];
+    const cstEcf = classificacao.ecf.cstEcf;
+    if (cstEcf && cstEcf !== '99' && cstEcf !== classificacao.cstPisCofins) {
+      conflitos.push({ campo: 'cstPisCofins', doGrupo: classificacao.cstPisCofins, doEcf: cstEcf });
+    }
+    if (conflitos.length) {
+      return {
+        estado: 'pendente_conflito',
+        motivo: `O grupo diz CST ${classificacao.cstPisCofins} e o cadastro de ECF diz CST ${cstEcf}. `
+          + 'Nenhum dos dois foi escolhido sozinho: precisa de decisão fiscal.',
+        classificacao,
+        conflitos,
+      };
+    }
+
+    /*
+     * `% NCM`, ICMS e CEST existem em menos da metade das linhas da fonte. Ter
+     * o registro e não ter esses três é o normal, não um defeito — e forçá-los
+     * a zero para "completar" a linha seria inventar.
+     */
+    return { estado: 'completo', motivo: 'Fiscal completo.', classificacao, conflitos: [] };
+  }
+
+  /**
+   * `loja` decide QUAL cadastro de ECF vale para este produto. Sem ela, vale o
+   * da BASE — que é o caminho de quem só quer a regra do grupo, como a rota de
+   * consulta, que nem nome manda.
+   */
+  async classify(group: string, barcode?: string | null, nome?: string | null, loja?: string | null): Promise<FiscalClassification> {
     const cache = await this.load(); const groupRule = await this.requireForGroup(group); const candidates = barcodeCandidates(barcode);
     const matchIndex = candidates.findIndex((candidate) => cache.products.has(candidate)); const product = matchIndex >= 0 ? cache.products.get(candidates[matchIndex]!)! : null;
     const cst = product?.cst || groupRule.cstPisCofins; const cstRule = cache.cst.get(cst); const reform = product?.ncm ? cache.reform.get(product.ncm) : null;
-    const ecf = nome ? cache.ecf.get(chaveNomeEcf(nome)) ?? null : null;
+    const fonte = this.fonteDa(cache, loja);
+    const ecf = nome && fonte ? fonte.porNome.get(chaveNomeEcf(nome)) ?? null : null;
     return { ...groupRule, cstPisCofins: cst, icmsRe: product?.icmsRe ?? groupRule.icmsRe, tributacaoSimples: cstRule?.tributacao || groupRule.tributacaoSimples, aliquotaSimples: cstRule?.aliquota ?? groupRule.aliquotaSimples, ncm: product?.ncm ?? null, codigoFiscal: product?.codigo ?? null, produtoFiscal: product?.nome ?? null, cstReforma: reform?.cst || null, cClassTrib: reform?.cClassTrib || null, aliquotaIbs: reform?.ibs ?? null, aliquotaCbs: reform?.cbs ?? null, origem: product ? (matchIndex === 0 ? 'produto' : 'plu_balanca') : 'grupo', ecf };
   }
 }
