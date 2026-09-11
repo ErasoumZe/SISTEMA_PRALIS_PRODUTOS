@@ -187,12 +187,13 @@ describe('mapper: fiscal', () => {
       }),
       OPTS,
     );
-    expect(valor(c.BS)).toBe(33.33);
-    expect(valor(c.BT)).toBe(7);
-    expect(valor(c.BU)).toBe(2);
+    // grafia do Creare: inteiro de largura fixa, casas implícitas (a coluna é NUMBER #0)
+    expect(c.BS).toEqual({ kind: 'text', value: '3333' }); // 33,33% com 2 casas
+    expect(c.BT).toEqual({ kind: 'text', value: '07000' }); // 7,000% com 3 casas
+    expect(c.BU).toEqual({ kind: 'text', value: '0200' }); // FCP 2,00% com 2 casas
     expect(valor(c.BV)).toBe('01');
-    expect(valor(c.BW)).toBe(1.65);
-    expect(valor(c.BX)).toBe(7.6);
+    expect(c.BW).toEqual({ kind: 'text', value: '00016500' }); // PIS 1,65 com 4 casas
+    expect(c.BX).toEqual({ kind: 'text', value: '00076000' }); // COFINS 7,60 com 4 casas
     expect(valor(c.CA)).toBe('19059090');
     expect(valor(c.CB)).toBe('PADARIA');
     expect(valor(c.CD)).toBe(7);

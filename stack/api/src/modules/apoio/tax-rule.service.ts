@@ -4,6 +4,8 @@ import { env, credenciaisSheetsFaltando, destinoSheetsFaltando } from '@/config/
 import { AppError } from '@/config/api.replies';
 import { SHEETS_GATEWAY } from '@/modules/google-sheets/google-sheets.di';
 import { a1, type SheetsGateway } from '@/modules/google-sheets/google-sheets.client';
+import { parseCampoCreare } from '@/modules/apoio/formato-creare';
+import { grupoOficialDe } from '@/modules/apoio/grupos-legados';
 
 export interface GroupTaxRule {
   grupo: string; cstPisCofins: string; tributacaoSimples: string;
@@ -46,6 +48,14 @@ export type EstadoFiscal =
   | 'pendente_sem_correspondencia'
   | 'pendente_ambiguo'
   | 'pendente_conflito'
+  /**
+   * A loja do produto não tem cadastro de ECF exportado.
+   *
+   * Não é falha nem ausência do produto: é ausência da FONTE. O produto pode
+   * existir no Creare da loja e ninguém aqui tem como saber. Retentar não
+   * muda nada — só entrar o export daquela loja muda.
+   */
+  | 'pendente_fonte_da_loja'
   | 'fonte_indisponivel';
 
 /** O que se sabe do produto na hora de classificar. */
@@ -132,8 +142,11 @@ interface Cache {
   products: Map<string, ProductTaxRule>;
   reform: Map<string, ReformRule>;
   cst: Map<string, { tributacao: string; aliquota: number }>;
-  /** Chaveado pelo NOME normalizado; nomes repetidos ficam de fora. */
-  ecf: FonteEcf;
+  /**
+   * Uma fonte de ECF por ABA, porque o cadastro é de uma loja só.
+   * Cada `FonteEcf` é chaveada pelo NOME normalizado; nomes repetidos ficam de fora.
+   */
+  ecf: Map<string, FonteEcf>;
 }
 const CACHE_MS = 5 * 60 * 1000;
 
@@ -145,8 +158,35 @@ export const normalizeGroup = (value: string): string => ProductRules.normalizar
 export const parseSheetPercent = (value: string): number => { const parsed = Number(value.replace('%', '').replace(/\./g, '').replace(',', '.').trim()); return Number.isFinite(parsed) ? parsed : 0; };
 const code = (value: string) => value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
 
-/** Aba com o cadastro de ECF. Criada por `scripts/montar-aba-fiscal-ecf.ts`. */
+/** Aba com o cadastro de ECF da TNP. Criada por `scripts/montar-aba-fiscal-ecf.ts`. */
 export const ABA_ECF = '(TNP) FISCAL - CADASTRO ECF';
+
+/**
+ * De qual aba sai o cadastro de ECF de cada loja.
+ *
+ * `ALIQUOTA ECF` e `ALIQUOTA ECF ID` são códigos do Creare INSTALADO NAQUELA
+ * loja. O mesmo produto pode ter IDs diferentes na TNP e na Lisboa, e não há
+ * nada no dado que prove o contrário — a aba que existe hoje foi exportada da
+ * TNP e se chama assim. Aplicá-la a um produto da LI seria afirmar uma
+ * equivalência que ninguém verificou.
+ *
+ * Por isso a fonte é DECLARADA, não deduzida. Loja fora deste mapa não recebe
+ * carga de ECF: recebe a regra do grupo e o de-para por código de barras, e
+ * fica em `pendente_fonte_da_loja` até alguém trazer o export dela. No dia em
+ * que a Lisboa exportar o Creare dela, isto vira uma linha a mais aqui.
+ *
+ * `BASE` usa a da TNP porque a faixa fiscal da planilha é UMA só por produto e
+ * o que já havia nela veio da TNP — é o estado de hoje, reproduzido, não uma
+ * escolha nova.
+ */
+export const FONTES_ECF: Readonly<Record<string, string>> = {
+  BASE: ABA_ECF,
+  TNP: ABA_ECF,
+};
+
+/** A aba de ECF da loja, ou `null` quando essa loja ainda não tem cadastro. */
+export const fonteEcfDaLoja = (loja?: string | null): string | null =>
+  FONTES_ECF[String(loja ?? 'BASE').trim().toUpperCase()] ?? null;
 
 /**
  * Chave de nome para casar produto com o cadastro de ECF.
@@ -164,28 +204,6 @@ export const chaveNomeEcf = (value: string): string => String(value ?? '')
   .replace(/\s+/g, ' ')
   .trim()
   .toUpperCase();
-
-/**
- * Campo do Creare com casas decimais IMPLÍCITAS para número.
- *
- * A escala não é uniforme e não dá para adivinhar pelo tamanho: `18000` em
- * ALIQUOTA CHEIA é 18,000% (3 casas) e `5333` em REDUCAO_ICMS é 53,33% (2
- * casas). Por isso a escala é dita por quem chama, a partir do que os dados
- * mostram — e não inferida aqui.
- *
- * Também aceita o formato já pontuado (`0,00`), que aparece em % NCM e ICMS.
- */
-export const parseCampoCreare = (value: string, casas: number): number | null => {
-  const bruto = String(value ?? '').trim();
-  if (bruto === '') return null;
-  if (bruto.includes(',') || bruto.includes('.')) {
-    const n = Number(bruto.replace(/\./g, '').replace(',', '.'));
-    return Number.isFinite(n) ? n : null;
-  }
-  if (!/^\d+$/.test(bruto)) return null; // "X" e afins: lixo, não zero
-  const n = Number(bruto) / 10 ** casas;
-  return Number.isFinite(n) ? n : null;
-};
 
 /**
  * NCM tem 8 dígitos FIXOS, e o zero à esquerda faz parte do código.
@@ -319,7 +337,15 @@ export class TaxRuleService {
         'TAX_RULES_EMPTY',
       );
     }
-    const ecf = await this.carregarEcf();
+    /*
+     * Uma leitura por ABA distinta — hoje uma só, porque TNP e BASE apontam
+     * para a mesma. `new Set` é o que garante que continue sendo uma só quando
+     * outra loja for mapeada para a mesma aba.
+     */
+    const ecf = new Map<string, FonteEcf>();
+    for (const aba of new Set(Object.values(FONTES_ECF))) {
+      ecf.set(aba, await this.carregarEcf(aba));
+    }
     this.cache = { expiresAt: Date.now() + CACHE_MS, groups, products, reform, cst: cstMap, ecf }; return this.cache;
   }
 
@@ -338,11 +364,17 @@ export class TaxRuleService {
    *   I ALIQUOTA PIS · J ALIQUOTA COFINS · K ALIQUOTA ECF · L ALIQUOTA ECF ID
    *   M NCM · N CATEGORIA · O % NCM · P ICMS · Q CODIGO CEST
    */
-  private async carregarEcf(): Promise<FonteEcf> {
+  /** A fonte de ECF da loja, ou `null` quando ela não tem cadastro mapeado. */
+  private fonteDa(cache: Cache, loja?: string | null): FonteEcf | null {
+    const aba = fonteEcfDaLoja(loja);
+    return aba ? cache.ecf.get(aba) ?? null : null;
+  }
+
+  private async carregarEcf(aba: string): Promise<FonteEcf> {
     let linhas: string[][];
     try {
       const [lido] = await this.sheets.batchGetValues(
-        env.GOOGLE_SHEETS_SPREADSHEET_ID, [a1(ABA_ECF, 'A2:Q4000')], 'FORMATTED_VALUE',
+        env.GOOGLE_SHEETS_SPREADSHEET_ID, [a1(aba, 'A2:Q4000')], 'FORMATTED_VALUE',
       );
       linhas = (lido ?? []) as string[][];
     } catch {
@@ -414,7 +446,14 @@ export class TaxRuleService {
    *  5. CST do grupo contra CST da fonte é divergência, não preferência.
    */
   async classificar(entrada: EntradaFiscal): Promise<ResultadoFiscal> {
-    const grupo = entrada.grupo?.trim();
+    /*
+     * Grupo legado vira o oficial ANTES de qualquer consulta — mas só se
+     * alguém já tiver decidido a equivalência em `grupos-legados.ts`. Enquanto
+     * o de-para estiver vazio, isto não faz nada, e o produto segue caindo em
+     * `pendente_grupo_invalido`, que é o correto: ninguém decidiu ainda.
+     */
+    const equivalencia = grupoOficialDe(entrada.grupo);
+    const grupo = (equivalencia?.oficial ?? entrada.grupo)?.trim();
     if (!grupo) {
       return {
         estado: 'pendente_grupo_invalido',
@@ -428,7 +467,7 @@ export class TaxRuleService {
     let classificacao: FiscalClassification;
     try {
       cache = await this.load();
-      classificacao = await this.classify(grupo, entrada.codigoBarras, entrada.nome);
+      classificacao = await this.classify(grupo, entrada.codigoBarras, entrada.nome, entrada.loja);
     } catch (e) {
       const semRegra = e instanceof AppError && e.code === 'TAX_RULE_NOT_FOUND';
       return {
@@ -437,6 +476,26 @@ export class TaxRuleService {
           ? `O grupo "${grupo}" não está entre as regras fiscais oficiais. Corrija o grupo na BASE.`
           : 'Não consegui ler a tabela fiscal agora. O cadastro foi salvo; o fiscal será completado sozinho.',
         classificacao: null,
+        conflitos: [],
+      };
+    }
+
+    /*
+     * A loja não tem cadastro de ECF exportado.
+     *
+     * Vem ANTES de tudo que consulta a fonte, porque sem fonte não há
+     * "ambíguo" nem "sem correspondência" a apurar: só não há de onde olhar.
+     * O que a regra do grupo e o de-para já deram fica gravado; o que é do
+     * Creare da loja fica em branco, e o estado diz exatamente por quê.
+     */
+    const fonte = this.fonteDa(cache, entrada.loja);
+    if (!fonte) {
+      const loja = String(entrada.loja ?? '').trim().toUpperCase() || 'desta loja';
+      return {
+        estado: 'pendente_fonte_da_loja',
+        motivo: `Não há cadastro de ECF da ${loja}. Alíquota e código de ECF são do Creare de cada loja `
+          + 'e não podem ser copiados de outra. Regra do grupo e NCM foram aplicados.',
+        classificacao,
         conflitos: [],
       };
     }
@@ -450,7 +509,7 @@ export class TaxRuleService {
         conflitos: [],
       };
     }
-    if (cache.ecf.ambiguos.has(chave)) {
+    if (fonte.ambiguos.has(chave)) {
       return {
         estado: 'pendente_ambiguo',
         motivo: 'Há mais de um registro de ECF com este nome. Escolher um seria sortear imposto.',
@@ -460,8 +519,8 @@ export class TaxRuleService {
     }
     if (!classificacao.ecf) {
       return {
-        estado: cache.ecf.indisponivel ? 'fonte_indisponivel' : 'parcial',
-        motivo: cache.ecf.indisponivel
+        estado: fonte.indisponivel ? 'fonte_indisponivel' : 'parcial',
+        motivo: fonte.indisponivel
           ? 'Cadastro de ECF indisponível agora. O fiscal será completado sozinho depois.'
           : 'Este produto não existe no cadastro de ECF: alíquota e código de ECF ficam em branco até serem cadastrados lá.',
         classificacao,
@@ -499,11 +558,17 @@ export class TaxRuleService {
     return { estado: 'completo', motivo: 'Fiscal completo.', classificacao, conflitos: [] };
   }
 
-  async classify(group: string, barcode?: string | null, nome?: string | null): Promise<FiscalClassification> {
+  /**
+   * `loja` decide QUAL cadastro de ECF vale para este produto. Sem ela, vale o
+   * da BASE — que é o caminho de quem só quer a regra do grupo, como a rota de
+   * consulta, que nem nome manda.
+   */
+  async classify(group: string, barcode?: string | null, nome?: string | null, loja?: string | null): Promise<FiscalClassification> {
     const cache = await this.load(); const groupRule = await this.requireForGroup(group); const candidates = barcodeCandidates(barcode);
     const matchIndex = candidates.findIndex((candidate) => cache.products.has(candidate)); const product = matchIndex >= 0 ? cache.products.get(candidates[matchIndex]!)! : null;
     const cst = product?.cst || groupRule.cstPisCofins; const cstRule = cache.cst.get(cst); const reform = product?.ncm ? cache.reform.get(product.ncm) : null;
-    const ecf = nome ? cache.ecf.porNome.get(chaveNomeEcf(nome)) ?? null : null;
+    const fonte = this.fonteDa(cache, loja);
+    const ecf = nome && fonte ? fonte.porNome.get(chaveNomeEcf(nome)) ?? null : null;
     return { ...groupRule, cstPisCofins: cst, icmsRe: product?.icmsRe ?? groupRule.icmsRe, tributacaoSimples: cstRule?.tributacao || groupRule.tributacaoSimples, aliquotaSimples: cstRule?.aliquota ?? groupRule.aliquotaSimples, ncm: product?.ncm ?? null, codigoFiscal: product?.codigo ?? null, produtoFiscal: product?.nome ?? null, cstReforma: reform?.cst || null, cClassTrib: reform?.cClassTrib || null, aliquotaIbs: reform?.ibs ?? null, aliquotaCbs: reform?.cbs ?? null, origem: product ? (matchIndex === 0 ? 'produto' : 'plu_balanca') : 'grupo', ecf };
   }
 }

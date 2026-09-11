@@ -81,6 +81,7 @@ const NOME_DO_ESTADO: Record<string, string> = {
   pendente_sem_correspondencia: 'sem registro no cadastro de ECF',
   pendente_ambiguo: 'nome ambíguo na fonte',
   pendente_conflito: 'conflito entre fontes',
+  pendente_fonte_da_loja: 'sem cadastro de ECF da loja',
   fonte_indisponivel: 'fonte fora do ar',
 };
 

@@ -1,4 +1,5 @@
 import { ProductRules, type ProductSchemas } from '@pralis/shared';
+import { formatoCreare } from '@/modules/apoio/formato-creare';
 
 /**
  * Mapeamento INVERSO do importador (`src/db/gen-base-json.ts`): produto do
@@ -231,12 +232,28 @@ export function mapProductToCells(product: Product, opts: MapperOptions): CellMa
     BP: { kind: 'text', value: 'NÃO REVISADO' },
 
     // ---- fiscal ----
-    BS: number(fiscal?.reducaoIcms ?? null),
-    BT: number(fiscal?.aliquotaCheia ?? null),
-    BU: number(fiscal?.aliquotaFcp ?? null),
+    /*
+     * Os campos numéricos do Creare vão na GRAFIA do Creare, não como decimal.
+     *
+     * As colunas da faixa fiscal da planilha nova estão formatadas como
+     * `NUMBER #0` — inteiro, sem casas. Gravar `53.33` exibe `53` e perde os
+     * 0,33. No cadastro de origem a coluna equivalente usa o padrão `0000` e
+     * guarda `5333`; aqui devolvemos o mesmo.
+     *
+     * As larguras e casas foram medidas no dado real, não inferidas:
+     *   REDUCAO_ICMS  `0000` / `5333`      -> 4 caracteres, 2 casas
+     *   ALIQUOTA CHEIA `00000` / `18000`   -> 5 caracteres, 3 casas
+     *   ALIQUOTA FCP  `0000`               -> 4 caracteres, 2 casas
+     *   PIS e COFINS  `00000000`           -> 8 caracteres; a escala não é
+     *     verificável porque as 3.122 linhas são zero, e zero é zero em
+     *     qualquer escala. Se um valor diferente aparecer, confira antes.
+     */
+    BS: text(formatoCreare(fiscal?.reducaoIcms ?? null, 2, 4)),
+    BT: text(formatoCreare(fiscal?.aliquotaCheia ?? null, 3, 5)),
+    BU: text(formatoCreare(fiscal?.aliquotaFcp ?? null, 2, 4)),
     BV: text(fiscal?.cstPisCofins ?? null), // TEXTO: "01" não pode virar 1
-    BW: number(fiscal?.aliquotaPis ?? null),
-    BX: number(fiscal?.aliquotaCofins ?? null),
+    BW: text(formatoCreare(fiscal?.aliquotaPis ?? null, 4, 8)),
+    BX: text(formatoCreare(fiscal?.aliquotaCofins ?? null, 4, 8)),
     CA: text(fiscal?.ncm ?? null), // TEXTO: NCM com zero à esquerda
     CB: text(fiscal?.categoria ?? null),
     CD: number(fiscal?.icms ?? null),

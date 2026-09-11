@@ -428,6 +428,10 @@ const FISCAL_NA_TELA: Record<string, {
     rotulo: 'conflito fiscal', cor: 'error', icone: 'warning', tipo: 'warning',
     quemResolve: 'Precisa de decisão do contador.',
   },
+  pendente_fonte_da_loja: {
+    rotulo: 'sem cadastro de ECF da loja', cor: 'warning', icone: 'store', tipo: 'info',
+    quemResolve: 'A alíquota de ECF vem do Creare de cada loja. Falta o cadastro desta.',
+  },
   fonte_indisponivel: { rotulo: 'fonte fora do ar', cor: 'grey', icone: 'cloud_off', tipo: 'info' },
 };
 

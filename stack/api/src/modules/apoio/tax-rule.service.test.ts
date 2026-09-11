@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { env } from '@/config/env';
 import type { SheetsGateway } from '@/modules/google-sheets/google-sheets.client';
-import { barcodeCandidates, ncmCode, normalizeGroup, parseCampoCreare, parseSheetPercent, TaxRuleService } from './tax-rule.service';
+import { ABA_ECF, barcodeCandidates, fonteEcfDaLoja, ncmCode, normalizeGroup, parseSheetPercent, TaxRuleService } from './tax-rule.service';
 
 const previous = {
   id: env.GOOGLE_SHEETS_SPREADSHEET_ID,
@@ -353,22 +353,6 @@ describe('TaxRuleService — cadastro de ECF por nome', () => {
   });
 });
 
-describe('parseCampoCreare — casas decimais implícitas', () => {
-  it('respeita a escala que o chamador diz, porque ela não é uniforme', () => {
-    expect(parseCampoCreare('5333', 2)).toBe(53.33); // REDUCAO_ICMS
-    expect(parseCampoCreare('18000', 3)).toBe(18); // ALIQUOTA CHEIA
-  });
-
-  it('aceita o formato já pontuado que aparece em % NCM e ICMS', () => {
-    expect(parseCampoCreare('0,00', 2)).toBe(0);
-  });
-
-  it('lixo vira ausência, nunca zero — zero é uma afirmação', () => {
-    expect(parseCampoCreare('X', 2)).toBeNull();
-    expect(parseCampoCreare('', 2)).toBeNull();
-  });
-});
-
 /**
  * `classificar()` — a classificação com o PORQUÊ junto.
  *
@@ -500,5 +484,71 @@ describe('TaxRuleService.classificar — estado e motivo', () => {
 
     expect(r.estado).toBe('parcial');
     expect(r.motivo).toContain('Sem nome');
+  });
+});
+
+/**
+ * Escopo do cadastro de ECF por LOJA.
+ *
+ * `ALIQUOTA ECF` e `ALIQUOTA ECF ID` são códigos do Creare instalado em cada
+ * loja. A única aba que existe hoje foi exportada da TNP. Antes disto, o mesmo
+ * mapa era aplicado a qualquer produto: um produto da Lisboa saía do cadastro
+ * carregando o código de ECF da TNP, e nada na tela dizia isso.
+ */
+describe('TaxRuleService — a fonte de ECF é da loja, não do sistema', () => {
+  const ECF = [LINHA_ECF('BOLO REDONDO LARANJA')];
+
+  it('TNP recebe a carga de ECF, porque a aba é dela', async () => {
+    const s = new TaxRuleService(gatewayFiscal({ ecf: ECF }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: 'BOLO REDONDO LARANJA', loja: 'TNP' });
+
+    expect(r.estado).toBe('completo');
+    expect(r.classificacao?.ecf?.aliquotaEcf).toBe('18,00%');
+  });
+
+  it('LI NÃO recebe: fica pendente da fonte dela, sem nenhum campo de ECF', async () => {
+    const s = new TaxRuleService(gatewayFiscal({ ecf: ECF }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: 'BOLO REDONDO LARANJA', loja: 'LI' });
+
+    expect(r.estado).toBe('pendente_fonte_da_loja');
+    expect(r.classificacao?.ecf).toBeNull();
+    expect(r.motivo).toContain('LI');
+  });
+
+  it('o que NÃO é do Creare da loja continua vindo: grupo e CST', async () => {
+    const s = new TaxRuleService(gatewayFiscal({ ecf: ECF }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: 'BOLO REDONDO LARANJA', loja: 'LI' });
+
+    // a regra do grupo não depende de loja nenhuma — seria perda gratuita
+    expect(r.classificacao?.cstPisCofins).toBe('1');
+    expect(r.classificacao?.grupo).toBe('MER PADARIA');
+  });
+
+  it('HORA também fica pendente — o mapa é declarado, não adivinhado', async () => {
+    const s = new TaxRuleService(gatewayFiscal({ ecf: ECF }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: 'BOLO REDONDO LARANJA', loja: 'HORA' });
+
+    expect(r.estado).toBe('pendente_fonte_da_loja');
+    expect(r.classificacao?.ecf).toBeNull();
+  });
+
+  it('sem loja vale a BASE, que é a faixa fiscal única da planilha', async () => {
+    const s = new TaxRuleService(gatewayFiscal({ ecf: ECF }));
+
+    const r = await s.classificar({ grupo: 'MER PADARIA', nome: 'BOLO REDONDO LARANJA' });
+
+    expect(r.estado).toBe('completo');
+  });
+
+  it('o mapa de fontes não inventa loja: só quem está declarado tem aba', () => {
+    expect(fonteEcfDaLoja('TNP')).toBe(ABA_ECF);
+    expect(fonteEcfDaLoja('BASE')).toBe(ABA_ECF);
+    expect(fonteEcfDaLoja('li')).toBeNull(); // minúscula também
+    expect(fonteEcfDaLoja('HORA')).toBeNull();
+    expect(fonteEcfDaLoja(null)).toBe(ABA_ECF); // ausência = BASE
   });
 });
