@@ -401,13 +401,19 @@ function fakesFiscal(fiscalAtual: Product['fiscal']) {
     async syncProduct() { return { outcome: 'skipped', rowNumber: null, message: '' }; },
   } as unknown as ProductSheetService;
 
+  const classificacao = {
+    grupo: 'MER PADARIA', ncm: '19051000', cstPisCofins: '01', tributacaoSimples: null,
+    aliquotaSimples: null, icmsRe: null, baseFiscal: null, codigoFiscal: null,
+    produtoFiscal: null, cstReforma: null, cClassTrib: null, aliquotaIbs: null,
+    aliquotaCbs: null, origem: null, ecf: null,
+  };
   const taxRules = {
-    async classify() {
+    async classify() { return classificacao; },
+    // `classificar` é o caminho que os cadastros usam: devolve o PORQUÊ junto
+    async classificar() {
       return {
-        grupo: 'MER PADARIA', ncm: '19051000', cstPisCofins: '01', tributacaoSimples: null,
-        aliquotaSimples: null, icmsRe: null, baseFiscal: null, codigoFiscal: null,
-        produtoFiscal: null, cstReforma: null, cClassTrib: null, aliquotaIbs: null,
-        aliquotaCbs: null, origem: null,
+        estado: 'parcial', motivo: 'sem cadastro de ECF para este produto',
+        classificacao, conflitos: [],
       };
     },
   } as unknown as TaxRuleService;
@@ -517,14 +523,16 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
       async registerPending() {},
       async syncProduct() { return { outcome: 'skipped', rowNumber: null, message: '' }; },
     } as unknown as ProductSheetService;
+    const daRegra = {
+      grupo: 'NOVO GRUPO', ncm: '19059090', cstPisCofins: '01', tributacaoSimples: 'REGRA',
+      aliquotaSimples: 7.4, icmsRe: 0, baseFiscal: 'REGRA', codigoFiscal: null,
+      produtoFiscal: null, cstReforma: null, cClassTrib: null, aliquotaIbs: null,
+      aliquotaCbs: null, origem: 'grupo', ecf: null,
+    };
     const taxRules = {
-      async classify() {
-        return {
-          grupo: 'NOVO GRUPO', ncm: '19059090', cstPisCofins: '01', tributacaoSimples: 'REGRA',
-          aliquotaSimples: 7.4, icmsRe: 0, baseFiscal: 'REGRA', codigoFiscal: null,
-          produtoFiscal: null, cstReforma: null, cClassTrib: null, aliquotaIbs: null,
-          aliquotaCbs: null, origem: 'grupo',
-        };
+      async classify() { return daRegra; },
+      async classificar() {
+        return { estado: 'parcial', motivo: 'sem cadastro de ECF', classificacao: daRegra, conflitos: [] };
       },
     } as unknown as TaxRuleService;
     const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
@@ -659,9 +667,10 @@ function fakesCargaFiscal(p: Product, classifyEspiao: string[] = []) {
     async syncProduct() { return { outcome: 'synced' as const, rowNumber: 12 }; },
   } as unknown as ProductSheetService;
   const taxRules = {
-    async classify(grupo: string, barras?: string | null, nome?: string | null) {
-      classifyEspiao.push(`${grupo}|${nome ?? ''}`);
-      return regraComEcf;
+    async classify() { return regraComEcf; },
+    async classificar(entrada: { grupo?: string | null; nome?: string | null }) {
+      classifyEspiao.push(`${entrada.grupo ?? ''}|${entrada.nome ?? ''}`);
+      return { estado: 'completo', motivo: 'Fiscal completo.', classificacao: regraComEcf, conflitos: [] };
     },
   } as unknown as TaxRuleService;
   return new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
@@ -734,6 +743,17 @@ describe('ProductService.update — completa a carga fiscal que faltava', () => 
     } as unknown as ProductSheetService;
     const taxRules = {
       async classify() { throw new Error('Sheets fora do ar'); },
+      // O motor NÃO lança: traduz a queda em estado, e o cadastro segue. Um
+      // erro aqui derrubaria a edição por causa de imposto, que é o contrário
+      // do contrato.
+      async classificar() {
+        return {
+          estado: 'fonte_indisponivel',
+          motivo: 'Não consegui ler a tabela fiscal agora.',
+          classificacao: null,
+          conflitos: [],
+        };
+      },
     } as unknown as TaxRuleService;
     const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
 

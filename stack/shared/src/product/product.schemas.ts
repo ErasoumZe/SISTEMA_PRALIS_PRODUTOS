@@ -68,6 +68,19 @@ export const fiscalSchema = z.object({
    */
   aliquotaEcf: z.string().nullable().default(null),
   aliquotaEcfId: z.string().nullable().default(null),
+  /*
+   * Em que pé está o fiscal, e por quê.
+   *
+   * A tela precisa distinguir "cadastro salvo" de "fiscal resolvido". Sem estes
+   * dois campos, produto com grupo fora das regras oficiais, produto ausente do
+   * cadastro de ECF e produto completo eram a mesma coisa para quem olha.
+   *
+   * `estado` é texto livre no contrato de propósito: o conjunto de valores vive
+   * no `TaxRuleService`, e engessá-lo aqui obrigaria a mexer no schema — e
+   * migrar o banco — a cada motivo novo.
+   */
+  estado: z.string().nullable().default(null),
+  motivo: z.string().nullable().default(null),
 });
 
 // ---- Campos editáveis do produto (identidade + comercial) ----

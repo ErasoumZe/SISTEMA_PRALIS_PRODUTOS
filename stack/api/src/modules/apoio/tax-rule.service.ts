@@ -22,6 +22,45 @@ export interface FiscalClassification extends GroupTaxRule {
   /** Cadastro de ECF do produto, quando o nome casa. `null` = não encontrado. */
   ecf: RegistroEcf | null;
 }
+/**
+ * Em que pé está o fiscal de um produto. É o que a tela, o health e o backfill
+ * leem — e o que impede "cadastro salvo" ser lido como "fiscal resolvido".
+ *
+ * Os estados `pendente_*` são situações que só uma pessoa resolve; o
+ * `fonte_indisponivel` é temporário e some sozinho quando o Google volta. A
+ * diferença importa: um pede decisão, o outro pede paciência.
+ */
+export type EstadoFiscal =
+  | 'completo'
+  | 'parcial'
+  | 'pendente_grupo_invalido'
+  | 'pendente_sem_correspondencia'
+  | 'pendente_ambiguo'
+  | 'pendente_conflito'
+  | 'fonte_indisponivel';
+
+/** O que se sabe do produto na hora de classificar. */
+export interface EntradaFiscal {
+  nome?: string | null;
+  codigoBarras?: string | null;
+  codigoInterno?: string | null;
+  grupo?: string | null;
+  loja?: string | null;
+}
+
+export interface ResultadoFiscal {
+  estado: EstadoFiscal;
+  /** Frase curta, em português, para aparecer na tela sem tradução. */
+  motivo: string;
+  /** `null` quando o grupo não tem regra: aí não há classificação nenhuma. */
+  classificacao: FiscalClassification | null;
+  /**
+   * Divergências entre fontes que ninguém deve resolver no código.
+   * Cada uma vira uma pergunta para o contador.
+   */
+  conflitos: Array<{ campo: string; doGrupo: string; doEcf: string }>;
+}
+
 interface ProductTaxRule { codigo: string; ncm: string; cst: string; icmsRe: number; nome: string }
 interface ReformRule { cst: string; cClassTrib: string; ibs: number; cbs: number }
 
@@ -46,6 +85,36 @@ export interface RegistroEcf {
   categoria: string | null;
   icms: number | null;
   cest: string | null;
+  /**
+   * NCM e CST como o cadastro de ECF os traz.
+   *
+   * Não são a mesma coisa que os do produto: o NCM do produto vem do de-para
+   * por código de barras, e o CST de PIS/COFINS vem da regra do GRUPO. Aqui
+   * eles servem para CONFRONTAR as fontes — e o CST do ECF é `99` ("outras
+   * operações") na maioria das linhas, marcação genérica que não substitui a
+   * classificação de verdade.
+   */
+  ncm: string | null;
+  cstEcf: string | null;
+  /** `% NCM`: só 908 das 3.122 linhas têm. Ausência aqui é ausência mesmo. */
+  pctNcm: number | null;
+}
+
+/**
+ * O cadastro de ECF inteiro, com o que falhou junto.
+ *
+ * Antes isto era um `Map` e a ambiguidade era resolvida apagando a chave — o
+ * produto ficava indistinguível de "não existe na fonte". São coisas
+ * diferentes: um precisa de decisão humana, o outro simplesmente não tem
+ * registro. Guardar as duas listas é o que permite dizer POR QUE o fiscal não
+ * veio.
+ */
+export interface FonteEcf {
+  porNome: Map<string, RegistroEcf>;
+  /** Nomes com mais de uma linha. Escolher uma seria sortear imposto. */
+  ambiguos: Set<string>;
+  /** `true` quando a aba não pôde ser lida — falha temporária, não ausência. */
+  indisponivel: boolean;
 }
 
 interface Cache {
@@ -55,7 +124,7 @@ interface Cache {
   reform: Map<string, ReformRule>;
   cst: Map<string, { tributacao: string; aliquota: number }>;
   /** Chaveado pelo NOME normalizado; nomes repetidos ficam de fora. */
-  ecf: Map<string, RegistroEcf>;
+  ecf: FonteEcf;
 }
 const CACHE_MS = 5 * 60 * 1000;
 
@@ -260,15 +329,19 @@ export class TaxRuleService {
    *   I ALIQUOTA PIS · J ALIQUOTA COFINS · K ALIQUOTA ECF · L ALIQUOTA ECF ID
    *   M NCM · N CATEGORIA · O % NCM · P ICMS · Q CODIGO CEST
    */
-  private async carregarEcf(): Promise<Map<string, RegistroEcf>> {
-    const vazio = new Map<string, RegistroEcf>();
+  private async carregarEcf(): Promise<FonteEcf> {
     let linhas: string[][];
     try {
       const [lido] = await this.sheets.batchGetValues(
         env.GOOGLE_SHEETS_SPREADSHEET_ID, [a1(ABA_ECF, 'A2:Q4000')], 'FORMATTED_VALUE',
       );
       linhas = (lido ?? []) as string[][];
-    } catch { return vazio; }
+    } catch {
+      // falha de LEITURA, não ausência de registro: quem chama precisa saber a
+      // diferença para não marcar como "sem correspondência" o que só não pôde
+      // ser consultado agora
+      return { porNome: new Map(), ambiguos: new Set(), indisponivel: true };
+    }
 
     /*
      * Nome repetido NÃO entra. Duas linhas com o mesmo nome são dois produtos
@@ -286,6 +359,9 @@ export class TaxRuleService {
       vistos.add(chave);
       const t = (i: number) => String(l?.[i] ?? '').trim() || null;
       mapa.set(chave, {
+        ncm: ncmCode(String(l?.[12] ?? '')) || null,
+        cstEcf: t(7),
+        pctNcm: parseCampoCreare(String(l?.[14] ?? ''), 2),
         // escalas medidas no dado real: 5333 = 53,33% e 18000 = 18,000%
         reducaoIcms: parseCampoCreare(String(l?.[4] ?? ''), 2),
         aliquotaCheia: parseCampoCreare(String(l?.[5] ?? ''), 3),
@@ -303,7 +379,7 @@ export class TaxRuleService {
       });
     }
     for (const chave of ambiguos) mapa.delete(chave);
-    return mapa;
+    return { porNome: mapa, ambiguos, indisponivel: false };
   }
 
   async list(): Promise<GroupTaxRule[]> { return (await this.load()).groups; }
@@ -314,11 +390,106 @@ export class TaxRuleService {
    * 3.122 linhas. Sem o nome, a classificação continua exatamente como era —
    * grupo e de-para por barras —, apenas sem os campos de ECF.
    */
+  /**
+   * A classificação com o PORQUÊ junto — é esta que os cadastros usam.
+   *
+   * `classify()` continua existindo para quem só quer a regra e sabe lidar com
+   * a exceção; aqui nada lança, porque o cadastro não pode ser derrubado por
+   * fiscal: o produto é salvo e a pendência fica visível.
+   *
+   * A ordem das decisões é a ordem em que elas se tornam impossíveis:
+   *  1. sem grupo com regra não existe classificação nenhuma;
+   *  2. sem nome não há como consultar o cadastro de ECF;
+   *  3. nome ambíguo na fonte não escolhe linha;
+   *  4. fonte fora do ar não é o mesmo que produto sem registro;
+   *  5. CST do grupo contra CST da fonte é divergência, não preferência.
+   */
+  async classificar(entrada: EntradaFiscal): Promise<ResultadoFiscal> {
+    const grupo = entrada.grupo?.trim();
+    if (!grupo) {
+      return {
+        estado: 'pendente_grupo_invalido',
+        motivo: 'Produto sem grupo de mercadorias: não há regra fiscal para aplicar.',
+        classificacao: null,
+        conflitos: [],
+      };
+    }
+
+    let cache: Cache;
+    let classificacao: FiscalClassification;
+    try {
+      cache = await this.load();
+      classificacao = await this.classify(grupo, entrada.codigoBarras, entrada.nome);
+    } catch (e) {
+      const semRegra = e instanceof AppError && e.code === 'TAX_RULE_NOT_FOUND';
+      return {
+        estado: semRegra ? 'pendente_grupo_invalido' : 'fonte_indisponivel',
+        motivo: semRegra
+          ? `O grupo "${grupo}" não está entre as regras fiscais oficiais. Corrija o grupo na BASE.`
+          : 'Não consegui ler a tabela fiscal agora. O cadastro foi salvo; o fiscal será completado sozinho.',
+        classificacao: null,
+        conflitos: [],
+      };
+    }
+
+    const chave = entrada.nome ? chaveNomeEcf(entrada.nome) : '';
+    if (!chave) {
+      return {
+        estado: 'parcial',
+        motivo: 'Sem nome para consultar o cadastro de ECF: só a regra do grupo foi aplicada.',
+        classificacao,
+        conflitos: [],
+      };
+    }
+    if (cache.ecf.ambiguos.has(chave)) {
+      return {
+        estado: 'pendente_ambiguo',
+        motivo: 'Há mais de um registro de ECF com este nome. Escolher um seria sortear imposto.',
+        classificacao,
+        conflitos: [],
+      };
+    }
+    if (!classificacao.ecf) {
+      return {
+        estado: cache.ecf.indisponivel ? 'fonte_indisponivel' : 'parcial',
+        motivo: cache.ecf.indisponivel
+          ? 'Cadastro de ECF indisponível agora. O fiscal será completado sozinho depois.'
+          : 'Este produto não existe no cadastro de ECF: alíquota e código de ECF ficam em branco até serem cadastrados lá.',
+        classificacao,
+        conflitos: [],
+      };
+    }
+
+    /*
+     * CST do GRUPO contra CST da fonte de ECF.
+     *
+     * O `99` do ECF é "outras operações" — marcação genérica do cadastro antigo,
+     * não classificação. Só vira conflito quando a fonte afirma um CST de
+     * verdade e ele discorda do grupo. Medido hoje: 1 produto.
+     */
+    const conflitos: ResultadoFiscal['conflitos'] = [];
+    const cstEcf = classificacao.ecf.cstEcf;
+    if (cstEcf && cstEcf !== '99' && cstEcf !== classificacao.cstPisCofins) {
+      conflitos.push({ campo: 'cstPisCofins', doGrupo: classificacao.cstPisCofins, doEcf: cstEcf });
+    }
+    if (conflitos.length) {
+      return {
+        estado: 'pendente_conflito',
+        motivo: `O grupo diz CST ${classificacao.cstPisCofins} e o cadastro de ECF diz CST ${cstEcf}. `
+          + 'Nenhum dos dois foi escolhido sozinho: precisa de decisão fiscal.',
+        classificacao,
+        conflitos,
+      };
+    }
+
+    return { estado: 'completo', motivo: 'Fiscal completo.', classificacao, conflitos: [] };
+  }
+
   async classify(group: string, barcode?: string | null, nome?: string | null): Promise<FiscalClassification> {
     const cache = await this.load(); const groupRule = await this.requireForGroup(group); const candidates = barcodeCandidates(barcode);
     const matchIndex = candidates.findIndex((candidate) => cache.products.has(candidate)); const product = matchIndex >= 0 ? cache.products.get(candidates[matchIndex]!)! : null;
     const cst = product?.cst || groupRule.cstPisCofins; const cstRule = cache.cst.get(cst); const reform = product?.ncm ? cache.reform.get(product.ncm) : null;
-    const ecf = nome ? cache.ecf.get(chaveNomeEcf(nome)) ?? null : null;
+    const ecf = nome ? cache.ecf.porNome.get(chaveNomeEcf(nome)) ?? null : null;
     return { ...groupRule, cstPisCofins: cst, icmsRe: product?.icmsRe ?? groupRule.icmsRe, tributacaoSimples: cstRule?.tributacao || groupRule.tributacaoSimples, aliquotaSimples: cstRule?.aliquota ?? groupRule.aliquotaSimples, ncm: product?.ncm ?? null, codigoFiscal: product?.codigo ?? null, produtoFiscal: product?.nome ?? null, cstReforma: reform?.cst || null, cClassTrib: reform?.cClassTrib || null, aliquotaIbs: reform?.ibs ?? null, aliquotaCbs: reform?.cbs ?? null, origem: product ? (matchIndex === 0 ? 'produto' : 'plu_balanca') : 'grupo', ecf };
   }
 }

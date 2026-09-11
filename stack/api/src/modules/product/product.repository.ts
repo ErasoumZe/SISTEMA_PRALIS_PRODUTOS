@@ -110,8 +110,10 @@ function mapFiscal(r: typeof productFiscal.$inferSelect): ProductEntity['fiscal'
     aliquotaIbs: num(r.aliquotaIbs), aliquotaCbs: num(r.aliquotaCbs),
     origemFiscal: r.origemFiscal as ProductEntity['fiscal'] extends infer F
       ? F extends { origemFiscal: infer O } ? O : never : never,
-    aliquotaEcf: null,
-    aliquotaEcfId: null,
+    aliquotaEcf: r.aliquotaEcf,
+    aliquotaEcfId: r.aliquotaEcfId,
+    estado: r.estado,
+    motivo: r.motivo,
   };
 }
 
@@ -404,8 +406,13 @@ export class ProductRepository {
           cstReforma: f.cstReforma, cClassTrib: f.cClassTrib,
           aliquotaIbs: toDb(f.aliquotaIbs), aliquotaCbs: toDb(f.aliquotaCbs),
           origemFiscal: f.origemFiscal,
-    aliquotaEcf: null,
-    aliquotaEcfId: null,
+          aliquotaEcf: f.aliquotaEcf,
+          aliquotaEcfId: f.aliquotaEcfId,
+          estado: f.estado,
+          motivo: f.motivo,
+          // Marca a TENTATIVA, não só o sucesso: é o que separa "nunca foi
+          // classificado" de "foi, e não havia fonte".
+          conferidoEm: f.estado ? new Date() : null,
         });
       }
     }

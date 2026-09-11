@@ -115,6 +115,18 @@ export const productFiscal = pgTable('product_fiscal', {
   // ID ("03", "10", "11") tem zero à esquerda que faz parte do código.
   aliquotaEcf: text('aliquota_ecf'),
   aliquotaEcfId: text('aliquota_ecf_id'),
+  /*
+   * Em que pé está o fiscal, e por quê.
+   *
+   * Persistido porque a pendência precisa sobreviver ao salvamento: sem isto,
+   * "cadastro salvo" e "fiscal resolvido" viravam a mesma coisa na tela, no
+   * health e no relatório — e um produto com grupo inválido passava por
+   * concluído. `conferidoEm` marca quando a última tentativa aconteceu, para
+   * separar "nunca tentei" de "tentei e não havia fonte".
+   */
+  estado: text('estado'),
+  motivo: text('motivo'),
+  conferidoEm: timestamp('conferido_em', { withTimezone: true }),
 });
 
 export const promocoes = pgTable('promocoes', {

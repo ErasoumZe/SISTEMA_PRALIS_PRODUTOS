@@ -124,6 +124,8 @@ export class UnificacaoAplicarService {
       aliquotaIbs: null, aliquotaCbs: null, origemFiscal: null,
     aliquotaEcf: null,
     aliquotaEcfId: null,
+    estado: null,
+    motivo: null,
     };
     if (loja === 'LI') {
       if (!c.fiscalLi) return null;
