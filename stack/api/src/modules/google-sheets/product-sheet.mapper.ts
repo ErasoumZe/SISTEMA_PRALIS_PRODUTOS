@@ -138,7 +138,7 @@ export const INPUT_COLUMNS: readonly string[] = [
  * corromperia a planilha antiga. No leiaute novo o destino é resolvido por
  * NOME de cabeçalho, então a letra sintética não incomoda ninguém.
  */
-export const COLUNAS_SO_DA_NOVA = ['CF', 'CG'] as const;
+export const COLUNAS_SO_DA_NOVA = ['CF', 'CG', 'CH'] as const;
 
 export const inputColumnsFor = (footer: SheetFooterColumns): string[] => [
   ...INPUT_COLUMNS,
@@ -245,6 +245,7 @@ export function mapProductToCells(product: Product, opts: MapperOptions): CellMa
     // TEXTO nos dois: "SUBST TRIB" não é número e o ID "03" perderia o zero.
     CF: text(fiscal?.aliquotaEcf ?? null),
     CG: text(fiscal?.aliquotaEcfId ?? null),
+    CH: number(fiscal?.pctNcm ?? null),
 
   };
 

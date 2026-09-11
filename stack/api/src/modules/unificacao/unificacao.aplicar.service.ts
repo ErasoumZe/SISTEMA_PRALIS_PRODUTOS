@@ -135,6 +135,7 @@ export class UnificacaoAplicarService {
        */
       estado: 'nao_classificado' as const,
       motivo: 'Criado pela Central; a carga fiscal ainda não foi buscada.',
+      pctNcm: null,
     };
     if (loja === 'LI') {
       if (!c.fiscalLi) return null;

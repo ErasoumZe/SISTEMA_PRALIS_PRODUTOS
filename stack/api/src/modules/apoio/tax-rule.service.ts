@@ -491,6 +491,11 @@ export class TaxRuleService {
       };
     }
 
+    /*
+     * `% NCM`, ICMS e CEST existem em menos da metade das linhas da fonte. Ter
+     * o registro e não ter esses três é o normal, não um defeito — e forçá-los
+     * a zero para "completar" a linha seria inventar.
+     */
     return { estado: 'completo', motivo: 'Fiscal completo.', classificacao, conflitos: [] };
   }
 

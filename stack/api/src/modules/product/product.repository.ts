@@ -114,6 +114,7 @@ function mapFiscal(r: typeof productFiscal.$inferSelect): ProductEntity['fiscal'
     aliquotaEcfId: r.aliquotaEcfId,
     estado: r.estado,
     motivo: r.motivo,
+    pctNcm: num(r.pctNcm),
   };
 }
 
@@ -410,6 +411,7 @@ export class ProductRepository {
           aliquotaEcfId: f.aliquotaEcfId,
           estado: f.estado,
           motivo: f.motivo,
+          pctNcm: toDb(f.pctNcm),
           // Marca a TENTATIVA, não só o sucesso: é o que separa "nunca foi
           // classificado" de "foi, e não havia fonte".
           conferidoEm: f.estado ? new Date() : null,

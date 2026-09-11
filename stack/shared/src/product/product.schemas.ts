@@ -81,6 +81,14 @@ export const fiscalSchema = z.object({
    */
   estado: z.string().nullable().default(null),
   motivo: z.string().nullable().default(null),
+  /**
+   * `% NCM` — existe na planilha (coluna `DM`) e na fonte de ECF, e não tinha
+   * caminho nenhum entre as duas.
+   *
+   * Só 908 das 3.122 linhas da fonte têm valor. Ausência aqui é ausência mesmo:
+   * não vira zero.
+   */
+  pctNcm: z.number().nullable().default(null),
 });
 
 // ---- Campos editáveis do produto (identidade + comercial) ----

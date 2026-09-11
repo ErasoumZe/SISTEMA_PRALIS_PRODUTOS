@@ -182,6 +182,8 @@ export class ProductService {
         categoria: ecf?.categoria ?? fiscal.categoria,
         icms: ecf?.icms ?? fiscal.icms,
         cest: ecf?.cest ?? fiscal.cest,
+        // existe em 908 das 3.122 linhas da fonte; ausência continua ausência
+        pctNcm: ecf?.pctNcm ?? (fiscal as { pctNcm?: number | null }).pctNcm ?? null,
         tributacaoSimples: rule.tributacaoSimples,
         aliquotaSimples: rule.aliquotaSimples,
         icmsRe: rule.icmsRe,

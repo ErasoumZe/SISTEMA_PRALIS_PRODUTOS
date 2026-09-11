@@ -70,6 +70,52 @@ async function zerar() {
   }
 }
 
+// ---- carga fiscal ----
+/** Como cada estado aparece na lista, em português. */
+const NOME_DO_ESTADO: Record<string, string> = {
+  completo: 'completo',
+  sem_registro: 'nunca classificado',
+  nao_classificado: 'nunca classificado',
+  parcial: 'parcial (sem registro de ECF)',
+  pendente_grupo_invalido: 'grupo fora das regras oficiais',
+  pendente_sem_correspondencia: 'sem registro no cadastro de ECF',
+  pendente_ambiguo: 'nome ambíguo na fonte',
+  pendente_conflito: 'conflito entre fontes',
+  fonte_indisponivel: 'fonte fora do ar',
+};
+
+const panorama = ref<Record<string, number> | null>(null);
+const rodandoFiscal = ref(false);
+const relatorioFiscal = ref<{
+  aplicou: boolean; analisados: number;
+  alterados: Array<{ nome: string; de: string; para: string; motivo: string }>;
+  proximoCursor: string | null;
+} | null>(null);
+
+async function carregarPanorama() {
+  try {
+    panorama.value = await api.fiscalPanorama();
+  } catch {
+    panorama.value = null;
+  }
+}
+
+/**
+ * `aplicar` é sempre explícito. A conferência vem primeiro na tela porque
+ * reescrever fiscal de mil produtos não pode ser o botão mais fácil de clicar.
+ */
+async function completarFiscal(aplicar: boolean) {
+  rodandoFiscal.value = true;
+  try {
+    relatorioFiscal.value = await api.fiscalBackfill({ aplicar, limite: 200 });
+    if (aplicar) await carregarPanorama();
+  } catch (e) {
+    erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui completar o fiscal.';
+  } finally {
+    rodandoFiscal.value = false;
+  }
+}
+
 // ---- fila de reenvio para a planilha ----
 const fila = ref<{ aguardando: number; desistidos: number } | null>(null);
 const reenviando = ref(false);
@@ -103,6 +149,7 @@ onMounted(() => {
   if (!isAdmin.value) return;
   carregarPrevia();
   carregarFila();
+  carregarPanorama();
 });
 </script>
 
@@ -118,6 +165,69 @@ onMounted(() => {
     <template v-else>
       <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
       <v-alert v-if="resultado" type="success" variant="tonal" class="mb-4">{{ resultado }}</v-alert>
+
+      <!--
+        Carga fiscal primeiro: é a pendência que aparece na planilha em vermelho
+        e a que o José precisa resolver hoje.
+      -->
+      <v-card variant="outlined" class="mb-4">
+        <v-card-title class="text-subtitle-1">Carga fiscal dos produtos</v-card-title>
+        <v-card-text>
+          <p class="mb-3">
+            Busca alíquota, redução, ECF, categoria e CEST no cadastro de ECF e completa
+            quem ainda não tem. <strong>Nada é inventado</strong>: produto sem registro
+            na fonte fica como pendente, com o motivo.
+          </p>
+
+          <div class="d-flex flex-wrap ga-2 mb-4">
+            <v-chip
+              v-for="(quantos, estado) in (panorama ?? {})"
+              :key="estado"
+              label
+              size="small"
+              :color="estado === 'completo' ? 'success' : (String(estado).startsWith('pendente') ? 'error' : 'warning')"
+            >
+              {{ quantos }} · {{ NOME_DO_ESTADO[String(estado)] ?? estado }}
+            </v-chip>
+            <span v-if="!panorama" class="text-medium-emphasis">— sem dados ainda</span>
+          </div>
+
+          <div class="d-flex flex-wrap ga-3">
+            <v-btn variant="tonal" :loading="rodandoFiscal" prepend-icon="search" @click="completarFiscal(false)">
+              Conferir (não grava)
+            </v-btn>
+            <v-btn
+              color="primary"
+              :loading="rodandoFiscal"
+              :disabled="!relatorioFiscal || relatorioFiscal.aplicou || relatorioFiscal.alterados.length === 0"
+              prepend-icon="auto_fix_high"
+              @click="completarFiscal(true)"
+            >
+              Completar agora
+            </v-btn>
+          </div>
+
+          <template v-if="relatorioFiscal">
+            <v-divider class="my-4" />
+            <p class="mb-2">
+              <strong>{{ relatorioFiscal.alterados.length }}</strong>
+              de {{ relatorioFiscal.analisados }} analisados
+              {{ relatorioFiscal.aplicou ? 'foram atualizados' : 'seriam atualizados' }}.
+              <span v-if="relatorioFiscal.proximoCursor" class="text-medium-emphasis">
+                Há mais produtos: rode de novo para continuar.
+              </span>
+            </p>
+            <v-table v-if="relatorioFiscal.alterados.length" density="compact">
+              <tbody>
+                <tr v-for="a in relatorioFiscal.alterados.slice(0, 12)" :key="a.nome">
+                  <td>{{ a.nome }}</td>
+                  <td class="text-medium-emphasis">{{ NOME_DO_ESTADO[a.para] ?? a.para }}</td>
+                </tr>
+              </tbody>
+            </v-table>
+          </template>
+        </v-card-text>
+      </v-card>
 
       <!--
         A fila vem ANTES do "zerar": é a ação que se usa toda semana, enquanto

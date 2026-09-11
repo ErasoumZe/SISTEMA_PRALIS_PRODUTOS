@@ -127,6 +127,8 @@ export const productFiscal = pgTable('product_fiscal', {
   estado: text('estado'),
   motivo: text('motivo'),
   conferidoEm: timestamp('conferido_em', { withTimezone: true }),
+  // `% NCM` da fonte de ECF. Só 908 das 3.122 linhas têm; ausência é ausência.
+  pctNcm: numeric('pct_ncm', { precision: 6, scale: 4 }),
 });
 
 export const promocoes = pgTable('promocoes', {
