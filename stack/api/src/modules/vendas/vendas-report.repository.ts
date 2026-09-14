@@ -84,7 +84,8 @@ export class VendasReportRepository {
    */
   async produtosDaLoja(loja: Loja): Promise<ProdutoCadastro[]> {
     const result = await db.execute(sql`
-      SELECT id, nome, codigo_barras, custo, qt_cad, quantidade, medida_base
+      SELECT id, nome, codigo_barras, custo, qt_cad, quantidade, medida_base,
+             grupo, setor_estoque, setor_venda_1
         FROM products WHERE loja = ${loja}
     `);
     return result.rows.map((row) => ({
@@ -95,13 +96,57 @@ export class VendasReportRepository {
       qtCad: Number(row.qt_cad ?? 1),
       quantidade: row.quantidade == null ? null : Number(row.quantidade),
       medidaBase: row.medida_base == null ? null : String(row.medida_base),
+      grupo: row.grupo == null ? null : String(row.grupo),
+      setorEstoque: row.setor_estoque == null ? null : String(row.setor_estoque),
+      setorVenda1: row.setor_venda_1 == null ? null : String(row.setor_venda_1),
+    }));
+  }
+
+  /**
+   * Faturamento por PDV, direto do fechamento de caixa.
+   *
+   * Vem daqui e não das vendas por produto porque a venda por produto é
+   * agregada por DIA, sem PDV — não existe no dado quem passou o quê em qual
+   * caixa. O fechamento, sim, é por (loja, data, pdv, operador).
+   *
+   * Consequência que a tela precisa dizer: dá para ranquear o DINHEIRO por
+   * caixa, nunca os produtos de um caixa.
+   */
+  async porPdv(loja: Loja, inicio: string, fim: string): Promise<Array<{
+    pdv: string; operador: string; total: number; numeroVendas: number;
+  }>> {
+    const result = await db.execute(sql`
+      SELECT pdv,
+             min(operador) AS operador,
+             sum(total_pagamento)::float8 AS total,
+             sum(numero_vendas)::int AS numero_vendas
+        FROM fechamento_caixa_dia
+       WHERE loja = ${loja} AND data BETWEEN ${inicio} AND ${fim}
+       GROUP BY pdv
+    `);
+    return result.rows.map((row) => ({
+      pdv: String(row.pdv ?? ''),
+      operador: String(row.operador ?? ''),
+      total: Number(row.total ?? 0),
+      numeroVendas: Number(row.numero_vendas ?? 0),
     }));
   }
 
   /** Vínculos confirmados por pessoa: código do PDV -> produto do cadastro. */
   async deParaDaLoja(loja: Loja): Promise<Map<string, ProdutoCadastro>> {
+    /*
+     * Os campos de CLASSIFICAÇÃO entram aqui também, e não só em
+     * `produtosDaLoja`.
+     *
+     * Sem eles, o produto que chegou pelo de-para confirmado à mão voltava sem
+     * grupo e sem setor — e o ranking o jogava em "sem classificação" justo
+     * quando alguém já tinha feito o trabalho de dizer qual produto era. Um
+     * teste de integração pegou isso; a olho não aparecia, porque o caminho
+     * automático (por código) funcionava.
+     */
     const result = await db.execute(sql`
-      SELECT pc.produto_codigo, pc.produto, p.id, p.nome, p.codigo_barras, p.custo, p.qt_cad
+      SELECT pc.produto_codigo, pc.produto, p.id, p.nome, p.codigo_barras, p.custo, p.qt_cad,
+             p.grupo, p.setor_estoque, p.setor_venda_1
         FROM produto_creare pc
         JOIN products p ON p.id = pc.product_id
        WHERE pc.loja = ${loja}
@@ -114,6 +159,9 @@ export class VendasReportRepository {
         codigoBarras: row.codigo_barras == null ? null : String(row.codigo_barras),
         custo: row.custo == null ? null : Number(row.custo),
         qtCad: Number(row.qt_cad ?? 1),
+        grupo: row.grupo == null ? null : String(row.grupo),
+        setorEstoque: row.setor_estoque == null ? null : String(row.setor_estoque),
+        setorVenda1: row.setor_venda_1 == null ? null : String(row.setor_venda_1),
       });
     }
     return mapa;

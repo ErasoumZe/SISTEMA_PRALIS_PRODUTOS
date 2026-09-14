@@ -61,6 +61,7 @@ const titulo = computed(() => {
     '/vendas': 'Relatório de vendas',
     '/vendas/de-para': 'Produtos do PDV sem cadastro',
     '/vendas/produtos': 'Produtos vendidos no período',
+    '/vendas/painel': 'Painel de setores',
     '/produtos/central': 'Central de Produtos',
     '/produtos/reconciliacao': 'Conferir planilha',
     '/produtos/manutencao': 'Manutenção do catálogo',

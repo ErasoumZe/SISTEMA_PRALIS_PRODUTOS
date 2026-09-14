@@ -10,15 +10,16 @@ import {
 } from './vendas.schemas';
 import { vendasImportAuth } from './vendas.auth';
 import { authMiddleware } from '@/middlewares/auth-handler';
-import { VendasReportController } from './vendas-report.controller';
+import { VendasReportController, VendasRankingController } from './vendas-report.controller';
 import { VendasDeParaController } from './vendas-depara.controller';
 import { VendasUnicosController } from './vendas-unicos.controller';
 import { z } from 'zod/v4';
-import { VendasSchemas, VendasDePara, VendasUnicos } from '@pralis/shared';
+import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking } from '@pralis/shared';
 
 export async function vendasRoutes(app: FastifyInstance) {
   const controller = container.resolve(VendasController);
   const reportController = container.resolve(VendasReportController);
+  const rankingController = container.resolve(VendasRankingController);
   const deParaController = container.resolve(VendasDeParaController);
   const unicosController = container.resolve(VendasUnicosController);
   const typed = app.withTypeProvider<ZodTypeProvider>();
@@ -50,6 +51,27 @@ export async function vendasRoutes(app: FastifyInstance) {
       },
     },
     reportController.report.bind(reportController),
+  );
+
+  /*
+   * Uma porta para as quatro dimensões, e não quatro portas.
+   *
+   * A conta é a mesma — somar faturamento por uma chave e ordenar —, e o que
+   * muda é de onde a chave sai. Quatro rotas seriam quatro lugares para o
+   * mesmo controle de qual loja a pessoa pode ler.
+   */
+  typed.get<{ Querystring: VendasRanking.VendasRankingQuery }>(
+    '/vendas/ranking',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: VendasRanking.vendasRankingQuerySchema,
+        response: { 200: apiResponseSchema(VendasRanking.vendasRankingSchema) },
+        summary: 'Ranking de vendas por produto, grupo, setor ou PDV',
+        tags: ['VENDAS'],
+      },
+    },
+    rankingController.ranking.bind(rankingController),
   );
 
   typed.get<{ Querystring: VendasDePara.DeParaQuery }>(
