@@ -41,7 +41,15 @@ export const itemRankingSchema = z.object({
   /** Identidade estável — é por ela que a animação sabe quem subiu e quem desceu. */
   chave: z.string(),
   rotulo: z.string(),
-  faturamento: z.number(),
+  /**
+   * `null` para quem não pode ver dinheiro.
+   *
+   * Nulo no SERVIDOR, não escondido na tela: o painel de setores fica num
+   * monitor visto por colaboradores, e esconder a coluna no HTML deixaria o
+   * número viajando na resposta — qualquer um abre o navegador e lê. Quem não
+   * pode ver não recebe.
+   */
+  faturamento: z.number().nullable(),
   /** Unidades vendidas. `null` em PDV: o fechamento conta vendas, não itens. */
   quantidade: z.number().nullable(),
   /** Nº de vendas (tickets). Só o PDV tem; nas demais dimensões é `null`. */
@@ -62,8 +70,9 @@ export const itemRankingSchema = z.object({
  * errado. Quem lê precisa ver sobre quanto a conta foi feita.
  */
 export const coberturaSchema = z.object({
-  faturamentoClassificado: z.number(),
-  faturamentoSemClassificacao: z.number(),
+  /** `null` para quem não pode ver dinheiro — mesma regra do item. */
+  faturamentoClassificado: z.number().nullable(),
+  faturamentoSemClassificacao: z.number().nullable(),
   /** 0 a 100. É o número que qualifica o ranking inteiro. */
   percentual: z.number(),
   /** Quantas linhas de venda não casaram com produto do cadastro. */
@@ -76,7 +85,8 @@ export const vendasRankingSchema = z.object({
   dimensao: z.enum(DIMENSOES),
   /** O campo do cadastro que virou a chave. `null` quando não se aplica. */
   campo: z.string().nullable(),
-  faturamentoTotal: z.number(),
+  /** `null` para quem não pode ver dinheiro. */
+  faturamentoTotal: z.number().nullable(),
   pontosTotal: z.number(),
   itens: z.array(itemRankingSchema),
   cobertura: coberturaSchema,

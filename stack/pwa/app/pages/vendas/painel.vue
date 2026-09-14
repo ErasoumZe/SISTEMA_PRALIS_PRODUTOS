@@ -104,9 +104,24 @@ const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curren
 const pontos = (v: number) => Math.round(v).toLocaleString('pt-BR');
 const hora = (d: Date | null) => (d ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—');
 
-/** Barra proporcional ao líder — a distância para o primeiro, de relance. */
+/**
+ * Mostra dinheiro? Quem responde é a RESPOSTA, não o papel do usuário lido aqui.
+ *
+ * O servidor já corta o faturamento de quem não pode ver: ele chega `null`. Ler
+ * `null` e esconder é mais seguro que a tela decidir por conta própria — se um
+ * dia a regra do servidor mudar, a tela acompanha sozinha, sem duas verdades.
+ */
+const mostraDinheiro = computed(() => lider.value?.faturamento != null);
+
+/**
+ * Barra proporcional ao líder — a distância para o primeiro, de relance.
+ *
+ * Calculada sobre os PONTOS, não sobre o faturamento: pontos existem para todo
+ * mundo, faturamento não. E a proporção é a mesma, já que uma coisa é a outra
+ * vezes 25% — a barra mostra o mesmo desenho sem depender do número escondido.
+ */
 const fatia = (v: number) => {
-  const topo = lider.value?.faturamento ?? 0;
+  const topo = lider.value?.pontos ?? 0;
   return topo > 0 ? Math.max(2, (v / topo) * 100) : 0;
 };
 </script>
@@ -139,10 +154,18 @@ const fatia = (v: number) => {
     </div>
 
     <template v-else>
+      <!--
+        NÃO existe coluna de faturamento aqui, e não é só por estética: este
+        quadro fica num monitor à vista de quem trabalha no salão, e dinheiro
+        não é informação de todos. O corte é feito no SERVIDOR — a resposta
+        chega sem os valores para quem não é administrador —, então não há o que
+        esconder na tela. Quando o administrador abre, `mostraDinheiro` fica
+        verdadeiro e a coluna aparece.
+      -->
       <div class="painel-cabecalho">
         <div class="col-pos">#</div>
         <div class="col-setor">SETOR</div>
-        <div class="col-fat">FATURAMENTO</div>
+        <div v-if="mostraDinheiro" class="col-fat">FATURAMENTO</div>
         <div class="col-pts">PONTOS</div>
       </div>
 
@@ -163,9 +186,9 @@ const fatia = (v: number) => {
           </div>
           <div class="col-setor">
             <div class="setor-nome">{{ i.rotulo }}</div>
-            <div class="setor-barra"><span :style="{ width: `${fatia(i.faturamento)}%` }" /></div>
+            <div class="setor-barra"><span :style="{ width: `${fatia(i.pontos)}%` }" /></div>
           </div>
-          <div class="col-fat">{{ brl(i.faturamento) }}</div>
+          <div v-if="mostraDinheiro" class="col-fat">{{ brl(i.faturamento ?? 0) }}</div>
           <div class="col-pts">{{ pontos(i.pontos) }}</div>
         </div>
       </TransitionGroup>
@@ -229,7 +252,7 @@ const fatia = (v: number) => {
 .painel-cabecalho,
 .linha {
   display: grid;
-  grid-template-columns: 76px 1fr 200px 120px;
+  grid-template-columns: 76px 1fr auto 120px;
   align-items: center;
   gap: 12px;
 }

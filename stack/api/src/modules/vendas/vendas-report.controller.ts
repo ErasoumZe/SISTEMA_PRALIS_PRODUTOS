@@ -5,6 +5,7 @@ import { VendasReportService } from './vendas-report.service';
 import type { VendasSchemas } from '@pralis/shared';
 import type { VendasRanking } from '@pralis/shared';
 import { VendasRankingService } from './vendas-ranking.service';
+import { podeVerDinheiro, semDinheiro } from './vendas-ranking-sigilo';
 
 type VendasReportQuery = VendasSchemas.VendasReportQuery;
 
@@ -55,6 +56,16 @@ export class VendasRankingController {
       request.query.dimensao,
       request.query.campoSetor,
     );
-    return reply.status(200).send(buildResponse(data, 'Ranking de vendas'));
+    /*
+     * O corte do dinheiro acontece AQUI, na saída, e não na tela.
+     *
+     * O painel de setores fica num monitor à vista de quem trabalha no salão.
+     * Esconder a coluna no HTML deixaria o número viajando na resposta — basta
+     * abrir o navegador para lê-lo. Quem não pode ver, não recebe.
+     */
+    const visivel = podeVerDinheiro(request.currentUser)
+      ? data
+      : semDinheiro(data);
+    return reply.status(200).send(buildResponse(visivel, 'Ranking de vendas'));
   }
 }

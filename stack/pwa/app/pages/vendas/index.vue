@@ -373,7 +373,7 @@ const corCoberturaRanking = computed(() => {
 
 /** Barra proporcional ao primeiro colocado — comparação dentro da própria lista. */
 const fatiaDoLider = (v: number) => {
-  const lider = ranking.value?.itens[0]?.faturamento ?? 0;
+  const lider = ranking.value?.itens[0]?.pontos ?? 0;
   return lider > 0 ? (v / lider) * 100 : 0;
 };
 
@@ -654,7 +654,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                   rounded
                 />
                 <div class="text-caption text-medium-emphasis mt-1">
-                  {{ brl(ranking.cobertura.faturamentoSemClassificacao) }} em
+                  {{ ranking.cobertura.faturamentoSemClassificacao !== null ? brl(ranking.cobertura.faturamentoSemClassificacao) + " em " : "" }}
                   {{ num(ranking.cobertura.linhasSemVinculo) }} linha(s) não casaram com produto do cadastro.
                   <NuxtLink to="/vendas/de-para" class="text-primary">Resolver no de-para</NuxtLink>.
                 </div>
@@ -680,13 +680,13 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                     </div>
                   </div>
                   <div class="text-right flex-shrink-0">
-                    <div class="text-body-2 font-weight-bold">{{ brl(i.faturamento) }}</div>
+                    <div v-if="i.faturamento !== null" class="text-body-2 font-weight-bold">{{ brl(i.faturamento) }}</div>
                     <div class="text-caption text-medium-emphasis">{{ num(i.pontos) }} pts</div>
                   </div>
                 </div>
                 <!-- barra proporcional ao LÍDER: compara dentro da própria lista -->
                 <v-progress-linear
-                  :model-value="fatiaDoLider(i.faturamento)"
+                  :model-value="fatiaDoLider(i.pontos)"
                   :color="i.posicao === 1 ? 'primary' : 'grey-lighten-1'"
                   height="4"
                   rounded
