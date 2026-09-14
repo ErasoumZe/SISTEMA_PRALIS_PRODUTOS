@@ -37,7 +37,12 @@ const nav = computed<NavItem[]>(() => {
   if (isAdmin.value) items.push({ title: 'Central de Produtos', icon: 'merge_type', to: '/produtos/central', section: 'Administração' });
   // "Duplicados" não existe mais: a Central de Produtos faz o que ela fazia e
   // mais, sobre a base inteira em vez de só o catálogo vivo.
-  if (isAdmin.value) items.push({ title: 'Conferir planilha', icon: 'fact_check', to: '/produtos/reconciliacao', section: 'Administração' });
+  /*
+   * "Conferir planilha" SAIU do menu — a tela continua inteira, alcançada por
+   * um cartão em Manutenção. Ela é consulta de bastidor, não trabalho do dia:
+   * ocupando uma linha ao lado de Produtos e Vendas, competia por atenção com
+   * o que se usa toda hora. Menu curto é menu que se lê.
+   */
   if (isAdmin.value) items.push({ title: 'Usuários', icon: 'group', to: '/usuarios', section: 'Administração' });
   /*
    * Manutenção fica por ÚLTIMO e sozinha no fim da lista: é onde mora o "zerar
