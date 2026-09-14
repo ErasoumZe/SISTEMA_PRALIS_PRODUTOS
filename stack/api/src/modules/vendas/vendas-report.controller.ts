@@ -3,6 +3,8 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
 import { VendasReportService } from './vendas-report.service';
 import type { VendasSchemas } from '@pralis/shared';
+import type { VendasRanking } from '@pralis/shared';
+import { VendasRankingService } from './vendas-ranking.service';
 
 type VendasReportQuery = VendasSchemas.VendasReportQuery;
 
@@ -29,3 +31,30 @@ export class VendasReportController {
   }
 }
 
+
+/**
+ * Ranking por dimensão — produto, grupo, setor ou PDV.
+ *
+ * Controller próprio, ao lado do relatório, porque compartilha a MESMA regra de
+ * qual loja a pessoa pode consultar (`reportStore`). Duplicar essa regra seria
+ * a porta para um usuário de loja ler a outra por uma rota nova.
+ */
+@injectable()
+export class VendasRankingController {
+  constructor(@inject(VendasRankingService) private service: VendasRankingService) {}
+
+  async ranking(
+    request: FastifyRequest<{ Querystring: VendasRanking.VendasRankingQuery }>,
+    reply: FastifyReply,
+  ) {
+    const store = reportStore(request, request.query.loja);
+    const data = await this.service.ranking(
+      store,
+      request.query.inicio,
+      request.query.fim,
+      request.query.dimensao,
+      request.query.campoSetor,
+    );
+    return reply.status(200).send(buildResponse(data, 'Ranking de vendas'));
+  }
+}

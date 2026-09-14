@@ -11,6 +11,18 @@ export interface ProdutoCadastro {
   /** Só para montar a descrição nas sugestões de de-para. */
   quantidade?: number | null;
   medidaBase?: string | null;
+  /**
+   * Campos de CLASSIFICAÇÃO — o ranking por grupo e por setor sai daqui.
+   *
+   * Moram nesta interface, e não numa paralela, porque o ranking precisa casar
+   * venda com produto pela MESMA regra da margem: `resolverProduto`, de-para
+   * confirmado na frente do automático. Duas regras de casamento fariam a
+   * margem e o ranking discordarem sobre qual produto é qual venda — e as duas
+   * telas mostrariam números que não fecham entre si, sem ninguém saber por quê.
+   */
+  grupo?: string | null;
+  setorEstoque?: string | null;
+  setorVenda1?: string | null;
 }
 
 /** Uma linha de venda vinda do PDV. */
