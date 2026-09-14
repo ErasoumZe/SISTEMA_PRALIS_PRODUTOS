@@ -39,7 +39,7 @@ const REGRA = {
   ecf: {
     reducaoIcms: 53.33, aliquotaCheia: 18, aliquotaFcp: 0, aliquotaPis: 0, aliquotaCofins: 0,
     aliquotaEcf: '18,00%', aliquotaEcfId: '03', categoria: 'PRODUTOS DA CASA',
-    icms: null, cest: null, ncm: '19059090', cstEcf: '1', pctNcm: null,
+    icms: null, cest: null, ncm: '19059090', cstEcf: '1', pctNcm: 12.34,
   },
 };
 
@@ -88,12 +88,54 @@ describe('BackfillFiscalService', () => {
     await s.executar({}, true);
 
     const r = await db.execute(sqlTag`
-      SELECT estado, aliquota_ecf, aliquota_ecf_id, aliquota_cheia, reducao_icms
+      SELECT estado, aliquota_ecf, aliquota_ecf_id, aliquota_cheia, reducao_icms, pct_ncm
       FROM product_fiscal WHERE product_id = ${ID(2)}
     `);
     expect(r.rows[0]).toMatchObject({
       estado: 'completo', aliquota_ecf: '18,00%', aliquota_ecf_id: '03',
+      pct_ncm: '12.3400',
     });
+  });
+
+  it('atualiza toda a carga existente e enfileira no destino real, nunca em branco', async () => {
+    await criar(ID(9), 'BOLO REDONDO LARANJA');
+    await db.execute(sqlTag`
+      INSERT INTO product_fiscal (
+        product_id, estado, ncm, cst_pis_cofins, tributacao_simples,
+        aliquota_simples, icms_re, base_fiscal, pct_ncm
+      ) VALUES (
+        ${ID(9)}, 'parcial', '00000000', '99', 'ANTIGA', 1, 1, 'ANTIGA', 1
+      )
+    `);
+    const destinos: Array<{ productId: string; spreadsheetId: string; sheetName: string }> = [];
+    const sync = {
+      async ensurePending(input: { productId: string; spreadsheetId: string; sheetName: string }) {
+        destinos.push(input);
+      },
+    } as unknown as ProductSheetRepository;
+    const s = new BackfillFiscalService(motor({}), semRepo, sync);
+
+    await s.executar({ productId: ID(9) }, true);
+
+    const r = await db.execute(sqlTag`
+      SELECT ncm, cst_pis_cofins, tributacao_simples, aliquota_simples,
+             icms_re, base_fiscal, pct_ncm
+      FROM product_fiscal WHERE product_id = ${ID(9)}
+    `);
+    expect(r.rows[0]).toMatchObject({
+      ncm: '19059090',
+      cst_pis_cofins: '1',
+      tributacao_simples: 'TRIBUTADO INTEGRAL',
+      base_fiscal: 'Regra geral',
+      pct_ncm: '12.3400',
+    });
+    expect(destinos).toEqual([{
+      productId: ID(9),
+      spreadsheetId: process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? '',
+      sheetName: process.env.GOOGLE_SHEETS_BASE_TAB ?? '',
+    }]);
+    expect(destinos[0]?.spreadsheetId).not.toBe('');
+    expect(destinos[0]?.sheetName).not.toBe('');
   });
 
   it('rodar duas vezes não muda nada na segunda: já está completo', async () => {

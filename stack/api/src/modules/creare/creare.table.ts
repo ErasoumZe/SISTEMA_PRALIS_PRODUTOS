@@ -44,6 +44,7 @@ export const siaProdutoDePara = pgTable(
      */
     aliqSaidaEcf: text('aliq_saida_ecf').notNull().default(''),
     reducao: numeric('reducao', { precision: 7, scale: 4 }),
+    aliquotaInterna: numeric('aliquota_interna', { precision: 7, scale: 4 }),
     cstSaida: text('cst_saida').notNull().default(''),
     csosn: text('csosn').notNull().default(''),
     ncm: text('ncm').notNull().default(''),

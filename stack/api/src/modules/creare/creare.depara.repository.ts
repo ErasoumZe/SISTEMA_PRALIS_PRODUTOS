@@ -12,7 +12,10 @@ export interface SiaDePara {
   descricao: string;
   codGrupo: string;
   aliqSaidaEcf: string;
+  reducao: string | null;
+  aliquotaInterna: string | null;
   cstSaida: string;
+  csosn: string;
   ncm: string;
   ativo: string;
 }
@@ -29,7 +32,10 @@ export class CreareDeParaRepository {
         descricao: siaProdutoDePara.descricao,
         codGrupo: siaProdutoDePara.codGrupo,
         aliqSaidaEcf: siaProdutoDePara.aliqSaidaEcf,
+        reducao: siaProdutoDePara.reducao,
+        aliquotaInterna: siaProdutoDePara.aliquotaInterna,
         cstSaida: siaProdutoDePara.cstSaida,
+        csosn: siaProdutoDePara.csosn,
         ncm: siaProdutoDePara.ncm,
         ativo: siaProdutoDePara.ativo,
       })

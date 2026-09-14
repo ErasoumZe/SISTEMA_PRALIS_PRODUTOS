@@ -29,7 +29,7 @@ const assunto = (grupo: string): string[] => grupo
 async function main() {
   const { container } = await import('tsyringe');
   const { TaxRuleService, normalizeGroup } = await import('@/modules/apoio/tax-rule.service');
-  const { GRUPOS_LEGADOS, grupoOficialDe } = await import('@/modules/apoio/grupos-legados');
+  const { GRUPOS_LEGADOS, grupoOficialDoProduto } = await import('@/modules/apoio/grupos-legados');
   const { db } = await import('@/db/databases');
   const { products } = await import('@/modules/product/product.table');
   const { ne } = await import('drizzle-orm');
@@ -40,7 +40,10 @@ async function main() {
   console.log(`equivalencias ja decididas: ${Object.keys(GRUPOS_LEGADOS).length}\n`);
 
   const linhas = await db
-    .select({ id: products.id, nome: products.nome, grupo: products.grupo, loja: products.loja })
+    .select({
+      id: products.id, nome: products.nome, grupo: products.grupo,
+      loja: products.loja, codigoBarras: products.codigoBarras,
+    })
     .from(products)
     .where(ne(products.status, 'unificado'));
 
@@ -50,7 +53,7 @@ async function main() {
     const g = p.grupo?.trim();
     if (!g) continue;
     if (oficiais.has(normalizeGroup(g))) continue;
-    if (grupoOficialDe(g)) continue; // ja decidido
+    if (grupoOficialDoProduto(g, p.codigoBarras)) continue; // ja decidido
     const lista = pendentes.get(g) ?? [];
     lista.push({ nome: p.nome, loja: p.loja });
     pendentes.set(g, lista);

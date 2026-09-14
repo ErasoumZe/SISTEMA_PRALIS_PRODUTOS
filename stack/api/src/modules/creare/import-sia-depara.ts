@@ -1,7 +1,8 @@
 /**
  * Popula `sia_produto_depara` a partir de uma exportação do SIA Supervisor.
  *
- *   npm run creare:depara -- <arquivo.xls|.csv> --loja LI
+ *   npm run creare:depara -- <arquivo.xls|.csv> --loja LI          # confere
+ *   npm run creare:depara -- <arquivo.xls|.csv> --loja LI --apply  # grava
  *
  * O arquivo NÃO é versionado: é o catálogo real da loja. O script é a única
  * porta de entrada dessa tabela, e ele recusa antes de gravar quando o
@@ -24,6 +25,7 @@ async function main(): Promise<void> {
   const argumentos = process.argv.slice(2);
   const caminho = argumentos.find((a) => !a.startsWith('--'));
   const loja = argumentos[argumentos.indexOf('--loja') + 1] as Loja | undefined;
+  const aplicar = argumentos.includes('--apply');
 
   if (!caminho || !loja || !LOJAS.includes(loja)) {
     console.error('uso: npm run creare:depara -- <arquivo.xls|.csv> --loja <TNP|LI|HORA>');
@@ -48,6 +50,11 @@ async function main(): Promise<void> {
   }
 
   // snapshot completo: a exportação é a verdade do momento
+  if (!aplicar) {
+    console.log('\nCONFERENCIA: nada foi gravado. Repita com --apply para substituir o de-para desta loja.');
+    process.exit(0);
+  }
+
   await db.transaction(async (tx) => {
     await tx.execute(sql`DELETE FROM sia_produto_depara WHERE loja = ${loja}`);
     const lote = 500;
