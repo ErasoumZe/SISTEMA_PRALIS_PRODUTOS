@@ -638,3 +638,49 @@ describe('criar todos os que faltam — acao em massa', () => {
     expect(await basesNoCatalogo()).toBe(0);
   });
 });
+
+/**
+ * A unificação não pode ficar pendurada esperando a planilha.
+ *
+ * Foi o que travou a tela em "0 de 114": cada unificação chamava `syncProduct`
+ * direto e esperava sem prazo. Com a planilha de produção levando 20 a 30
+ * segundos por gravação, um lote de 100 itens passa de meia hora numa única
+ * requisição — o proxy derruba antes, a barra nunca anda, e quem está na tela
+ * conclui que não funcionou.
+ *
+ * O produto já está no banco quando o espelho começa, e a linha já está na
+ * outbox. Desistir da espera não perde nada: a fila de reenvio termina.
+ */
+describe('unificar — planilha lenta não pendura a requisição', () => {
+  it('desiste do espelho no prazo e devolve pending, com o produto criado', async () => {
+    const grupo = await cenarioCompleto();
+
+    const { UnificacaoAplicarService } = await import('./unificacao.aplicar.service');
+    const { ProductRepository } = await import('@/modules/product/product.repository');
+    const planilhaQueTrava = {
+      async registerPending() {},
+      syncProduct: () => new Promise(() => {}), // nunca responde, como hoje
+    } as never;
+    const servicoLento = new UnificacaoAplicarService(
+      new ProductRepository(), planilhaQueTrava, grupos,
+    );
+
+    const inicio = Date.now();
+    const r = await servicoLento.unificar(
+      { id: 'u1', name: 'Jose', role: 'admin' } as never, grupo.id, false,
+    );
+    const levou = Date.now() - inicio;
+
+    expect(r.modo).toBe('criado');
+    expect(r.productId).toBeTruthy();
+    expect(r.sheetSync).toBe('pending');
+    // o ponto: devolveu em segundos, não em minutos
+    expect(levou).toBeLessThan(15000);
+
+    // e o produto está no banco de verdade, com a linha esperando na outbox
+    const [produto] = (await db.execute(
+      sqlTag`SELECT id FROM products WHERE id = ${r.productId}`,
+    )).rows;
+    expect(produto).toBeTruthy();
+  }, 60_000);
+});
