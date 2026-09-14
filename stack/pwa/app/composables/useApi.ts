@@ -1,4 +1,4 @@
-import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasAbc } from '@pralis/shared';
+import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasAbc, VendasPulso } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
@@ -11,6 +11,7 @@ export type ItemRanking = VendasRanking.ItemRanking;
 export type AbcProdutos = VendasAbc.AbcProdutos;
 export type AbcProdutosQuery = VendasAbc.AbcProdutosQuery;
 export type ProdutoAbc = VendasAbc.ProdutoAbc;
+export type Pulso = VendasPulso.Pulso;
 export type DeParaLista = VendasDePara.DeParaLista;
 export type DeParaQuery = VendasDePara.DeParaQuery;
 export type VincularBody = VendasDePara.VincularBody;
@@ -210,6 +211,9 @@ export function useApi() {
     // O backend decide a loja: admin informa, usuario de loja recebe a dele.
     vendasReport: (query: VendasReportQuery) =>
       unwrap($fetch<{ data: VendasReport }>('/vendas/relatorio', { ...base, query })),
+
+    /** Há quanto tempo cada fonte de vendas não recebe lote do robô. */
+    vendasPulso: () => unwrap($fetch<{ data: Pulso }>('/vendas/pulso', { ...base })),
 
     /** Produtos de cada classe da curva ABC, com dados do cadastro. */
     vendasCurvaAbc: (query: AbcProdutosQuery) =>

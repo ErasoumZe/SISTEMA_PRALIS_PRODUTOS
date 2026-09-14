@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ApexOptions } from 'apexcharts';
 import { VendasDatas } from '@pralis/shared';
-import type { VendasReport, VendasRankingResposta, AbcProdutos } from '~/composables/useApi';
+import type { VendasReport, VendasRankingResposta, AbcProdutos, Pulso } from '~/composables/useApi';
 
 const api = useApi();
 const { user } = useAuth();
@@ -76,7 +76,33 @@ async function carregar() {
   }
 }
 
-onMounted(carregar);
+/**
+ * O PULSO da importação.
+ *
+ * Existe por um caso real: o robô parou em 08/09/2026 e ninguém percebeu por
+ * seis dias. Relatório vazio não grita — ele só parece um dia fraco, e quem
+ * olha conclui que a semana foi ruim. Este aviso é a diferença entre descobrir
+ * no mesmo dia e descobrir quando alguém estranha.
+ */
+const pulso = ref<Pulso | null>(null);
+
+async function carregarPulso() {
+  try {
+    pulso.value = await api.vendasPulso();
+  } catch {
+    // sinal de saúde não pode derrubar a tela: sem ele, a tela segue igual
+    pulso.value = null;
+  }
+}
+
+const fontesAtrasadas = computed(() => (pulso.value?.fontes ?? []).filter((f) => f.atrasado));
+
+const NOME_DA_FONTE: Record<string, string> = {
+  venda_produto_dia: 'vendas por produto',
+  fechamento_caixa_dia: 'fechamento de caixa',
+};
+
+onMounted(() => { carregar(); carregarPulso(); });
 watch([loja, inicio, fim], carregar);
 
 const semMovimento = computed(() =>
@@ -566,6 +592,35 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
       <v-btn variant="tonal" prepend-icon="list" to="/vendas/produtos">Produtos vendidos</v-btn>
       <v-btn variant="tonal" prepend-icon="leaderboard" color="primary" to="/vendas/painel">Painel de setores</v-btn>
     </div>
+
+    <!--
+      O aviso de dado velho vem ANTES de tudo, inclusive do erro de período.
+
+      Um relatório montado sobre dado que parou de chegar não está errado — ele
+      está incompleto, e isso é pior: os números fecham, os gráficos desenham, e
+      nada na tela denuncia que faltam dias. Sem esta faixa, a única pista é
+      alguém estranhar que a semana foi fraca.
+    -->
+    <v-alert
+      v-if="fontesAtrasadas.length"
+      type="warning"
+      variant="tonal"
+      class="mb-4"
+      icon="sync_problem"
+    >
+      <div class="font-weight-bold mb-1">O robô parou de mandar dados.</div>
+      <div v-for="f in fontesAtrasadas" :key="`${f.loja}-${f.tipo}`" class="text-body-2">
+        <strong>{{ f.loja }}</strong> · {{ NOME_DA_FONTE[f.tipo] ?? f.tipo }}:
+        <template v-if="f.ultimoDia">
+          última venda registrada em <strong>{{ dia(f.ultimoDia) }}</strong>
+          — faz {{ num(f.diasSemDados ?? 0) }} dia(s).
+        </template>
+        <template v-else>nunca recebeu nenhum lote.</template>
+      </div>
+      <div class="text-caption mt-2">
+        Os números abaixo só contam até aí. Verifique a máquina da loja e o agendamento do robô.
+      </div>
+    </v-alert>
 
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
 

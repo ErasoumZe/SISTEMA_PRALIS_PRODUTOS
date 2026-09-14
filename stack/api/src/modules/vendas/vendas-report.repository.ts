@@ -134,6 +134,37 @@ export class VendasReportRepository {
     }));
   }
 
+  /**
+   * A última venda e o último recebimento de cada fonte.
+   *
+   * `UNION ALL` das duas tabelas porque a pergunta é a mesma e a resposta
+   * precisa vir junta: venda por produto e fechamento de caixa chegam em lotes
+   * diferentes, e uma pode parar sem a outra. Consultá-las separadamente
+   * deixaria a tela decidir o que comparar.
+   */
+  async pulsoDasFontes(): Promise<Array<{
+    loja: string; tipo: string; ultimoDia: string | null; ultimaChegada: string | null;
+  }>> {
+    const result = await db.execute(sql`
+      SELECT 'venda_produto_dia' AS tipo, loja,
+             max(data)::text AS ultimo_dia,
+             max(atualizado_em)::text AS ultima_chegada
+        FROM venda_produto_dia GROUP BY loja
+      UNION ALL
+      SELECT 'fechamento_caixa_dia' AS tipo, loja,
+             max(data)::text AS ultimo_dia,
+             max(atualizado_em)::text AS ultima_chegada
+        FROM fechamento_caixa_dia GROUP BY loja
+      ORDER BY loja, tipo
+    `);
+    return result.rows.map((row) => ({
+      loja: String(row.loja ?? ''),
+      tipo: String(row.tipo ?? ''),
+      ultimoDia: row.ultimo_dia == null ? null : String(row.ultimo_dia),
+      ultimaChegada: row.ultima_chegada == null ? null : String(row.ultima_chegada),
+    }));
+  }
+
   /** Vínculos confirmados por pessoa: código do PDV -> produto do cadastro. */
   async deParaDaLoja(loja: Loja): Promise<Map<string, ProdutoCadastro>> {
     /*
