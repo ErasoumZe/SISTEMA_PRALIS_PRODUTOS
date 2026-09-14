@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ApexOptions } from 'apexcharts';
 import { VendasDatas } from '@pralis/shared';
-import type { VendasReport, VendasRankingResposta } from '~/composables/useApi';
+import type { VendasReport, VendasRankingResposta, AbcProdutos } from '~/composables/useApi';
 
 const api = useApi();
 const { user } = useAuth();
@@ -394,6 +394,66 @@ const abcTemDados = computed(() => (dados.value?.curvaAbc ?? []).some((c) => c.p
 const totalProdutosAbc = computed(() =>
   (dados.value?.curvaAbc ?? []).reduce((s, c) => s + c.produtos, 0));
 
+/* ---- a LISTA de produtos da classe: o que não pode faltar na prateleira ---- */
+
+const classeAberta = ref<'A' | 'B' | 'C'>('A');
+const listaAbc = ref<AbcProdutos | null>(null);
+const carregandoAbc = ref(false);
+const erroAbc = ref('');
+
+async function carregarListaAbc() {
+  carregandoAbc.value = true;
+  erroAbc.value = '';
+  try {
+    listaAbc.value = await api.vendasCurvaAbc({
+      ...(isAdmin.value ? { loja: loja.value } : {}),
+      inicio: inicio.value,
+      fim: fim.value,
+      classe: classeAberta.value,
+    });
+  } catch (e: unknown) {
+    listaAbc.value = null;
+    erroAbc.value = (e as { data?: { message?: string } })?.data?.message
+      || 'Não foi possível carregar a lista.';
+  } finally {
+    carregandoAbc.value = false;
+  }
+}
+
+/* Só busca com a aba aberta — a consulta cruza a venda inteira com o cadastro. */
+watch([aba, classeAberta, loja, inicio, fim], () => {
+  if (aba.value === 'abc') carregarListaAbc();
+});
+
+/**
+ * A ordenação da lista.
+ *
+ * `diasDeMaximo` crescente é a ordem que interessa para reposição: quem tem
+ * teto para menos dias precisa de atenção mais frequente. Quem não tem máximo
+ * cadastrado vai para o FIM — não é "aguenta muito tempo", é "não dá para
+ * saber", e misturar os dois esconderia o buraco de cadastro.
+ */
+const ORDENS = [
+  { valor: 'faturamento', label: 'Faturamento' },
+  { valor: 'giro', label: 'Gira mais rápido' },
+  { valor: 'risco', label: 'Menos dias de estoque' },
+] as const;
+const ordem = ref<'faturamento' | 'giro' | 'risco'>('faturamento');
+
+const itensAbcOrdenados = computed(() => {
+  const itens = [...(listaAbc.value?.itens ?? [])];
+  if (ordem.value === 'giro') return itens.sort((a, b) => b.porDia - a.porDia);
+  if (ordem.value === 'risco') {
+    return itens.sort((a, b) => {
+      if (a.diasDeMaximo == null && b.diasDeMaximo == null) return b.faturamento - a.faturamento;
+      if (a.diasDeMaximo == null) return 1; // sem cadastro vai para o fim
+      if (b.diasDeMaximo == null) return -1;
+      return a.diasDeMaximo - b.diasDeMaximo;
+    });
+  }
+  return itens; // já vem ordenado por faturamento
+});
+
 const abcFatias = computed(() => (dados.value?.curvaAbc ?? []).map((c) => ({
   classe: c.classe,
   cor: CORES_ABC[c.classe],
@@ -771,6 +831,125 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 Compare as duas faixas: quanto mais curta a faixa <strong>A</strong> embaixo e mais
                 longa em cima, mais o faturamento depende de poucos produtos — e mais caro sai
                 deixar um deles faltar na prateleira.
+              </div>
+            </template>
+          </v-card>
+
+          <!-- ───── a LISTA: quais produtos são esses ───── -->
+          <v-card flat border rounded="lg" class="pa-4 mt-4">
+            <div class="d-flex align-center flex-wrap ga-3 mb-2">
+              <div>
+                <div class="text-subtitle-1 font-weight-bold">
+                  Produtos da classe {{ classeAberta }}
+                </div>
+                <div class="text-caption text-medium-emphasis">
+                  O que sustenta o faturamento — e o que não pode faltar na prateleira.
+                </div>
+              </div>
+              <v-spacer />
+              <v-btn-toggle v-model="classeAberta" density="compact" variant="outlined" divided mandatory>
+                <v-btn v-for="c in (['A', 'B', 'C'] as const)" :key="c" :value="c" size="small">{{ c }}</v-btn>
+              </v-btn-toggle>
+              <v-btn-toggle v-model="ordem" density="compact" variant="outlined" divided mandatory>
+                <v-btn v-for="o in ORDENS" :key="o.valor" :value="o.valor" size="small">{{ o.label }}</v-btn>
+              </v-btn-toggle>
+            </div>
+
+            <v-alert v-if="erroAbc" type="error" variant="tonal" density="compact" class="mb-3">{{ erroAbc }}</v-alert>
+
+            <div v-if="carregandoAbc && !listaAbc" class="d-flex justify-center pa-10">
+              <v-progress-circular indeterminate color="primary" />
+            </div>
+
+            <template v-else-if="listaAbc">
+              <!--
+                O AVISO vem antes da tabela, de propósito.
+
+                O sistema NÃO guarda saldo de estoque — nem no banco nem na
+                planilha (a aba de estoque é um formulário de contagem mensal,
+                com a coluna de quantidade em branco). Então "dias de máximo" é
+                o TETO, não o que resta hoje. Sem esta frase, alguém leria "3,3
+                dias" como "acaba quinta-feira" e compraria errado.
+              -->
+              <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+                <strong>Não há saldo de estoque no sistema.</strong>
+                A coluna <em>dias de máximo</em> diz em quantos dias a venda deste ritmo
+                consumiria o estoque <strong>máximo cadastrado</strong> — é o teto, não o que
+                resta hoje na prateleira.
+              </v-alert>
+
+              <div
+                v-if="listaAbc.semCadastro || listaAbc.semEstoqueMax"
+                class="text-caption text-medium-emphasis mb-3"
+              >
+                <template v-if="listaAbc.semCadastro">
+                  <strong class="text-warning">{{ num(listaAbc.semCadastro) }}</strong>
+                  produto(s) desta classe não casaram com o cadastro — sem custo, mínimo nem máximo.
+                  <NuxtLink to="/vendas/de-para" class="text-primary">Resolver no de-para</NuxtLink>.
+                </template>
+                <template v-if="listaAbc.semEstoqueMax">
+                  <span v-if="listaAbc.semCadastro"> · </span>
+                  <strong class="text-warning">{{ num(listaAbc.semEstoqueMax) }}</strong>
+                  estão sem estoque máximo cadastrado.
+                </template>
+              </div>
+
+              <div v-if="!itensAbcOrdenados.length" class="text-caption text-medium-emphasis py-8 text-center">
+                Nenhum produto nesta classe no período.
+              </div>
+
+              <div v-else style="overflow-x: auto">
+                <v-table density="compact">
+                  <thead>
+                    <tr>
+                      <th class="text-left">#</th>
+                      <th class="text-left">Produto</th>
+                      <th class="text-left">Setor</th>
+                      <th class="text-right">Vendeu</th>
+                      <th class="text-right">Por dia</th>
+                      <th class="text-right">Faturou</th>
+                      <th class="text-right">% acum.</th>
+                      <th class="text-right">Mín.</th>
+                      <th class="text-right">Máx.</th>
+                      <th class="text-right">Dias de máx.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="i in itensAbcOrdenados" :key="`${i.produtoCodigo}-${i.produto}`">
+                      <td class="text-medium-emphasis">{{ i.posicao }}</td>
+                      <td>
+                        <div class="text-truncate" style="max-width: 320px">{{ i.produto }}</div>
+                        <div class="text-caption text-medium-emphasis">
+                          {{ i.produtoCodigo || 'sem código' }}
+                          <span v-if="!i.productId" class="text-warning"> · fora do cadastro</span>
+                        </div>
+                      </td>
+                      <td class="text-caption">{{ i.setor ?? '—' }}</td>
+                      <td class="text-right">{{ num(i.quantidade) }}</td>
+                      <td class="text-right">{{ num(i.porDia) }}</td>
+                      <td class="text-right font-weight-bold">{{ brl(i.faturamento) }}</td>
+                      <td class="text-right text-medium-emphasis">{{ pct(i.acumulado) }}</td>
+                      <td class="text-right">{{ i.estoqueMin != null ? num(i.estoqueMin) : '—' }}</td>
+                      <td class="text-right">{{ i.estoqueMax != null ? num(i.estoqueMax) : '—' }}</td>
+                      <!--
+                        Vermelho abaixo de 7 dias, âmbar até 15: é a faixa em que
+                        a reposição precisa ser semanal ou mais frequente. Cor
+                        NUNCA sozinha — o número está escrito ao lado.
+                      -->
+                      <td
+                        class="text-right font-weight-bold"
+                        :class="i.diasDeMaximo == null ? 'text-disabled'
+                          : i.diasDeMaximo < 7 ? 'text-error'
+                            : i.diasDeMaximo < 15 ? 'text-warning' : ''"
+                      >{{ i.diasDeMaximo != null ? `${num(i.diasDeMaximo)} d` : 'sem máx.' }}</td>
+                    </tr>
+                  </tbody>
+                </v-table>
+              </div>
+
+              <div class="text-caption text-medium-emphasis mt-3">
+                Período de {{ num(listaAbc.periodo.dias) }} dia(s).
+                <strong>Por dia</strong> é a venda média no período — é o ritmo que consome a prateleira.
               </div>
             </template>
           </v-card>

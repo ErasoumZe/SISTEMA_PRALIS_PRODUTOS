@@ -1,4 +1,4 @@
-import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, VendasRanking } from '@pralis/shared';
+import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasAbc } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
@@ -8,6 +8,9 @@ export type VendasReportQuery = VendasSchemas.VendasReportQuery;
 export type VendasRankingResposta = VendasRanking.VendasRanking;
 export type VendasRankingQuery = VendasRanking.VendasRankingQuery;
 export type ItemRanking = VendasRanking.ItemRanking;
+export type AbcProdutos = VendasAbc.AbcProdutos;
+export type AbcProdutosQuery = VendasAbc.AbcProdutosQuery;
+export type ProdutoAbc = VendasAbc.ProdutoAbc;
 export type DeParaLista = VendasDePara.DeParaLista;
 export type DeParaQuery = VendasDePara.DeParaQuery;
 export type VincularBody = VendasDePara.VincularBody;
@@ -207,6 +210,10 @@ export function useApi() {
     // O backend decide a loja: admin informa, usuario de loja recebe a dele.
     vendasReport: (query: VendasReportQuery) =>
       unwrap($fetch<{ data: VendasReport }>('/vendas/relatorio', { ...base, query })),
+
+    /** Produtos de cada classe da curva ABC, com dados do cadastro. */
+    vendasCurvaAbc: (query: AbcProdutosQuery) =>
+      unwrap($fetch<{ data: AbcProdutos }>('/vendas/curva-abc', { ...base, query })),
 
     /** Ranking de vendas por produto, grupo, setor ou PDV. */
     vendasRanking: (query: VendasRankingQuery) =>

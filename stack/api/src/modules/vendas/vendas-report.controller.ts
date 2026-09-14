@@ -6,6 +6,8 @@ import type { VendasSchemas } from '@pralis/shared';
 import type { VendasRanking } from '@pralis/shared';
 import { VendasRankingService } from './vendas-ranking.service';
 import { podeVerDinheiro, semDinheiro } from './vendas-ranking-sigilo';
+import type { VendasAbc } from '@pralis/shared';
+import { VendasAbcService } from './vendas-abc.service';
 
 type VendasReportQuery = VendasSchemas.VendasReportQuery;
 
@@ -67,5 +69,24 @@ export class VendasRankingController {
       ? data
       : semDinheiro(data);
     return reply.status(200).send(buildResponse(visivel, 'Ranking de vendas'));
+  }
+}
+
+/**
+ * A lista de produtos da curva ABC. Controller próprio, mesma regra de loja.
+ */
+@injectable()
+export class VendasAbcController {
+  constructor(@inject(VendasAbcService) private service: VendasAbcService) {}
+
+  async produtos(
+    request: FastifyRequest<{ Querystring: VendasAbc.AbcProdutosQuery }>,
+    reply: FastifyReply,
+  ) {
+    const store = reportStore(request, request.query.loja);
+    const data = await this.service.produtos(
+      store, request.query.inicio, request.query.fim, request.query.classe,
+    );
+    return reply.status(200).send(buildResponse(data, 'Produtos da curva ABC'));
   }
 }

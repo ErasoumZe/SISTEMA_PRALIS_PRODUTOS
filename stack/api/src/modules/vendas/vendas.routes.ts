@@ -10,16 +10,17 @@ import {
 } from './vendas.schemas';
 import { vendasImportAuth } from './vendas.auth';
 import { authMiddleware } from '@/middlewares/auth-handler';
-import { VendasReportController, VendasRankingController } from './vendas-report.controller';
+import { VendasReportController, VendasRankingController, VendasAbcController } from './vendas-report.controller';
 import { VendasDeParaController } from './vendas-depara.controller';
 import { VendasUnicosController } from './vendas-unicos.controller';
 import { z } from 'zod/v4';
-import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking } from '@pralis/shared';
+import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasAbc } from '@pralis/shared';
 
 export async function vendasRoutes(app: FastifyInstance) {
   const controller = container.resolve(VendasController);
   const reportController = container.resolve(VendasReportController);
   const rankingController = container.resolve(VendasRankingController);
+  const abcController = container.resolve(VendasAbcController);
   const deParaController = container.resolve(VendasDeParaController);
   const unicosController = container.resolve(VendasUnicosController);
   const typed = app.withTypeProvider<ZodTypeProvider>();
@@ -72,6 +73,27 @@ export async function vendasRoutes(app: FastifyInstance) {
       },
     },
     rankingController.ranking.bind(rankingController),
+  );
+
+  /*
+   * A LISTA da curva ABC — quais produtos, não quanto cada classe fatura.
+   *
+   * Separada do relatório porque a pergunta é outra e o custo também: esta
+   * cruza a venda inteira com o cadastro, produto a produto, e quem abre o
+   * resumo da curva não deve pagar por isso.
+   */
+  typed.get<{ Querystring: VendasAbc.AbcProdutosQuery }>(
+    '/vendas/curva-abc',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: VendasAbc.abcProdutosQuerySchema,
+        response: { 200: apiResponseSchema(VendasAbc.abcProdutosSchema) },
+        summary: 'Produtos de cada classe da curva ABC, com dados do cadastro',
+        tags: ['VENDAS'],
+      },
+    },
+    abcController.produtos.bind(abcController),
   );
 
   typed.get<{ Querystring: VendasDePara.DeParaQuery }>(
