@@ -36,8 +36,13 @@ type Product = ProductSchemas.ProductEntity;
  * `misconfigured`: ligada, mas sem destino explícito — recusa antes de tocar no
  * Google. Nunca é o mesmo que `disabled`, para o erro de configuração não passar
  * despercebido como se fosse uma escolha.
+ *
+ * `pending`: a planilha não respondeu no prazo da TELA. Não é falha — pode até
+ * estar gravando agora. A diferença importa: `failed` já foi tentado e recusado,
+ * `pending` ainda vai acontecer, pela fila de reenvio.
  */
-export type SheetSyncOutcome = 'synced' | 'failed' | 'disabled' | 'skipped' | 'misconfigured';
+export type SheetSyncOutcome =
+  | 'synced' | 'failed' | 'pending' | 'disabled' | 'skipped' | 'misconfigured';
 
 export interface SyncResult {
   outcome: SheetSyncOutcome;

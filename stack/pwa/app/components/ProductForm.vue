@@ -348,6 +348,9 @@ const comoSeCompra = computed(() => ProductRules.montarComoSeCompra({
 /** Algum destino externo ficou para trás? Só isso decide a cor do aviso. */
 function pendenciaDeEspelho(details: { sheetSync?: string; espelhoLoja?: string } | undefined): boolean {
   const s = details?.sheetSync;
+  // "pending" NÃO acende o aviso vermelho: a planilha só está lenta, e a fila
+  // de reenvio termina o serviço sozinha em poucos minutos. Pintar de erro o
+  // que vai se resolver ensina a pessoa a ignorar o aviso que importa.
   return s === 'failed' || s === 'misconfigured' || details?.espelhoLoja === 'falhou';
 }
 

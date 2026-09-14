@@ -7,6 +7,14 @@ const envVar = (key: string, fallback: string): string => {
   return v != null && v.trim() !== '' ? v : fallback;
 };
 
+/** Número inteiro; texto que não é número cai no padrão em vez de virar `NaN`. */
+const envNum = (key: string, fallback: number): number => {
+  const v = process.env[key];
+  if (v == null || v.trim() === '') return fallback;
+  const n = Number(v.trim());
+  return Number.isFinite(n) ? n : fallback;
+};
+
 const envBool = (key: string, fallback = false): boolean => {
   const v = process.env[key];
   if (v == null || v.trim() === '') return fallback;
@@ -109,6 +117,16 @@ export const env = {
    * conferir a gravacao de 1 produto pela rota de previsualizacao.
    */
   GOOGLE_SHEETS_LOJA_ESPELHO_AUTO: envBool('GOOGLE_SHEETS_LOJA_ESPELHO_AUTO', false),
+  /**
+   * Prazo de cada chamada ao Google, em milissegundos. `0` desliga o relógio.
+   *
+   * Existe porque não havia prazo nenhum: uma leitura travada pendurava a
+   * requisição HTTP até o navegador desistir, com o produto já salvo no banco.
+   * 20 s é folgado para uma planilha saudável (as leituras equivalentes numa
+   * planilha leve voltam em 300–500 ms) e curto o bastante para a pessoa no
+   * balcão não ficar esperando: estourando, a linha vai para a fila de reenvio.
+   */
+  GOOGLE_SHEETS_TIMEOUT_MS: envNum('GOOGLE_SHEETS_TIMEOUT_MS', 20000),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: envVar('GOOGLE_SERVICE_ACCOUNT_EMAIL', ''),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: normalizePrivateKey(envVar('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', '')),
 

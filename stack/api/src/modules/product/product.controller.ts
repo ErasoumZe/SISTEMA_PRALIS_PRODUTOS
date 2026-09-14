@@ -24,9 +24,11 @@ export class ProductController {
     const message =
       sheetSync === 'synced'
         ? 'Produto salvo no banco e na planilha'
-        : sheetSync === 'failed' || sheetSync === 'misconfigured'
-          ? 'Produto salvo no banco. Sincronização com a planilha pendente'
-          : 'Produto criado com sucesso';
+        : sheetSync === 'pending'
+          ? 'Produto salvo. A planilha está demorando; a linha entra sozinha em alguns minutos'
+          : sheetSync === 'failed' || sheetSync === 'misconfigured'
+            ? 'Produto salvo no banco. Sincronização com a planilha pendente'
+            : 'Produto criado com sucesso';
     return reply.status(201).send(buildResponse(product, message, { sheetSync }));
   }
 
@@ -52,9 +54,11 @@ export class ProductController {
     const message =
       sheetSync === 'synced'
         ? 'Produto atualizado no banco e na planilha'
-        : sheetSync === 'failed' || sheetSync === 'misconfigured'
-          ? 'Produto atualizado no banco. Sincronização com a planilha pendente'
-          : 'Produto atualizado com sucesso';
+        : sheetSync === 'pending'
+          ? 'Produto atualizado. A planilha está demorando; a linha entra sozinha em alguns minutos'
+          : sheetSync === 'failed' || sheetSync === 'misconfigured'
+            ? 'Produto atualizado no banco. Sincronização com a planilha pendente'
+            : 'Produto atualizado com sucesso';
     const herdaram = lojasAtualizadas > 0
       ? ` A mudança desceu para ${lojasAtualizadas} produto(s) de loja.`
       : '';

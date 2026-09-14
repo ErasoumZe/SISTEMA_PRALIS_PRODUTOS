@@ -115,3 +115,72 @@ describe('ReenvioSheetsService', () => {
     expect(r).toMatchObject({ tentados: 1, sincronizados: 0, falharam: 1 });
   });
 });
+
+/**
+ * O reenvio precisa terminar o serviço, não metade dele.
+ *
+ * As abas `(TNP)` e `(LI) CADASTRO PRODUTOS` são cópias linha a linha da aba
+ * combinada. Cadastrar e editar já espelhavam nas três; o REENVIO não — ele
+ * chamava só `syncProduct` e parava aí. O produto que falhou no Google e voltou
+ * pela fila ficava só na combinada, e a próxima linha nova encontrava as abas
+ * de loja desalinhadas. É o mesmo defeito que já tinha quebrado a linha 1198,
+ * agora pela porta dos fundos.
+ */
+describe('ReenvioSheetsService — espelho nas abas de loja', () => {
+  /** Registra em qual aba cada espelho foi pedido. */
+  const espelhoFalso = (registro: Array<{ id: string; linha: number }>) => ({
+    async espelharNasAbasDeLoja(itens: Array<{ produto: { id: string }; linha: number }>) {
+      for (const i of itens) registro.push({ id: i.produto.id, linha: i.linha });
+      return 'espelhado' as const;
+    },
+  });
+
+  const repoFalso = {
+    async findById(id: string) { return { id, loja: 'BASE', nome: `P-${id.slice(0, 4)}` }; },
+  };
+
+  it('depois de sincronizar a combinada, espelha nas abas de loja', async () => {
+    await naFila(ID(8), 'pending', 0, 0);
+    const espelhados: Array<{ id: string; linha: number }> = [];
+
+    const r = await new ReenvioSheetsService(
+      sheetsFalso('synced', []),
+      espelhoFalso(espelhados) as never,
+      repoFalso as never,
+    ).reprocessar();
+
+    expect(r).toMatchObject({ sincronizados: 1 });
+    // a MESMA linha que a combinada usou — é isso que mantém o alinhamento
+    expect(espelhados).toEqual([{ id: ID(8), linha: 12 }]);
+  });
+
+  it('não espelha o que não sincronizou — linha errada seria pior que linha nenhuma', async () => {
+    await naFila(ID(9), 'pending', 0, 0);
+    const espelhados: Array<{ id: string; linha: number }> = [];
+
+    await new ReenvioSheetsService(
+      sheetsFalso('failed', []),
+      espelhoFalso(espelhados) as never,
+      repoFalso as never,
+    ).reprocessar();
+
+    expect(espelhados).toEqual([]);
+  });
+
+  it('falha no espelho não desfaz a sincronização já contada', async () => {
+    await naFila(ID(1), 'pending', 0, 0);
+    const espelhoQueExplode = {
+      async espelharNasAbasDeLoja() { throw new Error('Google fora do ar'); },
+    };
+
+    const r = await new ReenvioSheetsService(
+      sheetsFalso('synced', []),
+      espelhoQueExplode as never,
+      repoFalso as never,
+    ).reprocessar();
+
+    // a combinada recebeu o produto; insistir no espelho é trabalho da próxima
+    // rodada, não motivo para marcar como falha o que já foi gravado
+    expect(r).toMatchObject({ tentados: 1, sincronizados: 1, falharam: 0 });
+  });
+});

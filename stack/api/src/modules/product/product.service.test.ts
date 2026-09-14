@@ -1,7 +1,7 @@
 import 'reflect-metadata';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { ProductSchemas } from '@pralis/shared';
-import { ProductService } from './product.service';
+import { ProductService, PRAZO_ESPELHO_NA_TELA } from './product.service';
 import type { ProductRepository } from './product.repository';
 import type { ProductSheetService } from '@/modules/google-sheets/product-sheet.service';
 import type { ProductSheetLojaService } from '@/modules/google-sheets/product-sheet-loja.service';
@@ -808,5 +808,63 @@ describe('ProductService — estado fiscal é do servidor', () => {
      */
     expect(Object.prototype.hasOwnProperty.call(fiscalGravado, 'estado')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(fiscalGravado, 'motivo')).toBe(false);
+  });
+});
+
+/**
+ * A planilha não pode segurar quem está no balcão.
+ *
+ * Medido em 14/09/2026: ler quatro células da aba combinada não voltou em 30
+ * segundos — a planilha de produção está com 8,88 milhões de células, 88,8% do
+ * limite do Google. Enquanto isso, `create`/`update` ESPERAVAM o espelho para
+ * responder. O produto já estava salvo no banco desde o primeiro instante, mas
+ * a tela girava, e quem cadastrava concluía que não tinha salvado e cadastrava
+ * de novo.
+ *
+ * O prazo aqui não conserta a planilha. Ele devolve a tela para a pessoa e
+ * entrega o espelho a quem tem paciência: a fila de reenvio, que roda a cada
+ * cinco minutos e sabe repetir com recuo.
+ */
+describe('ProductService — planilha lenta não pendura a tela', () => {
+  /** Serviço de planilha que nunca responde, como a planilha real hoje. */
+  const sheetsQueTrava = {
+    async registerPending() {},
+    syncProduct: () => new Promise(() => {}),
+  } as unknown as ProductSheetService;
+
+  const repoSimples = {
+    async findById() { return produto(); },
+    async update() { return produto({ nome: 'NOME NOVO' }); },
+    async listByBaseProductId() { return []; },
+  } as unknown as ProductRepository;
+
+  it('edição devolve `pending` em vez de esperar para sempre', async () => {
+    vi.useFakeTimers();
+    try {
+      const service = new ProductService(
+        repoSimples, sheetsQueTrava, espelhoLojaFalso, {} as TaxRuleService,
+      );
+
+      const emCurso = service.update(admin, ID, { nome: 'NOME NOVO' });
+      await vi.advanceTimersByTimeAsync(PRAZO_ESPELHO_NA_TELA + 1);
+      const r = await emCurso;
+
+      expect(r.nome).toBe('NOME NOVO'); // o banco decidiu, e decidiu na hora
+      expect(r.sheetSync).toBe('pending');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * `pending` e `failed` são coisas diferentes e a tela precisa distinguir:
+   * uma volta sozinha pela fila, a outra já foi tentada e recusada.
+   */
+  it('planilha que responde a tempo continua devolvendo o resultado real', async () => {
+    const { service } = fakesUpdate({ syncOutcome: 'synced' });
+
+    const r = await service.update(admin, ID, { nome: 'NOME NOVO' });
+
+    expect(r.sheetSync).toBe('synced');
   });
 });
