@@ -15,9 +15,28 @@ let db: typeof import('@/db/databases')['db'];
 let sqlTag: typeof import('drizzle-orm')['sql'];
 let BackfillFiscalService: typeof import('./backfill-fiscal.service')['BackfillFiscalService'];
 
+/**
+ * Destino FIXO para o teste, posto antes de `@/config/env` ser importado.
+ *
+ * Antes, o teste comparava com `process.env` cru — e aí ele só passava numa
+ * máquina que tivesse `.env` preenchido. No CI, onde nada disso existe, o
+ * `spreadsheetId` vinha `''` e o `sheetName` vinha do PADRÃO embutido em
+ * `env.ts`: os dois lados discordavam e o teste reprovava sem haver defeito
+ * nenhum no código.
+ *
+ * Fixar aqui torna o teste igual em qualquer máquina e preserva o que ele
+ * guarda de verdade: que o backfill enfileira no destino REAL, nunca em branco.
+ */
+const DESTINO = {
+  planilha: 'planilha-de-teste',
+  aba: '(BASE) CADASTRO PRODUTOS',
+};
+
 beforeAll(async () => {
   container = await new PostgreSqlContainer('postgres:16-alpine').start();
   process.env.DATABASE_URL = container.getConnectionUri();
+  process.env.GOOGLE_SHEETS_SPREADSHEET_ID = DESTINO.planilha;
+  process.env.GOOGLE_SHEETS_BASE_TAB = DESTINO.aba;
   const dbModule = await import('@/db/databases');
   const { migrate } = await import('drizzle-orm/node-postgres/migrator');
   sqlTag = (await import('drizzle-orm')).sql;
@@ -131,9 +150,11 @@ describe('BackfillFiscalService', () => {
     });
     expect(destinos).toEqual([{
       productId: ID(9),
-      spreadsheetId: process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? '',
-      sheetName: process.env.GOOGLE_SHEETS_BASE_TAB ?? '',
+      spreadsheetId: DESTINO.planilha,
+      sheetName: DESTINO.aba,
     }]);
+    // e o ponto do teste: destino em branco faria a fila existir sem ter onde
+    // escrever — o produto sairia da pendência sem nunca chegar à planilha
     expect(destinos[0]?.spreadsheetId).not.toBe('');
     expect(destinos[0]?.sheetName).not.toBe('');
   });
