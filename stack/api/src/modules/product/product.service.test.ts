@@ -1,7 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import type { ProductSchemas } from '@pralis/shared';
-import { ProductService, PRAZO_ESPELHO_NA_TELA } from './product.service';
+import { ProductService } from './product.service';
+import { PRAZO_ESPELHO_NA_TELA } from '@/modules/google-sheets/espelho-na-tela';
 import type { ProductRepository } from './product.repository';
 import type { ProductSheetService } from '@/modules/google-sheets/product-sheet.service';
 import type { ProductSheetLojaService } from '@/modules/google-sheets/product-sheet-loja.service';

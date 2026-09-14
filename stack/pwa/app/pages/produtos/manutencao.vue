@@ -168,8 +168,26 @@ onMounted(() => {
       <v-alert v-if="resultado" type="success" variant="tonal" class="mb-4">{{ resultado }}</v-alert>
 
       <!--
-        Carga fiscal primeiro: é a pendência que aparece na planilha em vermelho
-        e a que o José precisa resolver hoje.
+        "Conferir planilha" morava no menu principal e não era aberta no dia a
+        dia — virava item ocupando espaço ao lado das telas de trabalho. A tela
+        continua existindo inteira; só passou a ser alcançada daqui, que é a
+        casa das coisas de bastidor. Nada foi removido.
+      -->
+      <v-card variant="outlined" class="mb-4">
+        <v-card-title class="text-subtitle-1">Conferir planilha</v-card-title>
+        <v-card-text>
+          <p class="mb-3">
+            Compara, produto a produto, o que está no banco com o que está na planilha
+            e aponta as diferenças. É só leitura — não corrige nada.
+          </p>
+          <v-btn variant="tonal" color="primary" prepend-icon="fact_check" to="/produtos/reconciliacao">
+            Abrir a conferência
+          </v-btn>
+        </v-card-text>
+      </v-card>
+
+      <!--
+        Carga fiscal: é a pendência que aparece na planilha em vermelho.
       -->
       <v-card variant="outlined" class="mb-4">
         <v-card-title class="text-subtitle-1">Carga fiscal dos produtos</v-card-title>

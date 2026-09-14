@@ -3,7 +3,7 @@ import { customAlphabet } from 'nanoid';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { ProductRepository } from './product.repository';
 import { ProductSheetService, type SheetSyncOutcome } from '@/modules/google-sheets/product-sheet.service';
-import { comPrazo } from '@/modules/google-sheets/prazo';
+import { esperarEspelho, PRAZO_ESPELHO_NA_TELA } from '@/modules/google-sheets/espelho-na-tela';
 import {
   LOJAS_ESPELHADAS,
   ProductSheetLojaService,
@@ -16,29 +16,6 @@ import { TaxRuleService, type FiscalClassification, type ResultadoFiscal } from 
 
 const rand4 = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', 4);
 const genCodigo = () => `PR-${rand4()}-${rand4()}`;
-
-/**
- * Quanto a TELA espera pela planilha antes de devolver o controle à pessoa.
- *
- * Bem menor que o prazo do cliente do Google (20 s), e de propósito: aquele é
- * o teto de uma chamada de fundo; este é o tempo que alguém aguenta parado na
- * frente do balcão. Numa planilha saudável o espelho volta em 300–500 ms e
- * ninguém nota o prazo existir.
- *
- * Estourando, o produto — que já está salvo — volta com `pending`, e a fila de
- * reenvio termina o serviço em segundo plano.
- */
-export const PRAZO_ESPELHO_NA_TELA = 8000;
-
-/**
- * Espera o espelho, mas não para sempre. A chamada abandonada continua correndo
- * e marca a própria linha na outbox — não se perde, só deixa de segurar a tela.
- */
-const esperarEspelho = async (
-  tentativa: Promise<{ outcome: SheetSyncOutcome; rowNumber: number | null }>,
-): Promise<{ outcome: SheetSyncOutcome; rowNumber: number | null }> =>
-  comPrazo(tentativa, PRAZO_ESPELHO_NA_TELA, 'espelho na planilha')
-    .catch(() => ({ outcome: 'pending' as const, rowNumber: null }));
 
 /** Produto criado + como ficou o espelhamento na planilha (nunca bloqueia o cadastro). */
 export type CreatedProduct = ProductSchemas.ProductEntity & { sheetSync: SheetSyncOutcome };

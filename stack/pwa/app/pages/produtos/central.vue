@@ -206,7 +206,21 @@ async function processarLoteSeguro() {
  * A parada por lote sem NENHUM sucesso é o que impede laço infinito: um grupo
  * que falha continua sem decisão e voltaria a ser escolhido para sempre.
  */
-const TAMANHO_DO_LOTE = 100;
+/**
+ * Quantos itens por REQUISIÇÃO.
+ *
+ * Era 100, e foi o que travou a tela em "0 de 114": cada item grava na
+ * planilha, a planilha de produção estava levando 20 a 30 segundos por
+ * gravação, e 100 numa requisição só passam de meia hora. O proxy derruba
+ * muito antes — e, como a barra só anda ENTRE lotes, ela ficava parada no zero
+ * o tempo todo, dando a impressão de que nada estava acontecendo.
+ *
+ * Cinco porque agora existe prazo de 8 s por espelho no servidor: no pior caso
+ * a requisição volta em ~40 s, dentro do tempo de qualquer proxy, e a barra
+ * anda de cinco em cinco. Numa planilha saudável cada item leva menos de meio
+ * segundo e o lote pequeno não custa nada perceptível.
+ */
+const TAMANHO_DO_LOTE = 5;
 
 async function processarTodosPorBarras() {
   const total = totalAutomatico.value ?? 0;

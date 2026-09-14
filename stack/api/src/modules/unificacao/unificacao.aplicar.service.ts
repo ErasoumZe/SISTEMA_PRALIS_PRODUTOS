@@ -7,6 +7,7 @@ import { AppError } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
 import { ProductRepository } from '@/modules/product/product.repository';
 import { ProductSheetService } from '@/modules/google-sheets/product-sheet.service';
+import { esperarEspelho } from '@/modules/google-sheets/espelho-na-tela';
 import { unifGrupo, unifGrupoItem } from './unificacao.grupo.table';
 import { unifFonteProduto } from './unificacao.table';
 import { unifDecisao } from './unificacao.decisao.table';
@@ -419,7 +420,9 @@ export class UnificacaoAplicarService {
       fontes: grupo.fontes,
     }, base.id);
 
-    const sync = await this.sheets.syncProduct(base.id).catch(() => ({ outcome: 'failed' as const }));
+    const sync = await esperarEspelho(
+      this.sheets.syncProduct(base.id).catch(() => ({ outcome: 'failed' as const, rowNumber: null })),
+    );
     return {
       modo: 'atualizado',
       productId: base.id,
@@ -476,7 +479,9 @@ export class UnificacaoAplicarService {
 
     // Depois do commit: o produto JÁ está salvo. Se o Google falhar, fica
     // `failed` e aparece como pendente, nunca como erro que peça recadastro.
-    const sync = await this.sheets.syncProduct(base.id).catch(() => ({ outcome: 'failed' as const }));
+    const sync = await esperarEspelho(
+      this.sheets.syncProduct(base.id).catch(() => ({ outcome: 'failed' as const, rowNumber: null })),
+    );
 
     return {
       modo: 'criado',
