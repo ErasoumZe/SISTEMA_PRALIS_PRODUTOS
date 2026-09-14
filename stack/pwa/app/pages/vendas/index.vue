@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ApexOptions } from 'apexcharts';
 import { VendasDatas } from '@pralis/shared';
-import type { VendasReport } from '~/composables/useApi';
+import type { VendasReport, VendasRankingResposta } from '~/composables/useApi';
 
 const api = useApi();
 const { user } = useAuth();
@@ -29,7 +29,7 @@ const carregando = ref(false);
 const erro = ref('');
 
 /** Aba visível. As três dividem o MESMO período — o filtro fica acima delas. */
-const aba = ref<'visao' | 'relatorios' | 'graficos'>('visao');
+const aba = ref<'visao' | 'ranking' | 'abc' | 'relatorios' | 'graficos'>('visao');
 
 /**
  * Atalhos de período.
@@ -320,6 +320,89 @@ const seriePagamentos = computed(() => {
   return series;
 });
 
+/* ------------------------------------------------------------------- ranking */
+
+/**
+ * As quatro dimensões do ranking.
+ *
+ * O texto de cada uma diz o que ela PODE e o que não pode — é a única defesa
+ * contra alguém ler "por caixa" e esperar ver produtos ali.
+ */
+const DIMENSOES = [
+  { valor: 'produto', label: 'Produto', icone: 'inventory_2', nota: 'Direto da venda, inclusive o que saiu sem código.' },
+  { valor: 'grupo', label: 'Grupo', icone: 'category', nota: 'Grupo de mercadorias do cadastro.' },
+  { valor: 'setor', label: 'Setor', icone: 'groups', nota: 'Produção, panificação, confeitaria, loja — o setor do cadastro.' },
+  { valor: 'pdv', label: 'Caixa (PDV)', icone: 'point_of_sale', nota: 'O dinheiro por caixa, do fechamento. Produtos por caixa não existem no dado.' },
+] as const;
+
+const dimensao = ref<'produto' | 'grupo' | 'setor' | 'pdv'>('setor');
+const dimensaoAtual = computed(() => DIMENSOES.find((d) => d.valor === dimensao.value)!);
+const ranking = ref<VendasRankingResposta | null>(null);
+const carregandoRanking = ref(false);
+const erroRanking = ref('');
+
+async function carregarRanking() {
+  carregandoRanking.value = true;
+  erroRanking.value = '';
+  try {
+    ranking.value = await api.vendasRanking({
+      ...(isAdmin.value ? { loja: loja.value } : {}),
+      inicio: inicio.value,
+      fim: fim.value,
+      dimensao: dimensao.value,
+    });
+  } catch (e: unknown) {
+    ranking.value = null;
+    erroRanking.value = (e as { data?: { message?: string } })?.data?.message
+      || 'Não foi possível carregar o ranking.';
+  } finally {
+    carregandoRanking.value = false;
+  }
+}
+
+/* Só busca quando a aba está aberta — ninguém paga por dado que não vai ver. */
+watch([aba, dimensao, loja, inicio, fim], () => {
+  if (aba.value === 'ranking') carregarRanking();
+});
+
+/** Cor da cobertura, mesma régua da margem: abaixo de 80% o ranking já não representa. */
+const corCoberturaRanking = computed(() => {
+  const c = ranking.value?.cobertura.percentual ?? 0;
+  return c >= 80 ? 'success' : c >= 50 ? 'warning' : 'error';
+});
+
+/** Barra proporcional ao primeiro colocado — comparação dentro da própria lista. */
+const fatiaDoLider = (v: number) => {
+  const lider = ranking.value?.itens[0]?.faturamento ?? 0;
+  return lider > 0 ? (v / lider) * 100 : 0;
+};
+
+/* ----------------------------------------------------------------- curva ABC */
+
+/**
+ * A curva ABC desenhada: barras empilhadas de 100% mostrando que fatia do
+ * faturamento cada classe carrega, e quantos produtos precisou para isso.
+ *
+ * O ponto da ABC é a DESPROPORÇÃO — poucos produtos fazendo a maior parte do
+ * dinheiro. Duas barras lado a lado (faturamento × nº de produtos) mostram isso
+ * de imediato; uma tabela com os mesmos números, não.
+ */
+const CORES_ABC = { A: '#1baf7a', B: '#eda100', C: '#6B7280' } as const;
+
+const abcTemDados = computed(() => (dados.value?.curvaAbc ?? []).some((c) => c.produtos > 0));
+
+const totalProdutosAbc = computed(() =>
+  (dados.value?.curvaAbc ?? []).reduce((s, c) => s + c.produtos, 0));
+
+const abcFatias = computed(() => (dados.value?.curvaAbc ?? []).map((c) => ({
+  classe: c.classe,
+  cor: CORES_ABC[c.classe],
+  faturamento: c.faturamento,
+  produtos: c.produtos,
+  pctFaturamento: c.percentual,
+  pctProdutos: totalProdutosAbc.value ? (c.produtos / totalProdutosAbc.value) * 100 : 0,
+})));
+
 const opcoesPagamentos = computed<ApexOptions>(() => ({
   chart: {
     type: 'bar',
@@ -421,6 +504,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
       <v-spacer />
       <v-btn variant="tonal" prepend-icon="refresh" :loading="carregando" @click="carregar">Atualizar</v-btn>
       <v-btn variant="tonal" prepend-icon="list" to="/vendas/produtos">Produtos vendidos</v-btn>
+      <v-btn variant="tonal" prepend-icon="leaderboard" color="primary" to="/vendas/painel">Painel de setores</v-btn>
     </div>
 
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
@@ -455,6 +539,8 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
 
       <v-tabs v-model="aba" class="mb-4" color="primary" density="comfortable">
         <v-tab value="visao" prepend-icon="show_chart">Visão geral</v-tab>
+        <v-tab value="ranking" prepend-icon="leaderboard">Ranking</v-tab>
+        <v-tab value="abc" prepend-icon="donut_large">Curva ABC</v-tab>
         <v-tab value="relatorios" prepend-icon="assessment">Relatórios</v-tab>
         <v-tab value="graficos" prepend-icon="bar_chart">Gráficos</v-tab>
       </v-tabs>
@@ -523,6 +609,171 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             de caixa. São registros diferentes do PDV, então os totais podem não bater:
             o fechamento inclui crediário, sobra/perda e outros lançamentos que não são venda de produto.
           </div>
+        </v-window-item>
+
+        <!-- ─────────────────────────────────────────────────── RANKING ── -->
+        <v-window-item value="ranking">
+          <v-card flat border rounded="lg" class="pa-4">
+            <div class="d-flex align-center flex-wrap ga-3 mb-2">
+              <div>
+                <div class="text-subtitle-1 font-weight-bold">Do que mais vende ao que menos vende</div>
+                <div class="text-caption text-medium-emphasis">{{ dimensaoAtual.nota }}</div>
+              </div>
+              <v-spacer />
+              <v-btn-toggle v-model="dimensao" density="compact" variant="outlined" divided mandatory>
+                <v-btn v-for="d in DIMENSOES" :key="d.valor" :value="d.valor" size="small" :prepend-icon="d.icone">
+                  {{ d.label }}
+                </v-btn>
+              </v-btn-toggle>
+            </div>
+
+            <v-alert v-if="erroRanking" type="error" variant="tonal" density="compact" class="mb-3">
+              {{ erroRanking }}
+            </v-alert>
+
+            <div v-if="carregandoRanking && !ranking" class="d-flex justify-center pa-10">
+              <v-progress-circular indeterminate color="primary" />
+            </div>
+
+            <template v-else-if="ranking">
+              <!--
+                A cobertura vem ANTES da lista, pelo mesmo motivo da margem: um
+                ranking montado sobre metade do faturamento, lido como se fosse
+                o todo, premia o setor errado.
+              -->
+              <div v-if="ranking.cobertura.percentual < 100" class="mb-3">
+                <div class="d-flex align-center ga-2 mb-1">
+                  <span class="text-body-2">Este ranking cobre</span>
+                  <strong :class="`text-${corCoberturaRanking}`">{{ pct(ranking.cobertura.percentual) }}</strong>
+                  <span class="text-body-2">do faturamento do período</span>
+                </div>
+                <v-progress-linear
+                  :model-value="ranking.cobertura.percentual"
+                  :color="corCoberturaRanking"
+                  height="6"
+                  rounded
+                />
+                <div class="text-caption text-medium-emphasis mt-1">
+                  {{ brl(ranking.cobertura.faturamentoSemClassificacao) }} em
+                  {{ num(ranking.cobertura.linhasSemVinculo) }} linha(s) não casaram com produto do cadastro.
+                  <NuxtLink to="/vendas/de-para" class="text-primary">Resolver no de-para</NuxtLink>.
+                </div>
+              </div>
+
+              <div v-if="!ranking.itens.length" class="text-caption text-medium-emphasis py-8 text-center">
+                Nenhuma venda classificada nesta dimensão no período.
+              </div>
+
+              <div v-for="i in ranking.itens" :key="i.chave" class="mb-3">
+                <div class="d-flex align-center ga-3">
+                  <div
+                    class="text-caption font-weight-bold text-center flex-shrink-0"
+                    style="width: 28px"
+                    :class="i.posicao <= 3 ? 'text-primary' : 'text-medium-emphasis'"
+                  >{{ i.posicao }}º</div>
+                  <div class="flex-grow-1" style="min-width: 0">
+                    <div class="text-body-2 text-truncate">{{ i.rotulo }}</div>
+                    <div class="text-caption text-medium-emphasis">
+                      {{ pct(i.participacao) }} do período
+                      <template v-if="i.quantidade !== null"> · {{ num(i.quantidade) }} un</template>
+                      <template v-if="i.numeroVendas !== null"> · {{ num(i.numeroVendas) }} vendas</template>
+                    </div>
+                  </div>
+                  <div class="text-right flex-shrink-0">
+                    <div class="text-body-2 font-weight-bold">{{ brl(i.faturamento) }}</div>
+                    <div class="text-caption text-medium-emphasis">{{ num(i.pontos) }} pts</div>
+                  </div>
+                </div>
+                <!-- barra proporcional ao LÍDER: compara dentro da própria lista -->
+                <v-progress-linear
+                  :model-value="fatiaDoLider(i.faturamento)"
+                  :color="i.posicao === 1 ? 'primary' : 'grey-lighten-1'"
+                  height="4"
+                  rounded
+                  class="mt-1"
+                />
+              </div>
+
+              <div v-if="ranking.itens.length" class="text-caption text-medium-emphasis mt-4">
+                Pontuação = faturamento × 25%. Total do período:
+                <strong class="text-high-emphasis">{{ num(ranking.pontosTotal) }} pts</strong>.
+                <template v-if="ranking.campo"> Classificado pelo campo <code>{{ ranking.campo }}</code> do cadastro.</template>
+              </div>
+            </template>
+          </v-card>
+        </v-window-item>
+
+        <!-- ───────────────────────────────────────────────── CURVA ABC ── -->
+        <v-window-item value="abc">
+          <v-card flat border rounded="lg" class="pa-4">
+            <div class="text-subtitle-1 font-weight-bold mb-1">Curva ABC</div>
+            <div class="text-caption text-medium-emphasis mb-4">
+              <strong>A</strong> são os produtos que somam os primeiros 80% do faturamento;
+              <strong>B</strong> vai até 95%; <strong>C</strong> é todo o resto.
+            </div>
+
+            <div v-if="!abcTemDados" class="text-caption text-medium-emphasis py-8 text-center">
+              Sem vendas no período para montar a curva.
+            </div>
+
+            <template v-else>
+              <!--
+                Duas barras de 100%, uma sobre a outra: o dinheiro em cima, a
+                quantidade de produtos embaixo. É a desproporção que a ABC
+                existe para mostrar — poucos produtos fazendo a maior parte do
+                faturamento —, e ela salta aos olhos comparando as duas faixas.
+                Os mesmos números numa tabela não mostram isso.
+              -->
+              <div class="text-caption text-medium-emphasis mb-1">Fatia do faturamento</div>
+              <div class="d-flex mb-4" style="height: 46px; border-radius: 8px; overflow: hidden">
+                <div
+                  v-for="f in abcFatias"
+                  :key="`fat-${f.classe}`"
+                  class="d-flex align-center justify-center text-white font-weight-bold abc-faixa"
+                  :style="{ width: `${f.pctFaturamento}%`, background: f.cor }"
+                  :title="`${f.classe}: ${brl(f.faturamento)}`"
+                >
+                  <span v-if="f.pctFaturamento >= 8">{{ f.classe }} · {{ pct(f.pctFaturamento) }}</span>
+                </div>
+              </div>
+
+              <div class="text-caption text-medium-emphasis mb-1">Fatia da quantidade de produtos</div>
+              <div class="d-flex mb-5" style="height: 46px; border-radius: 8px; overflow: hidden">
+                <div
+                  v-for="f in abcFatias"
+                  :key="`prod-${f.classe}`"
+                  class="d-flex align-center justify-center text-white font-weight-bold abc-faixa"
+                  :style="{ width: `${f.pctProdutos}%`, background: f.cor, opacity: 0.55 }"
+                  :title="`${f.classe}: ${num(f.produtos)} produto(s)`"
+                >
+                  <span v-if="f.pctProdutos >= 8">{{ f.classe }} · {{ pct(f.pctProdutos) }}</span>
+                </div>
+              </div>
+
+              <v-row dense>
+                <v-col v-for="f in abcFatias" :key="`card-${f.classe}`" cols="12" sm="4">
+                  <v-card flat border rounded="lg" class="pa-4 h-100">
+                    <div class="d-flex align-center ga-2 mb-2">
+                      <v-avatar :color="f.cor" size="32" rounded="lg" variant="flat">
+                        <span class="text-white font-weight-bold">{{ f.classe }}</span>
+                      </v-avatar>
+                      <div class="text-caption text-medium-emphasis">
+                        {{ num(f.produtos) }} produto(s) · {{ pct(f.pctProdutos) }} do catálogo vendido
+                      </div>
+                    </div>
+                    <div class="text-h6 font-weight-bold">{{ brl(f.faturamento) }}</div>
+                    <div class="text-caption text-medium-emphasis">{{ pct(f.pctFaturamento) }} do faturamento</div>
+                  </v-card>
+                </v-col>
+              </v-row>
+
+              <div class="text-caption text-medium-emphasis mt-4">
+                Compare as duas faixas: quanto mais curta a faixa <strong>A</strong> embaixo e mais
+                longa em cima, mais o faturamento depende de poucos produtos — e mais caro sai
+                deixar um deles faltar na prateleira.
+              </div>
+            </template>
+          </v-card>
         </v-window-item>
 
         <!-- ──────────────────────────────────────────────── RELATÓRIOS ── -->
@@ -691,3 +942,21 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
     </template>
   </div>
 </template>
+
+<style scoped>
+/*
+ * A faixa da ABC cresce e encolhe quando o período muda, em vez de saltar.
+ * O movimento é o que liga uma leitura à outra: sem ele, trocar de 7 para 30
+ * dias parece carregar outra tela, e não a mesma curva noutro recorte.
+ */
+.abc-faixa {
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease;
+  min-width: 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .abc-faixa { transition: none; }
+}
+</style>
