@@ -53,6 +53,39 @@ export const GRUPOS_LEGADOS: Readonly<Record<string, EquivalenciaDeGrupo>> = {};
  * somente para a mercadoria identificada pelo EAN/PLU abaixo. Assim um chiclete
  * futuro em `BOMBONIERI`, por exemplo, não herda a regra de chocolate.
  */
+/**
+ * CONFERÊNCIA DE 14/09/2026 — `scripts/conferir-12-decisoes.ts`
+ *
+ * O que a conferência achou, cruzando cada código com `BASE FULL SIA TNP`
+ * (7.131 linhas) e `BASE FULL SIA LI` (8.332 linhas):
+ *
+ *  - o export do SIA NÃO TEM coluna de grupo. Ele tem descrição, código do
+ *    produto e código de barras. Então "auditoria SIA" confirma QUAL PRODUTO é
+ *    o código — e só isso. O passo seguinte, produto -> grupo oficial, é
+ *    julgamento humano registrado, não dado copiado. São coisas diferentes e o
+ *    campo `por` não pode dar a entender que a fonte escolheu o grupo.
+ *
+ *  - 8 das 12 se sustentam: o código casa com um produto único e o nome não
+ *    deixa dúvida de grupo (AGRIAO, EQLIBRI, LAKA, TRENTO, SORVETE 360ML e as
+ *    duas águas DELIVERY; `7894900531005` é água COM gás no SIA, o que não
+ *    muda o grupo).
+ *
+ *  - `11667` e `11844` COLIDEM. O mesmo código interno aparece como água numa
+ *    loja e como outro produto na outra:
+ *        11667 -> AGUA CRYSTAL S/GAS 500ML   e   ACAI 200ML ... PALETITAS
+ *        11844 -> AGUA CRYSTAL S/GAS 300ML   e   MENTOS RAINBOW 37,5G
+ *    Aplicar grupo por essa chave classificaria açaí como água. Código interno
+ *    é por loja; código de barras não é.
+ *
+ *  - `7898229388602` (LINGUICA CALABRESA 2,5 KG) e `7894900521504`
+ *    (AGUA CRYSTAL FRUTAS VERMELHAS) NÃO EXISTEM em nenhum dos dois exports.
+ *    A justificativa "auditoria SIA" não se sustenta para esses dois. E água
+ *    saborizada não é obviamente `MER BEBIDAS - ÁGUAS`.
+ *
+ * Nada foi removido aqui: a decisão é do dono do cadastro. Mas NENHUMA destas
+ * vale até o backfill rodar com `--apply`, então há tempo de resolver os
+ * quatro antes de qualquer produto mudar de grupo.
+ */
 export const GRUPOS_LEGADOS_POR_BARRAS: Readonly<Record<string, EquivalenciaDeGrupo & { legado: string }>> = {
   '7892840267841': { legado: 'BISCOITO', oficial: 'MER BISCOITOS - SALGADOS', decidido: '2026-09-11', por: 'auditoria SIA: EQLIBRI PRESUNTO DEFUMADO 40G' },
   '7622210573353': { legado: 'BOMBONIERI', oficial: 'MER BOMBONIERI - CHOCOLATES', decidido: '2026-09-11', por: 'auditoria SIA: LAKA 34G' },
