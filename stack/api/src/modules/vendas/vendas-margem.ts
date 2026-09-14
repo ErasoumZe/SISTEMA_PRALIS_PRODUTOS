@@ -23,6 +23,16 @@ export interface ProdutoCadastro {
   grupo?: string | null;
   setorEstoque?: string | null;
   setorVenda1?: string | null;
+  /**
+   * Os limites de reposição, como o cadastro os guarda.
+   *
+   * Note o que NÃO existe aqui, nem em lugar nenhum do sistema: o SALDO atual.
+   * Mínimo e máximo são as bordas; quanto tem na prateleira hoje ninguém sabe.
+   * Por isso a lista ABC fala em "dias de máximo" e nunca em "vai faltar em X
+   * dias" — a segunda frase exigiria um número que não temos.
+   */
+  estoqueMin?: number | null;
+  estoqueMax?: number | null;
 }
 
 /** Uma linha de venda vinda do PDV. */

@@ -85,7 +85,7 @@ export class VendasReportRepository {
   async produtosDaLoja(loja: Loja): Promise<ProdutoCadastro[]> {
     const result = await db.execute(sql`
       SELECT id, nome, codigo_barras, custo, qt_cad, quantidade, medida_base,
-             grupo, setor_estoque, setor_venda_1
+             grupo, setor_estoque, setor_venda_1, estoque_min, estoque_max
         FROM products WHERE loja = ${loja}
     `);
     return result.rows.map((row) => ({
@@ -99,6 +99,8 @@ export class VendasReportRepository {
       grupo: row.grupo == null ? null : String(row.grupo),
       setorEstoque: row.setor_estoque == null ? null : String(row.setor_estoque),
       setorVenda1: row.setor_venda_1 == null ? null : String(row.setor_venda_1),
+      estoqueMin: row.estoque_min == null ? null : Number(row.estoque_min),
+      estoqueMax: row.estoque_max == null ? null : Number(row.estoque_max),
     }));
   }
 
@@ -146,7 +148,7 @@ export class VendasReportRepository {
      */
     const result = await db.execute(sql`
       SELECT pc.produto_codigo, pc.produto, p.id, p.nome, p.codigo_barras, p.custo, p.qt_cad,
-             p.grupo, p.setor_estoque, p.setor_venda_1
+             p.grupo, p.setor_estoque, p.setor_venda_1, p.estoque_min, p.estoque_max
         FROM produto_creare pc
         JOIN products p ON p.id = pc.product_id
        WHERE pc.loja = ${loja}
@@ -162,6 +164,8 @@ export class VendasReportRepository {
         grupo: row.grupo == null ? null : String(row.grupo),
         setorEstoque: row.setor_estoque == null ? null : String(row.setor_estoque),
         setorVenda1: row.setor_venda_1 == null ? null : String(row.setor_venda_1),
+        estoqueMin: row.estoque_min == null ? null : Number(row.estoque_min),
+        estoqueMax: row.estoque_max == null ? null : Number(row.estoque_max),
       });
     }
     return mapa;
