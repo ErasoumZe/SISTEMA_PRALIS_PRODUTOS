@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  GRUPOS_LEGADOS, grupoOficialDe, grupoOficialEm, type EquivalenciaDeGrupo,
+  GRUPOS_LEGADOS, GRUPOS_LEGADOS_POR_BARRAS, grupoOficialDe, grupoOficialDoProduto,
+  grupoOficialEm, type EquivalenciaDeGrupo,
 } from './grupos-legados';
 
 /** Decisões de mentira, só para exercitar a busca. */
@@ -53,6 +54,23 @@ describe('de-para de grupos legados', () => {
       expect(e.decidido, `${chave} sem data`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(e.por.trim(), `${chave} sem autor`).not.toBe('');
       expect(chave, `${chave} deveria estar em maiúsculas`).toBe(chave.toUpperCase());
+    }
+  });
+
+  it('resolve somente o produto comprovado, sem generalizar o grupo legado', () => {
+    expect(grupoOficialDoProduto('SORVETES', '07898944767454')?.oficial)
+      .toBe('MER SORVETES - POTES');
+    expect(grupoOficialDoProduto('SORVETES', 'outro-codigo')).toBeNull();
+    expect(grupoOficialDoProduto('OUTRO GRUPO', '07898944767454')).toBeNull();
+  });
+
+  it('toda decisão por produto também tem rastreabilidade', () => {
+    for (const [barras, e] of Object.entries(GRUPOS_LEGADOS_POR_BARRAS)) {
+      expect(barras).toMatch(/^\d+$/);
+      expect(e.legado.trim()).not.toBe('');
+      expect(e.oficial.trim()).not.toBe('');
+      expect(e.decidido).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(e.por.trim()).not.toBe('');
     }
   });
 });

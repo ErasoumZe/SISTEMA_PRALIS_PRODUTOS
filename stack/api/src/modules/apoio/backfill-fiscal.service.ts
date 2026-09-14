@@ -4,6 +4,7 @@ import { db } from '@/db/databases';
 import { products, productFiscal } from '@/modules/product/product.table';
 import { ProductRepository } from '@/modules/product/product.repository';
 import { ProductSheetRepository } from '@/modules/google-sheets/product-sheet.repository';
+import { env } from '@/config/env';
 import { TaxRuleService, type EstadoFiscal } from './tax-rule.service';
 
 /**
@@ -131,6 +132,7 @@ export class BackfillFiscalService {
        * produto diferente do que a tela produz.
        */
       const ecf = r.classificacao?.ecf ?? null;
+      const classificacao = r.classificacao;
       await db
         .insert(productFiscal)
         .values({
@@ -138,14 +140,20 @@ export class BackfillFiscalService {
           estado: r.estado,
           motivo: r.motivo,
           conferidoEm: new Date(),
-          ...(r.classificacao ? {
-            ncm: r.classificacao.ncm,
-            cstPisCofins: r.classificacao.cstPisCofins,
-            tributacaoSimples: r.classificacao.tributacaoSimples,
-            aliquotaSimples: String(r.classificacao.aliquotaSimples),
-            icmsRe: String(r.classificacao.icmsRe),
-            baseFiscal: r.classificacao.baseFiscal,
-            origemFiscal: r.classificacao.origem,
+          ...(classificacao ? {
+            ncm: classificacao.ncm,
+            cstPisCofins: classificacao.cstPisCofins,
+            tributacaoSimples: classificacao.tributacaoSimples,
+            aliquotaSimples: String(classificacao.aliquotaSimples),
+            icmsRe: String(classificacao.icmsRe),
+            baseFiscal: classificacao.baseFiscal,
+            codigoFiscal: classificacao.codigoFiscal,
+            produtoFiscal: classificacao.produtoFiscal,
+            cstReforma: classificacao.cstReforma,
+            cClassTrib: classificacao.cClassTrib,
+            aliquotaIbs: classificacao.aliquotaIbs == null ? null : String(classificacao.aliquotaIbs),
+            aliquotaCbs: classificacao.aliquotaCbs == null ? null : String(classificacao.aliquotaCbs),
+            origemFiscal: classificacao.origem,
           } : {}),
           ...(ecf ? {
             reducaoIcms: ecf.reducaoIcms == null ? null : String(ecf.reducaoIcms),
@@ -156,6 +164,7 @@ export class BackfillFiscalService {
             aliquotaEcf: ecf.aliquotaEcf,
             aliquotaEcfId: ecf.aliquotaEcfId,
             categoria: ecf.categoria,
+            pctNcm: ecf.pctNcm == null ? null : String(ecf.pctNcm),
             icms: ecf.icms == null ? null : String(ecf.icms),
             cest: ecf.cest,
           } : {}),
@@ -166,6 +175,21 @@ export class BackfillFiscalService {
             estado: r.estado,
             motivo: r.motivo,
             conferidoEm: new Date(),
+            ...(classificacao ? {
+              ncm: classificacao.ncm,
+              cstPisCofins: classificacao.cstPisCofins,
+              tributacaoSimples: classificacao.tributacaoSimples,
+              aliquotaSimples: String(classificacao.aliquotaSimples),
+              icmsRe: String(classificacao.icmsRe),
+              baseFiscal: classificacao.baseFiscal,
+              codigoFiscal: classificacao.codigoFiscal,
+              produtoFiscal: classificacao.produtoFiscal,
+              cstReforma: classificacao.cstReforma,
+              cClassTrib: classificacao.cClassTrib,
+              aliquotaIbs: classificacao.aliquotaIbs == null ? null : String(classificacao.aliquotaIbs),
+              aliquotaCbs: classificacao.aliquotaCbs == null ? null : String(classificacao.aliquotaCbs),
+              origemFiscal: classificacao.origem,
+            } : {}),
             ...(ecf ? {
               reducaoIcms: ecf.reducaoIcms == null ? null : String(ecf.reducaoIcms),
               aliquotaCheia: ecf.aliquotaCheia == null ? null : String(ecf.aliquotaCheia),
@@ -175,6 +199,7 @@ export class BackfillFiscalService {
               aliquotaEcf: ecf.aliquotaEcf,
               aliquotaEcfId: ecf.aliquotaEcfId,
               categoria: ecf.categoria,
+              pctNcm: ecf.pctNcm == null ? null : String(ecf.pctNcm),
               icms: ecf.icms == null ? null : String(ecf.icms),
               cest: ecf.cest,
             } : {}),
@@ -185,8 +210,8 @@ export class BackfillFiscalService {
       // sabe respeitar cota e tentar de novo
       await this.sync.ensurePending({
         productId: p.id,
-        spreadsheetId: '',
-        sheetName: '',
+        spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+        sheetName: env.GOOGLE_SHEETS_BASE_TAB,
       }).catch(() => {});
     }
 

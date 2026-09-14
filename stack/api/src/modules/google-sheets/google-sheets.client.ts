@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { env } from '@/config/env';
+import { comPrazo } from './prazo';
 
 /**
  * Costura fina sobre a API do Google Sheets. Existe para que o serviço de
@@ -67,7 +68,26 @@ export class GoogleSheetsClient implements SheetsGateway {
   constructor(
     private readonly clientEmail = env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     private readonly privateKey = env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+    private readonly prazoMs = env.GOOGLE_SHEETS_TIMEOUT_MS,
   ) {}
+
+  /**
+   * Duas camadas de prazo, de propósito.
+   *
+   * O `timeout` do gaxios ABORTA o socket — é ele que impede a conexão de
+   * ficar pendurada segurando recurso. O `comPrazo` é a rede de segurança para
+   * o caso de a promessa não assentar mesmo assim (já aconteceu: chamada que
+   * ficou mais de cinco minutos sem resolver nem rejeitar). Um sem o outro
+   * deixa um buraco.
+   *
+   * `retry: false`: quando a planilha está lenta, repetir só multiplica a
+   * espera e queima cota. Quem repete aqui é a fila de reenvio, com recuo
+   * crescente — e ela sabe quando parar.
+   */
+  private async chamar<T>(operacao: string, fn: (opcoes: object) => Promise<T>): Promise<T> {
+    const opcoes = this.prazoMs > 0 ? { timeout: this.prazoMs, retry: false } : {};
+    return comPrazo(fn(opcoes), this.prazoMs, operacao);
+  }
 
   private sheets() {
     if (this.client) return this.client;
@@ -82,10 +102,10 @@ export class GoogleSheetsClient implements SheetsGateway {
   }
 
   async getSheets(spreadsheetId: string): Promise<SheetMeta[]> {
-    const res = await this.sheets().spreadsheets.get({
+    const res = await this.chamar('lista de abas', (opcoes) => this.sheets().spreadsheets.get({
       spreadsheetId,
       fields: 'sheets.properties(sheetId,title,gridProperties(rowCount,columnCount))',
-    });
+    }, opcoes));
     return (res.data.sheets ?? []).map((s) => ({
       sheetId: s.properties?.sheetId ?? -1,
       title: s.properties?.title ?? '',
@@ -99,12 +119,15 @@ export class GoogleSheetsClient implements SheetsGateway {
     ranges: string[],
     renderOption: ValueRenderOption = 'UNFORMATTED_VALUE',
   ): Promise<string[][][]> {
-    const res = await this.sheets().spreadsheets.values.batchGet({
-      spreadsheetId,
-      ranges,
-      valueRenderOption: renderOption,
-      dateTimeRenderOption: 'FORMATTED_STRING',
-    });
+    const res = await this.chamar(
+      `leitura de ${ranges.length} faixa(s)`,
+      (opcoes) => this.sheets().spreadsheets.values.batchGet({
+        spreadsheetId,
+        ranges,
+        valueRenderOption: renderOption,
+        dateTimeRenderOption: 'FORMATTED_STRING',
+      }, opcoes),
+    );
     const byRange = res.data.valueRanges ?? [];
     return ranges.map((_, i) => toStringMatrix(byRange[i]?.values as unknown[][] | undefined));
   }
@@ -115,18 +138,24 @@ export class GoogleSheetsClient implements SheetsGateway {
     valueInputOption: ValueInputOption,
   ): Promise<void> {
     if (data.length === 0) return;
-    await this.sheets().spreadsheets.values.batchUpdate({
-      spreadsheetId,
-      requestBody: { valueInputOption, data },
-    });
+    await this.chamar(
+      `escrita de ${data.length} faixa(s)`,
+      (opcoes) => this.sheets().spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        requestBody: { valueInputOption, data },
+      }, opcoes),
+    );
   }
 
   async batchUpdate(spreadsheetId: string, requests: unknown[]): Promise<void> {
     if (requests.length === 0) return;
-    await this.sheets().spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: { requests: requests as never[] },
-    });
+    await this.chamar(
+      `${requests.length} operação(ões) estrutural(is)`,
+      (opcoes) => this.sheets().spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: { requests: requests as never[] },
+      }, opcoes),
+    );
   }
 }
 

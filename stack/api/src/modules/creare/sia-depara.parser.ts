@@ -16,14 +16,16 @@ const semAcento = (texto: string): string =>
 
 /** As colunas que interessam, por nome — a exportação do SIA tem 340. */
 const COLUNAS = {
-  coditem: ['codproduto'],
+  // First name: raw SIA export. Second name: normalized CSV in docs/.
+  coditem: ['codproduto', 'coditem'],
   codigoBarras: ['codbarras'],
-  descricao: ['descricao'],
-  codGrupo: ['codgrupo'],
-  aliqSaidaEcf: ['aliqsaida'],
+  descricao: ['descricao', 'nome'],
+  codGrupo: ['codgrupo', 'grupo'],
+  aliqSaidaEcf: ['aliqsaida', 'aliqecf'],
   reducao: ['reducao'],
-  cstSaida: ['cstsaida'],
-  csosn: ['csosnempresa'],
+  aliquotaInterna: ['aliqinterna'],
+  cstSaida: ['cstsaida', 'cst'],
+  csosn: ['csosnempresa', 'csosn'],
   ncm: ['ncm'],
   ativo: ['ativo'],
 } as const;
@@ -53,6 +55,7 @@ export interface LinhaDePara {
   codGrupo: string;
   aliqSaidaEcf: string;
   reducao: string | null;
+  aliquotaInterna: string | null;
   cstSaida: string;
   csosn: string;
   ncm: string;
@@ -90,6 +93,7 @@ export function lerDePara(tabela: unknown[][]): ResultadoLeitura {
     porChave.set(chaveBarras, [...(porChave.get(chaveBarras) ?? []), coditem]);
     porCoditem.set(coditem, (porCoditem.get(coditem) ?? 0) + 1);
     const reducao = texto(linha, 'reducao').replace(',', '.');
+    const aliquotaInterna = texto(linha, 'aliquotaInterna').replace(',', '.');
 
     linhas.push({
       coditem,
@@ -99,6 +103,7 @@ export function lerDePara(tabela: unknown[][]): ResultadoLeitura {
       codGrupo: texto(linha, 'codGrupo'),
       aliqSaidaEcf: texto(linha, 'aliqSaidaEcf'),
       reducao: reducao && Number.isFinite(Number(reducao)) ? reducao : null,
+      aliquotaInterna: aliquotaInterna && Number.isFinite(Number(aliquotaInterna)) ? aliquotaInterna : null,
       cstSaida: texto(linha, 'cstSaida'),
       csosn: texto(linha, 'csosn'),
       ncm: texto(linha, 'ncm'),

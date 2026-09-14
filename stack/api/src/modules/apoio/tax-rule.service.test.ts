@@ -517,6 +517,32 @@ describe('TaxRuleService — a fonte de ECF é da loja, não do sistema', () => 
     expect(r.motivo).toContain('LI');
   });
 
+  it('LI recebe o ECF do próprio SIA quando o de-para da loja foi importado', async () => {
+    const dePara = {
+      async porBarras(loja: string) {
+        if (loja !== 'LI') return new Map();
+        return new Map([['789123', {
+          chaveBarras: '789123', codigoBarras: '00000000789123', coditem: '123',
+          descricao: 'BOLO REDONDO LARANJA', codGrupo: 'PRODUTOS DA CASA',
+          aliqSaidaEcf: '3', reducao: '53.33', aliquotaInterna: '18',
+          cstSaida: '000', csosn: '101', ncm: '19059090', ativo: 'A',
+        }]]);
+      },
+    };
+    const s = new TaxRuleService(gatewayFiscal({ ecf: ECF }), dePara as never);
+
+    const r = await s.classificar({
+      grupo: 'MER PADARIA', nome: 'BOLO REDONDO LARANJA',
+      codigoBarras: '00000000789123', loja: 'LI',
+    });
+
+    expect(r.estado).toBe('completo');
+    expect(r.classificacao?.ecf).toMatchObject({
+      aliquotaEcf: '18,00%', aliquotaEcfId: '03', reducaoIcms: 53.33,
+      aliquotaCheia: 18, ncm: '19059090', categoria: 'PRODUTOS DA CASA',
+    });
+  });
+
   it('o que NÃO é do Creare da loja continua vindo: grupo e CST', async () => {
     const s = new TaxRuleService(gatewayFiscal({ ecf: ECF }));
 

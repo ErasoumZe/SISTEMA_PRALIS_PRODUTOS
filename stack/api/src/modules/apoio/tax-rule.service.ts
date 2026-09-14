@@ -5,7 +5,9 @@ import { AppError } from '@/config/api.replies';
 import { SHEETS_GATEWAY } from '@/modules/google-sheets/google-sheets.di';
 import { a1, type SheetsGateway } from '@/modules/google-sheets/google-sheets.client';
 import { parseCampoCreare } from '@/modules/apoio/formato-creare';
-import { grupoOficialDe } from '@/modules/apoio/grupos-legados';
+import { grupoOficialDoProduto } from '@/modules/apoio/grupos-legados';
+import { CreareDeParaRepository, type SiaDePara } from '@/modules/creare/creare.depara.repository';
+import type { CreareStore } from '@/modules/creare/creare.config';
 
 export interface GroupTaxRule {
   grupo: string; cstPisCofins: string; tributacaoSimples: string;
@@ -147,6 +149,8 @@ interface Cache {
    * Cada `FonteEcf` é chaveada pelo NOME normalizado; nomes repetidos ficam de fora.
    */
   ecf: Map<string, FonteEcf>;
+  /** Export real do SIA por loja, indexado por código de barras. */
+  siaEcf: Map<CreareStore, Map<string, SiaDePara>>;
 }
 const CACHE_MS = 5 * 60 * 1000;
 
@@ -231,7 +235,10 @@ export const barcodeCandidates = (barcode: string | null | undefined): string[] 
 @injectable()
 export class TaxRuleService {
   private cache: Cache | null = null;
-  constructor(@inject(SHEETS_GATEWAY) private sheets: SheetsGateway) {}
+  constructor(
+    @inject(SHEETS_GATEWAY) private sheets: SheetsGateway,
+    @inject(CreareDeParaRepository) private dePara?: CreareDeParaRepository,
+  ) {}
 
   /**
    * Margem padrão por grupo, da aba de grupos oficiais (coluna M = grupo,
@@ -346,7 +353,14 @@ export class TaxRuleService {
     for (const aba of new Set(Object.values(FONTES_ECF))) {
       ecf.set(aba, await this.carregarEcf(aba));
     }
-    this.cache = { expiresAt: Date.now() + CACHE_MS, groups, products, reform, cst: cstMap, ecf }; return this.cache;
+    const siaEcf = new Map<CreareStore, Map<string, SiaDePara>>();
+    if (this.dePara) {
+      await Promise.all((['TNP', 'LI', 'HORA'] as const).map(async (loja) => {
+        const linhas = await this.dePara!.porBarras(loja).catch(() => new Map<string, SiaDePara>());
+        siaEcf.set(loja, linhas);
+      }));
+    }
+    this.cache = { expiresAt: Date.now() + CACHE_MS, groups, products, reform, cst: cstMap, ecf, siaEcf }; return this.cache;
   }
 
   /**
@@ -368,6 +382,48 @@ export class TaxRuleService {
   private fonteDa(cache: Cache, loja?: string | null): FonteEcf | null {
     const aba = fonteEcfDaLoja(loja);
     return aba ? cache.ecf.get(aba) ?? null : null;
+  }
+
+  /** Cadastro do SIA da própria loja, quando foi importado. */
+  private siaDa(cache: Cache, loja?: string | null): Map<string, SiaDePara> | null {
+    const chave = String(loja ?? '').trim().toUpperCase() as CreareStore;
+    const fonte = cache.siaEcf.get(chave);
+    return fonte?.size ? fonte : null;
+  }
+
+  /** Converte somente os campos que o export do SIA realmente afirma. */
+  private registroDoSia(linha: SiaDePara): RegistroEcf {
+    const numero = (valor: string | null): number | null => {
+      if (valor == null || valor.trim() === '') return null;
+      const n = Number(valor.replace(',', '.'));
+      return Number.isFinite(n) ? n : null;
+    };
+    const digitos = linha.aliqSaidaEcf.replace(/\D/g, '');
+    const id = digitos ? digitos.padStart(2, '0') : null;
+    const cheia = numero(linha.aliquotaInterna);
+    const rotulo = id === '03' && cheia != null
+      ? `${cheia.toFixed(2).replace('.', ',')}%`
+      : id === '10'
+        ? 'SUBST TRIB'
+        : id === '11'
+          ? 'ISENTO'
+          : null;
+    return {
+      reducaoIcms: numero(linha.reducao),
+      aliquotaCheia: cheia,
+      aliquotaFcp: null,
+      aliquotaPis: null,
+      aliquotaCofins: null,
+      aliquotaEcf: rotulo,
+      aliquotaEcfId: id,
+      categoria: linha.codGrupo || null,
+      icms: null,
+      cest: null,
+      ncm: ncmCode(linha.ncm) || null,
+      // O CST do CSV do SIA é de ICMS, não o CST PIS/COFINS desta interface.
+      cstEcf: null,
+      pctNcm: null,
+    };
   }
 
   private async carregarEcf(aba: string): Promise<FonteEcf> {
@@ -452,7 +508,7 @@ export class TaxRuleService {
      * o de-para estiver vazio, isto não faz nada, e o produto segue caindo em
      * `pendente_grupo_invalido`, que é o correto: ninguém decidiu ainda.
      */
-    const equivalencia = grupoOficialDe(entrada.grupo);
+    const equivalencia = grupoOficialDoProduto(entrada.grupo, entrada.codigoBarras);
     const grupo = (equivalencia?.oficial ?? entrada.grupo)?.trim();
     if (!grupo) {
       return {
@@ -489,7 +545,8 @@ export class TaxRuleService {
      * Creare da loja fica em branco, e o estado diz exatamente por quê.
      */
     const fonte = this.fonteDa(cache, entrada.loja);
-    if (!fonte) {
+    const fonteSia = this.siaDa(cache, entrada.loja);
+    if (!fonte && !fonteSia) {
       const loja = String(entrada.loja ?? '').trim().toUpperCase() || 'desta loja';
       return {
         estado: 'pendente_fonte_da_loja',
@@ -501,7 +558,7 @@ export class TaxRuleService {
     }
 
     const chave = entrada.nome ? chaveNomeEcf(entrada.nome) : '';
-    if (!chave) {
+    if (!chave && !classificacao.ecf) {
       return {
         estado: 'parcial',
         motivo: 'Sem nome para consultar o cadastro de ECF: só a regra do grupo foi aplicada.',
@@ -509,7 +566,7 @@ export class TaxRuleService {
         conflitos: [],
       };
     }
-    if (fonte.ambiguos.has(chave)) {
+    if (!classificacao.ecf && fonte?.ambiguos.has(chave)) {
       return {
         estado: 'pendente_ambiguo',
         motivo: 'Há mais de um registro de ECF com este nome. Escolher um seria sortear imposto.',
@@ -519,8 +576,8 @@ export class TaxRuleService {
     }
     if (!classificacao.ecf) {
       return {
-        estado: fonte.indisponivel ? 'fonte_indisponivel' : 'parcial',
-        motivo: fonte.indisponivel
+        estado: fonte?.indisponivel ? 'fonte_indisponivel' : 'parcial',
+        motivo: fonte?.indisponivel
           ? 'Cadastro de ECF indisponível agora. O fiscal será completado sozinho depois.'
           : 'Este produto não existe no cadastro de ECF: alíquota e código de ECF ficam em branco até serem cadastrados lá.',
         classificacao,
@@ -567,8 +624,14 @@ export class TaxRuleService {
     const cache = await this.load(); const groupRule = await this.requireForGroup(group); const candidates = barcodeCandidates(barcode);
     const matchIndex = candidates.findIndex((candidate) => cache.products.has(candidate)); const product = matchIndex >= 0 ? cache.products.get(candidates[matchIndex]!)! : null;
     const cst = product?.cst || groupRule.cstPisCofins; const cstRule = cache.cst.get(cst); const reform = product?.ncm ? cache.reform.get(product.ncm) : null;
+    const fonteSia = this.siaDa(cache, loja);
+    const linhaSia = candidates.map((candidate) => fonteSia?.get(candidate)).find(Boolean);
     const fonte = this.fonteDa(cache, loja);
-    const ecf = nome && fonte ? fonte.porNome.get(chaveNomeEcf(nome)) ?? null : null;
+    const ecf = linhaSia
+      ? this.registroDoSia(linhaSia)
+      : nome && fonte
+        ? fonte.porNome.get(chaveNomeEcf(nome)) ?? null
+        : null;
     return { ...groupRule, cstPisCofins: cst, icmsRe: product?.icmsRe ?? groupRule.icmsRe, tributacaoSimples: cstRule?.tributacao || groupRule.tributacaoSimples, aliquotaSimples: cstRule?.aliquota ?? groupRule.aliquotaSimples, ncm: product?.ncm ?? null, codigoFiscal: product?.codigo ?? null, produtoFiscal: product?.nome ?? null, cstReforma: reform?.cst || null, cClassTrib: reform?.cClassTrib || null, aliquotaIbs: reform?.ibs ?? null, aliquotaCbs: reform?.cbs ?? null, origem: product ? (matchIndex === 0 ? 'produto' : 'plu_balanca') : 'grupo', ecf };
   }
 }

@@ -7,7 +7,7 @@ import { chaveDeBarras, lerDePara, mapearColunas } from './sia-depara.parser';
  */
 const cabecalho = [
   'Curva ABC Valor', 'Cód. produto', 'Cód. barras', 'Descrição', 'Cód. grupo',
-  'Alíq. Saída', '% Redução', 'CST Saída', 'CSOSN_EMPRESA', 'NCM', 'Ativo',
+  'Alíq. Saída', '% Redução', 'Alíq. interna', 'CST Saída', 'CSOSN_EMPRESA', 'NCM', 'Ativo',
 ];
 
 const linha = (
@@ -16,7 +16,7 @@ const linha = (
   extras: Partial<{ desc: string; grupo: string; ecf: string; reducao: string }> = {},
 ) => [
   'A', coditem, barras, extras.desc ?? 'PRODUTO', extras.grupo ?? '0005',
-  extras.ecf ?? '3', extras.reducao ?? '0', '000', '101', '19059090', 'S',
+  extras.ecf ?? '3', extras.reducao ?? '0', '18', '000', '101', '19059090', 'S',
 ];
 
 describe('chave de casamento por codigo de barras', () => {
@@ -55,6 +55,29 @@ describe('mapeamento das colunas do SIA', () => {
   it('diz QUAIS colunas faltaram, em vez de falhar depois com dado torto', () => {
     expect(() => mapearColunas(['Cód. produto', 'Descrição']))
       .toThrow(/codigoBarras/);
+  });
+});
+
+describe('mapeamento do CSV normalizado', () => {
+  it('aceita os cabeçalhos do fonte_sia_lisboa.csv', () => {
+    const normalizado = [
+      'CODITEM', 'COD_BARRAS', 'NOME', 'ATIVO', 'ALIQ_ECF',
+      'CST', 'CSOSN', 'NCM', 'REDUCAO', 'ALIQ_INTERNA', 'GRUPO',
+    ];
+
+    expect(mapearColunas(normalizado)).toMatchObject({
+      coditem: 0,
+      codigoBarras: 1,
+      descricao: 2,
+      ativo: 3,
+      aliqSaidaEcf: 4,
+      cstSaida: 5,
+      csosn: 6,
+      ncm: 7,
+      reducao: 8,
+      aliquotaInterna: 9,
+      codGrupo: 10,
+    });
   });
 });
 

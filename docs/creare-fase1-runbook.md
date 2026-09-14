@@ -11,7 +11,12 @@ próprio SIA:
 ```
 cd stack/api
 npm run creare:depara -- "caminho/para/exportacaoSIA.xls" --loja LI
+npm run creare:depara -- "caminho/para/exportacaoSIA.xls" --loja LI --apply
 ```
+
+O primeiro comando só confere; o segundo grava. O importador também aceita o
+`docs/fonte_sia_lisboa.csv` normalizado e versionado, que representa a mesma
+exportação já tratada.
 
 Aceita `.xls`, `.xlsx` e `.csv`, acha as colunas pelo nome (a exportação tem
 340) e **recusa antes de gravar** se algum código de barras apontar para mais de

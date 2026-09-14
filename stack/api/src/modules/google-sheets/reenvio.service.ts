@@ -3,6 +3,8 @@ import { and, asc, inArray, lt, or, sql } from 'drizzle-orm';
 import { db } from '@/db/databases';
 import { productSheetSync } from './product-sheet-sync.table';
 import { ProductSheetService } from './product-sheet.service';
+import { ProductSheetLojaService } from './product-sheet-loja.service';
+import { ProductRepository } from '@/modules/product/product.repository';
 
 /**
  * Reenvio automático do que a planilha não aceitou.
@@ -40,7 +42,11 @@ export interface ResultadoReenvio {
 
 @injectable()
 export class ReenvioSheetsService {
-  constructor(@inject(ProductSheetService) private sheets: ProductSheetService) {}
+  constructor(
+    @inject(ProductSheetService) private sheets: ProductSheetService,
+    @inject(ProductSheetLojaService) private sheetsLoja: ProductSheetLojaService,
+    @inject(ProductRepository) private produtos: ProductRepository,
+  ) {}
 
   /**
    * Quem está esperando reenvio AGORA: pendente ou falhado, abaixo do teto de
@@ -98,8 +104,10 @@ export class ReenvioSheetsService {
     for (const productId of fila) {
       try {
         const r = await this.sheets.syncProduct(productId);
-        if (r.outcome === 'synced') sincronizados += 1;
-        else falharam += 1;
+        if (r.outcome === 'synced') {
+          sincronizados += 1;
+          await this.espelharNasAbasDeLoja(productId, r.rowNumber);
+        } else falharam += 1;
       } catch {
         // `syncProduct` já registra o erro na própria linha da fila
         falharam += 1;
@@ -112,5 +120,30 @@ export class ReenvioSheetsService {
       falharam,
       desistidos: await this.desistidos(),
     };
+  }
+
+  /**
+   * Termina o serviço: a linha que entrou na aba combinada tem de entrar
+   * TAMBÉM nas abas `(TNP)` e `(LI) CADASTRO PRODUTOS`, na MESMA linha.
+   *
+   * Elas são cópias linha a linha da combinada, não vistas por fórmula. Gravar
+   * só a combinada deixa a linha em branco nelas e desalinha a próxima — foi o
+   * que quebrou a linha 1198. Cadastro e edição já faziam isto; o reenvio não,
+   * e era por onde o defeito voltava sem ninguém ver.
+   *
+   * Nunca lança, e uma falha aqui NÃO desconta o que a combinada já recebeu: a
+   * linha continua na fila com o estado dela, e a próxima rodada tenta de novo.
+   * Marcar como falha o que foi gravado faria o reenvio reescrever a combinada
+   * à toa, a 20 segundos por produto.
+   */
+  private async espelharNasAbasDeLoja(productId: string, linha: number | null): Promise<void> {
+    if (linha == null) return;
+    try {
+      const produto = await this.produtos.findById(productId);
+      if (!produto) return;
+      await this.sheetsLoja.espelharNasAbasDeLoja([{ produto, linha }]);
+    } catch {
+      // rotina de fundo: falha aqui é a próxima rodada, não exceção que derruba
+    }
   }
 }

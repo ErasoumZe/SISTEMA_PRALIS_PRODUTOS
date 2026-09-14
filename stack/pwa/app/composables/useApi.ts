@@ -93,7 +93,7 @@ export interface FiscalClassification extends GroupTaxRule {
 }
 
 /** Estado do espelhamento do produto na planilha (etapa 1: só a BASE). */
-export type SheetSyncStatus = 'synced' | 'failed' | 'disabled' | 'skipped' | 'misconfigured';
+export type SheetSyncStatus = 'synced' | 'failed' | 'pending' | 'disabled' | 'skipped' | 'misconfigured';
 
 // ---- reconciliação banco x planilha (somente leitura) ----
 export type EstadoReconciliacao =
