@@ -9,14 +9,12 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
-    "@mdi/font": "^7.4.47",
     "@pralis/shared": "file:../shared",
     "@zxing/browser": "^0.2.0",
     "@zxing/library": "^0.22.0",
     "apexcharts": "^5.15.0",
     "nuxt": "^4.5.2",
     "vue": "^3.5.21",
-    "vue-router": "^4.5.1",
     "vue3-apexcharts": "^1.11.1",
     "vuetify-nuxt-module": "^0.18.3"
   },

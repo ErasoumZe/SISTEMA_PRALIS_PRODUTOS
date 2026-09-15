@@ -46,6 +46,24 @@ export default defineNuxtConfig({
 
   vuetify: {
     vuetifyOptions: {
+      /*
+       * ÍCONES DESLIGADOS no módulo, de propósito.
+       *
+       * O conjunto de ícones que o sistema usa é o Material Symbols Rounded, e
+       * ele entra por dois caminhos que não passam por aqui: a fonte vem do
+       * Google Fonts pelo `<link>` no `head` acima, e o icon set é registrado
+       * em tempo de execução por `app/plugins/vuetify-icons.ts`.
+       *
+       * Sem este `false`, o vuetify-nuxt-module empacotava o Material Design
+       * Icons como padrão — a fonte inteira, que ninguém referencia. Medido no
+       * build: 403 KB de `materialdesignicons-webfont.woff2` e o CSS dele
+       * dentro de um `entry.css` de 573 KB, para zero ícone usado. Não havia
+       * um `mdi-` sequer no código.
+       *
+       * A configuração do plugin acontece em runtime, tarde demais para
+       * impedir o empacotamento: por isso a decisão precisa estar AQUI.
+       */
+      icons: false,
       // ícones Material Symbols são registrados no plugin app/plugins/vuetify-icons.ts
       theme: {
         defaultTheme: 'cicluz',

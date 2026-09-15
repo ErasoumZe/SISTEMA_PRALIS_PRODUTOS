@@ -10,7 +10,6 @@ export type VendasRankingQuery = VendasRanking.VendasRankingQuery;
 export type ItemRanking = VendasRanking.ItemRanking;
 export type AbcProdutos = VendasAbc.AbcProdutos;
 export type AbcProdutosQuery = VendasAbc.AbcProdutosQuery;
-export type ProdutoAbc = VendasAbc.ProdutoAbc;
 export type Pulso = VendasPulso.Pulso;
 export type DeParaLista = VendasDePara.DeParaLista;
 export type DeParaQuery = VendasDePara.DeParaQuery;
