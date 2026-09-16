@@ -27,3 +27,8 @@ google-credentials*.json
 credentials*.json
 *.pem
 *.key
+
+# O robô de vendas é um repositório PRÓPRIO, clonado aqui dentro só para operar
+# a máquina da loja (218 MB, com .git e node_modules). Ele não pertence a este
+# monorepo: sem esta linha, um `git add -A` distraído o traria inteiro para cá.
+automacao/bot/
