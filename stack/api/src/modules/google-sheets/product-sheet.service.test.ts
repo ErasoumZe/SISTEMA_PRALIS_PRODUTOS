@@ -1114,3 +1114,64 @@ describe('ProductSheetService — exclusão no leiaute NOVO', () => {
     expect(sheets.get('G11')).toBe('=UPPER(D11)');
   });
 });
+
+/**
+ * De onde a linha nova copia a validação de dados.
+ *
+ * O defeito que isto tranca é silencioso e CUMULATIVO. `copiarEstrutura` usava
+ * a linha imediatamente anterior como molde. Basta UMA linha sem validação —
+ * inserida à mão, colada de outro lugar, sobrando de um sincronismo
+ * interrompido — para a seguinte herdar o "sem validação", e a seguinte dela
+ * também, para sempre. Nenhuma requisição falha; a planilha só vai perdendo os
+ * controles linha a linha.
+ *
+ * Em 16/09/2026 foi exatamente o que apareceu na aba oficial: a coluna de
+ * status é um checkbox com valores personalizados (`ATIVO` marcado, `INATIVO`
+ * desmarcado). Da linha 1.233 em diante o valor continuava certo, mas sem a
+ * validação ele virava texto solto — o José viu metade da planilha com
+ * checkbox e metade com a palavra em negrito.
+ *
+ * A linha-modelo fixa já era a estratégia de `garantirFormulas`, que diz no
+ * próprio comentário que a linha anterior "não é uma fonte segura". A validação
+ * precisava seguir a mesma regra.
+ */
+describe('validação de dados vem da linha-modelo, não da anterior', () => {
+  /** A mesma linha-modelo que `garantirFormulas` já usava. */
+  const LINHA_MODELO = 12;
+
+  /**
+   * Planilha com dados até a 19, para o produto novo cair na 20. Na linha 13 o
+   * teste não provaria nada: ali "anterior" e "modelo" são a MESMA linha 12.
+   */
+  const planilhaLonga = () => {
+    const g = new FakeSheetsGateway().comCabecalhos();
+    for (let linha = 11; linha <= 19; linha++) {
+      g.comProduto(linha, `PRODUTO ${linha}`, `id-${linha}`);
+    }
+    return g;
+  };
+
+  it('copia a validação da linha-modelo fixa', async () => {
+    const sheets = planilhaLonga();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    await service.syncProduct(ID);
+
+    expect(sheets.origemDaValidacao(20)).toBe(LINHA_MODELO);
+  });
+
+  /* O ponto todo: a linha anterior NÃO pode ser a fonte. */
+  it('não usa a linha imediatamente anterior como molde', async () => {
+    const sheets = planilhaLonga();
+    const { repo: syncRepo } = fakeSyncRepo();
+    const service = new ProductSheetService(fakeProductRepo(produto()), syncRepo, sheets);
+
+    await service.syncProduct(ID);
+
+    expect(
+      sheets.origemDaValidacao(20),
+      'uma linha sem validação contaminaria todas as seguintes',
+    ).not.toBe(19);
+  });
+});

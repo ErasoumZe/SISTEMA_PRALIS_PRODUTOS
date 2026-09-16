@@ -158,6 +158,26 @@ export class FakeSheetsGateway implements SheetsGateway {
     return this.pasteTypes(row).includes('PASTE_DATA_VALIDATION');
   }
 
+  /**
+   * De QUAL linha a validação de dados foi copiada.
+   *
+   * A origem importa tanto quanto o tipo: copiar da linha imediatamente
+   * anterior faz uma linha sem validação contaminar todas as seguintes, em
+   * cascata e sem erro. Sem este espião, o teste só conseguiria afirmar que
+   * houve uma cópia — nunca que ela veio de uma fonte confiável.
+   */
+  origemDaValidacao(row: number): number | null {
+    for (const req of this.structuralRequests) {
+      const cp = (req as { copyPaste?: Record<string, unknown> }).copyPaste;
+      if (!cp || cp.pasteType !== 'PASTE_DATA_VALIDATION') continue;
+      const dst = cp.destination as { startRowIndex?: number } | undefined;
+      if ((dst?.startRowIndex ?? -1) + 1 !== row) continue;
+      const src = cp.source as { startRowIndex?: number } | undefined;
+      return (src?.startRowIndex ?? -1) + 1;
+    }
+    return null;
+  }
+
   /** Linhas acrescentadas à grade por appendDimension (para conferir off-by-one). */
   linhasAcrescentadas(): number {
     let total = 0;
