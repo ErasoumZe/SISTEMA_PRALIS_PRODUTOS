@@ -74,7 +74,19 @@ export const CREARE_PRODUCT_LAYOUT = [
   { name: 'stockControlled', length: 1, kind: 'alpha' },
   { name: 'originId', length: 6, kind: 'numeric' },
   { name: 'originFactor', length: 10, kind: 'numeric', decimals: 3 },
-  { name: 'scaleValidity', length: 3, kind: 'alpha' },
+  /*
+   * VALIDADE DE BALANCA -- numerica, nao alfa.
+   *
+   * Estava como 'alpha' e o gerador a preenchia com '' (tres espacos). O
+   * importador do Criare le essas tres posicoes como INTEIRO e recusou o
+   * registro inteiro: em 16/09/2026, as 18:52, o log do importador na maquina
+   * da TNP trouxe exatamente dez
+   *     ImportarProdutos() - ERRO: '   ' is not a valid integer value
+   * para um arquivo de dez linhas -- um erro por registro, nenhum produto lido.
+   *
+   * Zero e "sem validade", que e o que vale para produto que nao e de balanca.
+   */
+  { name: 'scaleValidity', length: 3, kind: 'numeric' },
   { name: 'categoryCode', length: 9, kind: 'numeric' },
 ] as const satisfies readonly CreareField[];
 

@@ -301,7 +301,9 @@ export function valuesFromProduct(
     stockControlled,
     originId: 0,
     originFactor: 0,
-    scaleValidity: '',
+    // '' virava tres espacos e o importador recusava o registro: ele le este
+    // campo como inteiro. Ver a nota no layout.
+    scaleValidity: 0,
     categoryCode: requiredFixedDigits(categoryCode, 9, 'Categoria Criare'),
   };
 }

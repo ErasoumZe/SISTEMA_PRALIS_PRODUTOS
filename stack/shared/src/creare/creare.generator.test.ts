@@ -329,3 +329,55 @@ describe('casas decimais do custo sao configuracao, num lugar so', () => {
     }
   });
 });
+
+/*
+ * O defeito que so a maquina da loja revelou.
+ *
+ * Em 16/09/2026, as 18:52, o importador do Criare na TNP recusou um arquivo de
+ * dez linhas com dez erros iguais:
+ *
+ *     ImportarProdutos() - ERRO: '   ' is not a valid integer value
+ *
+ * Um erro por registro, nenhum produto lido. Eram as tres posicoes de
+ * `scaleValidity`, que o layout declarava 'alpha' e o gerador preenchia com
+ * '' -- tres espacos. O importador le esse campo como INTEIRO.
+ *
+ * O arquivo passava em todas as validacoes que existiam: 363 posicoes, ASCII
+ * imprimivel, LF. Nenhuma delas perguntava se um campo NUMERICO tinha saido em
+ * branco, porque nada no nosso lado se importava com isso.
+ */
+describe('campo numerico nunca sai em branco', () => {
+  const posicoes = creareProductPositions();
+
+  it('todo campo declarado numeric contem somente digitos', () => {
+    const record = generateCreareRecord(bread(), config);
+    const embranco = CREARE_PRODUCT_LAYOUT
+      .filter((campo) => campo.kind === 'numeric')
+      .map((campo) => {
+        const p = posicoes.find((x) => x.name === campo.name)!;
+        return { nome: campo.name, valor: record.slice(p.start - 1, p.end) };
+      })
+      .filter((x) => !/^\d+$/.test(x.valor));
+
+    expect(embranco).toEqual([]);
+  });
+
+  /* O campo exato que quebrou, travado pelo nome para o log ficar legivel. */
+  it('a validade de balanca sai 000, e nao tres espacos', () => {
+    const record = generateCreareRecord(bread(), config);
+    const p = posicoes.find((x) => x.name === 'scaleValidity')!;
+
+    expect(record.slice(p.start - 1, p.end)).toBe('000');
+  });
+
+  it('vale tambem para o registro casado no SIA', () => {
+    // o coditem tem de bater com o codigo interno do produto, senao o gerador
+    // recusa antes de chegar no campo que este teste olha
+    const record = generateCreareRecord(bread(), config, {
+      coditem: '100000', codGrupo: '0011', aliqSaidaEcf: '10', ncm: '18069000',
+    });
+    const p = posicoes.find((x) => x.name === 'scaleValidity')!;
+
+    expect(record.slice(p.start - 1, p.end)).toBe('000');
+  });
+});
