@@ -938,20 +938,34 @@ export class ProductSheetService {
   }
 
   /**
-   * ETAPA 4: copia da linha ANTERIOR apenas:
+   * ETAPA 4: copia da LINHA-MODELO apenas:
    *  - formatação (PASTE_FORMAT);
    *  - validação de dados (PASTE_DATA_VALIDATION) — requisição SEPARADA, porque
    *    a documentação do Sheets define PASTE_FORMAT como "paste the format only,
    *    EXCLUDING data validation". Sem esta segunda requisição a linha nova
    *    nasceria sem as listas suspensas;
-   * Nenhum valor manual, fórmula ou ID da linha anterior é copiado aqui.
+   * Nenhum valor manual, fórmula ou ID da linha-modelo é copiado aqui.
+   *
+   * A fonte é a linha-modelo FIXA, e não a imediatamente anterior, porque o
+   * erro aqui é cumulativo: bastava UMA linha sem validação — inserida à mão,
+   * colada de outro lugar, sobrando de um sincronismo interrompido — para a
+   * seguinte herdar o "sem validação" e passar adiante, para sempre. Nenhuma
+   * requisição falha; a planilha só vai perdendo os controles linha a linha.
+   *
+   * Foi o que aconteceu na aba oficial em 16/09/2026: a coluna de status é um
+   * checkbox de valores personalizados (`ATIVO` marcado, `INATIVO` desmarcado)
+   * e, da linha 1.233 em diante, o valor continuava certo mas sem a validação —
+   * metade da planilha com checkbox, metade com a palavra solta em negrito.
+   *
+   * `garantirFormulas` já usava esta linha-modelo, dizendo no próprio
+   * comentário que a anterior "não é uma fonte segura". Valia para os dois.
    */
   private async copiarEstrutura(aba: SheetMeta, linha: number): Promise<void> {
     const requests: unknown[] = [];
 
-    const modelo = linha - 1;
-    if (modelo < FIRST_DATA_ROW) {
-      // primeira linha de dados: não há de onde copiar; a aba já traz o formato
+    const modelo = FORMULA_TEMPLATE_ROW;
+    if (linha === modelo || modelo < FIRST_DATA_ROW) {
+      // a própria linha-modelo não copia de si mesma
       return;
     }
 
