@@ -488,7 +488,7 @@ describe('criar todos os que faltam — acao em massa', () => {
       nome: 'MASSA DOIS', custo: 1, venda: 2 });
     await fonte({ id: 'm3', fonte: 'compilart_tnp', barras: '00000000033333', interno: '33',
       nome: 'MASSA TRES', custo: 1, venda: 2 });
-    await fonte({ id: 'v3', fonte: 'vendidos_tnp', barras: '00000000033333', interno: '33',
+    await fonte({ id: 'v3', fonte: 'vendas_pdv_12m', barras: '00000000033333', interno: '33',
       nome: 'MASSA TRES' });
     await grupos.recalcular();
   };

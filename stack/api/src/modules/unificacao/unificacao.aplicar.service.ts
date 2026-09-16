@@ -287,7 +287,12 @@ export class UnificacaoAplicarService {
    * completar aquele cadastro com o fiscal e o que as outras fontes trazem.
    * `forcar` continua existindo como escape para criar um separado mesmo assim.
    */
-  async unificar(user: CurrentUser, grupoId: string, forcar = false): Promise<ResultadoUnificar> {
+  async unificar(
+    user: CurrentUser,
+    grupoId: string,
+    forcar = false,
+    nomeEscolhido?: string,
+  ): Promise<ResultadoUnificar> {
     if (user.role !== 'admin') {
       throw new AppError('Apenas o administrador unifica cadastros.', 403, 'ONLY_ADMIN_UNIF');
     }
@@ -296,7 +301,24 @@ export class UnificacaoAplicarService {
       throw new AppError(`Este grupo já foi marcado como "${grupo.decisao}".`, 409, 'UNIF_JA_DECIDIDO');
     }
 
-    const candidato = grupo.candidato as CandidatoUnificado;
+    const candidatoOriginal = grupo.candidato as CandidatoUnificado;
+    const nomeLimpo = nomeEscolhido?.replace(/\p{Cf}/gu, '').replace(/\s+/g, ' ').trim();
+    if (nomeLimpo) {
+      const nomesPermitidos = new Set(
+        itens.map((item) => item.nome?.replace(/\p{Cf}/gu, '').replace(/\s+/g, ' ').trim())
+          .filter((nome): nome is string => !!nome),
+      );
+      if (!nomesPermitidos.has(nomeLimpo)) {
+        throw new AppError(
+          'Escolha um dos nomes que já existem nas fontes deste produto.',
+          422,
+          'UNIF_NOME_FORA_DAS_FONTES',
+        );
+      }
+    }
+    const candidato: CandidatoUnificado = nomeLimpo
+      ? { ...candidatoOriginal, nome: nomeLimpo, nomeDe: 'escolha_manual' }
+      : candidatoOriginal;
     if (!candidato.nome?.trim()) {
       throw new AppError('Grupo sem nome em nenhuma fonte — não dá para cadastrar.', 422, 'UNIF_SEM_NOME');
     }

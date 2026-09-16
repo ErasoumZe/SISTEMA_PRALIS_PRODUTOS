@@ -13,7 +13,7 @@ import { UnificacaoController } from './unificacao.controller';
  * declarasse a sua, a tela contaria uma base e criaria outra.
  */
 const peneiraSchema = z.object({
-  filtro: z.enum(['mesmo_cod_barras', 'mesmo_cod_interno', 'nome_parecido', 'unico']).optional(),
+  filtro: z.enum(['exatos', 'mesmo_cod_barras', 'mesmo_cod_interno', 'nome_parecido', 'unico']).optional(),
   loja: z.enum(['LI', 'TNP', 'BASE', 'HORA']).optional(),
   status: z.enum(['ativo', 'inativo']).optional(),
   revisar: z.coerce.boolean().optional(),
@@ -95,12 +95,15 @@ export async function unificacaoRoutes(app: FastifyInstance) {
   );
 
   // ---- ações: escrevem no catálogo mestre, uma por clique humano ----
-  typed.post<{ Params: { id: string }; Body: { forcar?: boolean } }>(
+  typed.post<{ Params: { id: string }; Body: { forcar?: boolean; nome?: string } }>(
     '/admin/unificacao/grupos/:id/unificar',
     {
       schema: {
         params: z.object({ id: z.string().min(1) }),
-        body: z.object({ forcar: z.boolean().optional() }).optional(),
+        body: z.object({
+          forcar: z.boolean().optional(),
+          nome: z.string().trim().min(1).max(300).optional(),
+        }).optional(),
         summary: 'Criar o produto BASE do grupo e as cópias das lojas presentes (admin)',
         tags: ['ADMIN', 'UNIFICACAO'],
       },

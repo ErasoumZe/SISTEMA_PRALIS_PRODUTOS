@@ -22,6 +22,7 @@ export interface ItemUnificacao {
   fonte: string; loja: string; codInterno: string | null; codBarras: string | null;
   nome: string | null; ativo: boolean | null; grupo: string | null;
   custo: string | null; venda: string | null; ncm: string | null; cst: string | null;
+  raw: Record<string, string> | null;
 }
 
 export interface CandidatoUnificacao {
@@ -49,6 +50,19 @@ export interface TotaisUnificacao {
   grupos: number; porMotivo: Record<string, number>; jaNoPralis: number; aCriar: number;
   semFiscalTnp: number; semGrupo: number; nomesDivergentes: number; barrasConflitante: number;
   pendentes: number; decididos: number;
+}
+
+/**
+ * O retrato das fontes carregadas. A Central usa só a contagem por fonte, e por
+ * um motivo específico: o universo da tela são as vendas dos PDVs nos últimos
+ * 12 meses, que chegam pelo robô. Se o robô parar, a Central fica vazia sem
+ * nada quebrar — e uma tela vazia sem explicação já custou uma semana aqui.
+ */
+export interface StagingUnificacao {
+  carregado: boolean;
+  carregadoEm: string | null;
+  total: number;
+  fontes: Array<{ fonte: string; linhas: number }>;
 }
 
 export interface FiltrosUnificacao {
@@ -250,14 +264,14 @@ export function useApi() {
      * contarem o MESMO universo da lista que aparece logo abaixo deles.
      */
     unificacaoHealth: (query: { somenteVendidos?: boolean } = {}) =>
-      unwrap($fetch<{ data: { totais: TotaisUnificacao } }>(
+      unwrap($fetch<{ data: { totais: TotaisUnificacao; staging: StagingUnificacao } }>(
         '/admin/unificacao/health', { ...base, query },
       )),
     /** Os filtros vão para o SERVIDOR: a tela nunca peneira 4.300 no navegador. */
     unificacaoGrupos: (query: FiltrosUnificacao) =>
       unwrap($fetch<{ data: PaginaGrupos }>('/admin/unificacao/grupos', { ...base, query })),
-    unificacaoUnificar: (id: string, forcar = false) =>
-      $fetch(`/admin/unificacao/grupos/${id}/unificar`, { ...base, method: 'POST', body: { forcar } }),
+    unificacaoUnificar: (id: string, opcoes: { forcar?: boolean; nome?: string } = {}) =>
+      $fetch(`/admin/unificacao/grupos/${id}/unificar`, { ...base, method: 'POST', body: opcoes }),
     unificacaoMarcar: (id: string, acao: 'nao_e_o_mesmo' | 'ignorado') =>
       $fetch(`/admin/unificacao/grupos/${id}/marcar`, { ...base, method: 'POST', body: { acao } }),
     unificacaoReabrir: (id: string) =>

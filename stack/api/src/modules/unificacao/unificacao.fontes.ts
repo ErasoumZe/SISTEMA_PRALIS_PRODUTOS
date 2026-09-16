@@ -13,8 +13,11 @@ export const FONTES = [
   'planilha_nova',
   /** O que a TNP ja vendeu ao menos uma vez, sem preco-sentinela (1.677). */
   'vendidos_tnp',
+  /** Vendas reais recebidas dos PDVs no intervalo móvel dos últimos 12 meses. */
+  'vendas_pdv_12m',
 ] as const;
 export type Fonte = (typeof FONTES)[number];
+export type FonteArquivo = Exclude<Fonte, 'pralis' | 'vendas_pdv_12m'>;
 
 /**
  * Parser de CSV de verdade — `split(';')` não serve.
@@ -171,7 +174,7 @@ const base = (fonte: Fonte, raw: Record<string, string>): LinhaFonte => ({
 });
 
 /** Cada fonte tem colunas diferentes; só isto muda entre elas. */
-export const MAPEADORES: Record<Exclude<Fonte, 'pralis'>, (raw: Record<string, string>) => LinhaFonte> = {
+export const MAPEADORES: Record<FonteArquivo, (raw: Record<string, string>) => LinhaFonte> = {
   sia_li: (raw) => ({
     ...base('sia_li', raw),
     grupo: texto(raw.GRUPO),
@@ -204,7 +207,7 @@ export const MAPEADORES: Record<Exclude<Fonte, 'pralis'>, (raw: Record<string, s
 };
 
 /** Nome do arquivo esperado por fonte. */
-export const ARQUIVOS: Record<Exclude<Fonte, 'pralis'>, string> = {
+export const ARQUIVOS: Record<FonteArquivo, string> = {
   sia_li: 'fonte_sia_lisboa.csv',
   compilart_tnp: 'fonte_compilart_tnp.csv',
   planilha_tnp: 'fonte_planilha_antiga_tnp.csv',
@@ -213,7 +216,7 @@ export const ARQUIVOS: Record<Exclude<Fonte, 'pralis'>, string> = {
   vendidos_tnp: 'fonte_vendidos_tnp.csv',
 };
 
-export function lerFonte(fonte: Exclude<Fonte, 'pralis'>, conteudo: string): LinhaFonte[] {
+export function lerFonte(fonte: FonteArquivo, conteudo: string): LinhaFonte[] {
   return comCabecalho(parseCsv(conteudo)).map(MAPEADORES[fonte]);
 }
 

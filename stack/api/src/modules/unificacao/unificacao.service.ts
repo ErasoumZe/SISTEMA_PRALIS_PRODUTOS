@@ -8,6 +8,8 @@ import { env } from '@/config/env';
 import { AppError } from '@/config/api.replies';
 import { ProductRepository } from '@/modules/product/product.repository';
 import { unifFonteProduto } from './unificacao.table';
+import { vendaProdutoDia } from '@/modules/vendas/vendas.table';
+import { GoogleSheetsClient, a1, indexToCol } from '@/modules/google-sheets/google-sheets.client';
 import {
   ARQUIVOS,
   barrasAmbiguas,
@@ -15,6 +17,7 @@ import {
   lerFonte,
   normalizarNome,
   type Fonte,
+  type FonteArquivo,
   type LinhaFonte,
 } from './unificacao.fontes';
 
@@ -86,7 +89,71 @@ export class UnificacaoService {
     }));
   }
 
-  private lerArquivo(fonte: Exclude<Fonte, 'pralis'>): LinhaFonte[] {
+  /**
+   * Universo da Central: uma linha por produto que passou pelo PDV nos últimos
+   * 12 meses. A identidade do ERP sobrevive a renomeações; quando o histórico
+   * antigo ainda não tem esse ID, cai no par código + nome, exatamente como o
+   * relatório de produtos únicos.
+   *
+   * O nome e o código exibidos são os da venda mais recente. Quantidade e valor
+   * ficam no `raw` apenas para auditoria: não viram custo nem preço de cadastro.
+   */
+  private async lerVendasDosUltimos12Meses(): Promise<LinhaFonte[]> {
+    const resultado = await db.execute(sql`
+      SELECT loja,
+             COALESCE(NULLIF(produto_id_erp, ''), produto_codigo || '|' || produto) AS identidade,
+             (array_agg(produto_id_erp ORDER BY data DESC))[1] AS produto_id_erp,
+             (array_agg(produto_codigo ORDER BY data DESC))[1] AS produto_codigo,
+             (array_agg(produto ORDER BY data DESC))[1] AS produto,
+             MIN(data)::text AS primeira_venda,
+             MAX(data)::text AS ultima_venda,
+             COUNT(DISTINCT produto)::int AS nomes_diferentes,
+             SUM(quantidade) AS quantidade,
+             SUM(total) AS faturamento
+        FROM ${vendaProdutoDia}
+       WHERE data >= (CURRENT_DATE - INTERVAL '12 months')::date
+         AND data <= CURRENT_DATE
+       GROUP BY loja, COALESCE(NULLIF(produto_id_erp, ''), produto_codigo || '|' || produto)
+    `);
+
+    return resultado.rows.map((row) => {
+      const codigo = String(row.produto_codigo ?? '');
+      const nome = String(row.produto ?? '');
+      const idErp = String(row.produto_id_erp ?? '');
+      return {
+        fonte: 'vendas_pdv_12m' as const,
+        codInterno: idErp,
+        codBarras: codigo,
+        chaveBarras: chaveDeBarras(codigo),
+        nome,
+        nomeNormalizado: normalizarNome(nome),
+        ativo: true,
+        grupo: null,
+        custo: null,
+        venda: null,
+        ncm: null,
+        cst: null,
+        csosn: null,
+        aliqEcf: null,
+        reducao: null,
+        aliqInterna: null,
+        icmsEfetivo: null,
+        raw: {
+          loja: String(row.loja ?? ''),
+          produtoIdErp: idErp,
+          identidade: String(row.identidade ?? ''),
+          primeiraVenda: String(row.primeira_venda ?? ''),
+          ultimaVenda: String(row.ultima_venda ?? ''),
+          nomesDiferentes: String(row.nomes_diferentes ?? '0'),
+          quantidade: String(row.quantidade ?? '0'),
+          faturamento: String(row.faturamento ?? '0'),
+          periodo: 'ultimos_12_meses',
+        },
+      };
+    });
+  }
+
+  private lerArquivo(fonte: FonteArquivo): LinhaFonte[] {
     const caminho = resolve(this.pastaFontes(), ARQUIVOS[fonte]);
     try {
       return lerFonte(fonte, readFileSync(caminho, 'utf8'));
@@ -99,14 +166,116 @@ export class UnificacaoService {
     }
   }
 
+  /** Cabeçalho comparável da planilha, tolerando acento, ponto e espaço. */
+  private normalizarCabecalho(valor: unknown): string {
+    return String(valor ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9%]+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * Lê a planilha oficial no momento da carga. O CSV versionado continua sendo
+   * fallback de desenvolvimento/teste, mas nunca é tratado como a planilha viva
+   * quando a integração está habilitada.
+   */
+  private async lerPlanilhaNovaOnline(): Promise<LinhaFonte[]> {
+    const sheets = new GoogleSheetsClient();
+    const abas = await sheets.getSheets(env.GOOGLE_SHEETS_SPREADSHEET_ID);
+    const aba = abas.find((item) => item.title === env.GOOGLE_SHEETS_BASE_TAB);
+    if (!aba) {
+      throw new AppError(
+        `Aba "${env.GOOGLE_SHEETS_BASE_TAB}" não encontrada na planilha nova.`,
+        503,
+        'UNIFICACAO_PLANILHA_ABA_AUSENTE',
+      );
+    }
+
+    const ultimaColuna = indexToCol(Math.max(0, aba.columnCount - 1));
+    const [cabecalhoRange, dadosRange] = await sheets.batchGetValues(
+      env.GOOGLE_SHEETS_SPREADSHEET_ID,
+      [
+        a1(aba.title, `A5:${ultimaColuna}5`),
+        a1(aba.title, `A11:${ultimaColuna}${aba.rowCount}`),
+      ],
+      'FORMATTED_VALUE',
+    );
+    const cabecalhos = cabecalhoRange?.[0] ?? [];
+    const achar = (...nomes: string[]): number => {
+      const alvos = nomes.map((nome) => this.normalizarCabecalho(nome));
+      return cabecalhos.findIndex((cabecalho) => alvos.includes(this.normalizarCabecalho(cabecalho)));
+    };
+
+    const nomeI = achar('CADASTRO PRODUTOS ATUALIZADO NOVO', 'NOME');
+    const barrasI = achar('CODIGO BARRAS', 'COD. BARRAS', 'EAN', 'GTIN');
+    const internoI = achar('CODIGO INT', 'CODIGO INTERNO');
+    const statusI = achar('V', 'A/I', 'ATIVO');
+    const idI = achar('ID');
+    if (nomeI < 0 || barrasI < 0) {
+      throw new AppError(
+        'A planilha nova não possui os cabeçalhos de nome e código de barras esperados.',
+        503,
+        'UNIFICACAO_PLANILHA_LAYOUT_INVALIDO',
+      );
+    }
+
+    return (dadosRange ?? [])
+      .map((linha, indice) => {
+        const nome = String(linha[nomeI] ?? '').trim();
+        const codBarras = String(linha[barrasI] ?? '').trim();
+        const codInterno = internoI >= 0 ? String(linha[internoI] ?? '').trim() : '';
+        return {
+          fonte: 'planilha_nova' as const,
+          codInterno,
+          codBarras,
+          chaveBarras: chaveDeBarras(codBarras),
+          nome,
+          nomeNormalizado: normalizarNome(nome),
+          ativo: statusI >= 0 ? ['INATIVO', 'I', 'NAO', 'N'].includes(
+            this.normalizarCabecalho(linha[statusI]),
+          ) ? false : true : null,
+          grupo: null,
+          custo: null,
+          venda: null,
+          ncm: null,
+          cst: null,
+          csosn: null,
+          aliqEcf: null,
+          reducao: null,
+          aliqInterna: null,
+          icmsEfetivo: null,
+          raw: {
+            linha: String(11 + indice),
+            id: idI >= 0 ? String(linha[idI] ?? '') : '',
+            nome,
+            codBarras,
+            codInterno,
+          },
+        } satisfies LinhaFonte;
+      })
+      .filter((linha) => linha.nome !== '' || linha.codBarras !== '' || linha.codInterno !== '');
+  }
+
   /**
    * Apaga e recarrega TUDO. Rodar de novo dá o mesmo estado — é retrato, não
    * histórico. Nada aqui encosta na tabela `products`.
    */
   async carregar(): Promise<UnificacaoHealth> {
-    const doArquivo = (Object.keys(ARQUIVOS) as Array<Exclude<Fonte, 'pralis'>>)
-      .flatMap((fonte) => this.lerArquivo(fonte));
-    const todas = [...doArquivo, ...(await this.lerPralis())];
+    const fontesDeArquivo = (Object.keys(ARQUIVOS) as FonteArquivo[])
+      // `vendidos_tnp` era um recorte estático e sem janela temporal. Foi
+      // substituído pelas vendas reais do banco nos últimos 12 meses.
+      .filter((fonte) => fonte !== 'planilha_nova' && fonte !== 'vendidos_tnp');
+    const doArquivo = fontesDeArquivo.flatMap((fonte) => this.lerArquivo(fonte));
+    const planilhaNova = env.GOOGLE_SHEETS_ENABLED && env.NODE_ENV !== 'test'
+      ? await this.lerPlanilhaNovaOnline()
+      : this.lerArquivo('planilha_nova');
+    const [doPralis, dosPdvs] = await Promise.all([
+      this.lerPralis(),
+      this.lerVendasDosUltimos12Meses(),
+    ]);
+    const todas = [...doArquivo, ...planilhaNova, ...doPralis, ...dosPdvs];
 
     await db.transaction(async (tx) => {
       await tx.execute(sql`DELETE FROM unif_fonte_produto`);
