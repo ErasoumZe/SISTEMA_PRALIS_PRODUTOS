@@ -61,6 +61,25 @@ export class MissingGoogleCredentialsError extends Error {
   }
 }
 
+export class GoogleSheetsSobTesteError extends Error {
+  constructor(operacao: string) {
+    super(
+      `Bloqueado: o cliente REAL do Google Sheets foi acionado dentro de um teste (${operacao}). `
+      + 'Com GOOGLE_SHEETS_ENABLED=true no .env isso escreve na planilha de VERDADE. '
+      + 'Injete um dublê de SheetsGateway em vez de resolver o cliente real.',
+    );
+    this.name = 'GoogleSheetsSobTesteError';
+  }
+}
+
+/**
+ * Estamos dentro de um teste?
+ *
+ * O Vitest define `VITEST` e, quando ninguém disse o contrário, `NODE_ENV=test`.
+ * Os dois são olhados porque nenhum sozinho cobre todo jeito de rodar a suíte.
+ */
+const sobTeste = (): boolean => !!process.env.VITEST || process.env.NODE_ENV === 'test';
+
 /** Implementação real, com conta de serviço (JWT). */
 export class GoogleSheetsClient implements SheetsGateway {
   private client: ReturnType<typeof google.sheets> | null = null;
@@ -85,6 +104,21 @@ export class GoogleSheetsClient implements SheetsGateway {
    * crescente — e ela sabe quando parar.
    */
   private async chamar<T>(operacao: string, fn: (opcoes: object) => Promise<T>): Promise<T> {
+    /*
+     * TRAVA DE PRODUÇÃO.
+     *
+     * Em 16/09/2026 a suíte de integração da unificação resolveu ESTE cliente
+     * pelo container de injeção. Como o `.env` da máquina tem
+     * `GOOGLE_SHEETS_ENABLED=true` apontando para a planilha oficial, cada
+     * `unificar()` de teste gravou uma linha DE VERDADE nela: 123 linhas de
+     * fixture ("ABACAXI UNID", "MASSA UM"...) no cadastro real, da 1335 à 1459.
+     *
+     * A trava mora AQUI, no cliente real, e não no serviço: os testes que
+     * injetam um dublê de `SheetsGateway` continuam exercitando o serviço
+     * inteiro, e quem tentar falar com o Google de verdade falha alto — em vez
+     * de escrever calado em produção.
+     */
+    if (sobTeste()) throw new GoogleSheetsSobTesteError(operacao);
     const opcoes = this.prazoMs > 0 ? { timeout: this.prazoMs, retry: false } : {};
     return comPrazo(fn(opcoes), this.prazoMs, operacao);
   }

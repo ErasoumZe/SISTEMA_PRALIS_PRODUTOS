@@ -60,15 +60,25 @@ beforeAll(async () => {
   const { UnificacaoGruposService } = await import('./unificacao.grupos.service');
   const { ProductRepository } = await import('@/modules/product/product.repository');
   const { ProductSheetService } = await import('@/modules/google-sheets/product-sheet.service');
-  const { container: di } = await import('tsyringe');
-  await import('@/modules/google-sheets/google-sheets.di');
+  const { ProductSheetRepository } = await import('@/modules/google-sheets/product-sheet.repository');
+  const { FakeSheetsGateway } = await import('@/modules/google-sheets/fake-sheets.gateway');
+
+  /*
+   * O gateway e um DUBLE, nunca o cliente real.
+   *
+   * Este arquivo resolvia o `ProductSheetService` pelo container de injecao, e
+   * o container entrega o `GoogleSheetsClient` DE VERDADE. Com
+   * `GOOGLE_SHEETS_ENABLED=true` no .env da maquina, cada `unificar()` daqui
+   * gravou uma linha real na planilha oficial: em 16/09/2026 foram 123 linhas
+   * de fixture no cadastro de producao. O cliente real agora recusa rodar sob
+   * teste, e este arquivo passa o duble explicitamente.
+   */
+  const repositorio = new ProductRepository();
+  const sheets = new FakeSheetsGateway().comCabecalhos().comLinhaModelo(12);
+  const espelho = new ProductSheetService(repositorio, new ProductSheetRepository(), sheets);
 
   grupos = new UnificacaoGruposService();
-  aplicar = new UnificacaoAplicarService(
-    new ProductRepository(),
-    di.resolve(ProductSheetService),
-    grupos,
-  );
+  aplicar = new UnificacaoAplicarService(repositorio, espelho, grupos);
 }, 300_000);
 
 afterAll(async () => {
