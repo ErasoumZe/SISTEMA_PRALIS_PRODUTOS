@@ -17,7 +17,21 @@ const FONTES: Record<string, string> = {
   vendidos_tnp: 'Histórico vendido TNP',
 };
 
-type Visao = 'pendentes' | 'exatos' | 'revisar' | 'concluidos';
+/**
+ * As quatro decisões possíveis, em português e separadas pelo que fazem: as
+ * duas primeiras PÕEM produto no catálogo, as duas últimas só tiram o grupo da
+ * fila. Mostrar o valor cru (`nao_e_o_mesmo`) fazia o cartão parecer concluído
+ * sem dizer se algo foi criado.
+ */
+const DECISAO: Record<string, string> = {
+  unificado: 'Unificado — virou cadastro',
+  criado: 'Criado no cadastro',
+  nao_e_o_mesmo: 'Descartado — não é o mesmo produto',
+  ignorado: 'Descartado — ignorado',
+};
+const CRIAM_CADASTRO = ['unificado', 'criado'];
+
+type Visao = 'pendentes' | 'exatos' | 'revisar' | 'unificados' | 'descartados';
 const visao = ref<Visao>('pendentes');
 const busca = ref('');
 const loja = ref<string>();
@@ -50,7 +64,9 @@ function filtros(): FiltrosUnificacao {
     somenteVendidos: true,
     loja: loja.value,
     q: busca.value.trim() || undefined,
-    decisao: visao.value === 'concluidos' ? 'feita' : 'pendente',
+    decisao: visao.value === 'unificados' ? 'unificados'
+      : visao.value === 'descartados' ? 'descartados'
+        : 'pendente',
   };
   // "exatos" no servidor cobre os DOIS códigos: barras e interno. Mandar
   // `mesmo_cod_barras` aqui esconderia quem casa só pelo código interno.
@@ -111,8 +127,16 @@ function codigoPrincipal(grupo: GrupoUnificacao): string {
   return grupo.itens.find((item) => item.codBarras)?.codBarras || grupo.chave;
 }
 
+function criouCadastro(grupo: GrupoUnificacao): boolean {
+  return !!grupo.decisao && CRIAM_CADASTRO.includes(grupo.decisao);
+}
+
 function classificacao(grupo: GrupoUnificacao) {
-  if (grupo.decisao) return { texto: 'Concluído', cor: 'success', icone: 'check_circle' };
+  if (grupo.decisao) {
+    return criouCadastro(grupo)
+      ? { texto: 'Virou cadastro', cor: 'success', icone: 'check_circle' }
+      : { texto: 'Descartado', cor: 'grey', icone: 'do_not_disturb_on' };
+  }
   if (grupo.flagBarrasConflitante) return { texto: 'Conflito de código', cor: 'error', icone: 'error' };
   if (grupo.flagNomesDivergentes || grupo.motivo === 'nome_parecido') {
     return { texto: 'Revisar nomes', cor: 'warning', icone: 'rule' };
@@ -199,12 +223,14 @@ onMounted(() => void carregar());
         <div class="text-h5 font-weight-bold text-success">{{ totais.jaNoPralis.toLocaleString('pt-BR') }}</div>
       </v-card></v-col>
       <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
-        <div class="text-caption text-medium-emphasis">A analisar</div>
-        <div class="text-h5 font-weight-bold text-warning">{{ totais.nomesDivergentes.toLocaleString('pt-BR') }}</div>
+        <div class="text-caption text-medium-emphasis">Viraram cadastro</div>
+        <div class="text-h5 font-weight-bold text-success">{{ totais.unificados.toLocaleString('pt-BR') }}</div>
       </v-card></v-col>
       <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
-        <div class="text-caption text-medium-emphasis">Concluídos</div>
-        <div class="text-h5 font-weight-bold">{{ totais.decididos.toLocaleString('pt-BR') }}</div>
+        <div class="text-caption text-medium-emphasis">Descartados</div>
+        <div class="text-h5 font-weight-bold text-medium-emphasis">
+          {{ totais.descartados.toLocaleString('pt-BR') }}
+        </div>
       </v-card></v-col>
     </v-row>
 
@@ -217,7 +243,8 @@ onMounted(() => void carregar());
         <v-chip :variant="visao === 'pendentes' ? 'flat' : 'tonal'" color="primary" @click="visao = 'pendentes'">Pendentes</v-chip>
         <v-chip :variant="visao === 'exatos' ? 'flat' : 'tonal'" color="success" @click="visao = 'exatos'">Correspondência exata</v-chip>
         <v-chip :variant="visao === 'revisar' ? 'flat' : 'tonal'" color="warning" @click="visao = 'revisar'">Precisa analisar</v-chip>
-        <v-chip :variant="visao === 'concluidos' ? 'flat' : 'tonal'" @click="visao = 'concluidos'">Concluídos</v-chip>
+        <v-chip :variant="visao === 'unificados' ? 'flat' : 'tonal'" color="success" @click="visao = 'unificados'">Viraram cadastro</v-chip>
+        <v-chip :variant="visao === 'descartados' ? 'flat' : 'tonal'" @click="visao = 'descartados'">Descartados</v-chip>
       </div>
     </v-card>
 
@@ -256,8 +283,8 @@ onMounted(() => void carregar());
         <v-btn variant="text" :disabled="!!agindo" @click="marcar(grupo, 'nao_e_o_mesmo')">Não é o mesmo produto</v-btn>
         <v-btn variant="text" color="grey" :disabled="!!agindo" @click="marcar(grupo, 'ignorado')">Ignorar</v-btn>
       </div>
-      <div v-else class="text-body-2 text-success">
-        Decisão: {{ grupo.decisao }}<span v-if="grupo.decididoPor"> por {{ grupo.decididoPor }}</span>
+      <div v-else class="text-body-2" :class="criouCadastro(grupo) ? 'text-success' : 'text-medium-emphasis'">
+        {{ DECISAO[grupo.decisao!] || grupo.decisao }}<span v-if="grupo.decididoPor"> · por {{ grupo.decididoPor }}</span>
       </div>
     </v-card>
 

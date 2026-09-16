@@ -45,8 +45,10 @@ const espiao = vi.hoisted(() => {
 
 vi.mock('@/db/databases', () => ({ db: espiao.db }));
 
-const { UnificacaoGruposService, condicoesDeGrupos, FONTE_VENDIDOS } =
-  await import('./unificacao.grupos.service');
+const {
+  UnificacaoGruposService, condicoesDeGrupos, FONTE_VENDIDOS,
+  MOTIVOS_QUE_CRIAM, MOTIVOS_QUE_DESCARTAM,
+} = await import('./unificacao.grupos.service');
 
 const dialeto = new PgDialect();
 const render = (w: SQL | undefined) => dialeto.sqlToQuery(w!);
@@ -237,5 +239,52 @@ describe('Central de produtos — correspondência exata', () => {
 
     expect(q.params).toContain(FONTE_VENDIDOS);
     expect(q.params).toContain('mesmo_cod_interno');
+  });
+});
+
+/**
+ * "Concluídos" somava coisas que não se somam.
+ *
+ * `decisao` guarda quatro valores: `unificado` e `criado`, que PÕEM produto no
+ * catálogo, e `nao_e_o_mesmo` e `ignorado`, que tiram o grupo da fila sem criar
+ * nada. O cabeçalho contava os quatro juntos.
+ *
+ * O estrago apareceu em 16/09/2026: a Central mostrava 1.633 "Concluídos" e o
+ * catálogo tinha algumas centenas de produtos. O José concluiu, com razão, que
+ * as unificações não estavam chegando na base — quando o que não batia era o
+ * número. Um descarte contado como conclusão faz a tela prometer cadastro que
+ * ninguém mandou criar.
+ */
+describe('Central de produtos — conclusão não é descarte', () => {
+  it('separa o que virou cadastro do que saiu da fila', async () => {
+    respostaDosTotais();
+
+    await servico.totais({ somenteVendidos: true });
+
+    const q = render(espiao.wheres[1]);
+    expect(q, 'os totais nem chegaram a ser montados').toBeDefined();
+  });
+
+  it('as duas contagens existem e nao sao a mesma', () => {
+    expect(MOTIVOS_QUE_CRIAM).toEqual(expect.arrayContaining(['unificado', 'criado']));
+    expect(MOTIVOS_QUE_DESCARTAM).toEqual(expect.arrayContaining(['nao_e_o_mesmo', 'ignorado']));
+    for (const acao of MOTIVOS_QUE_CRIAM) {
+      expect(MOTIVOS_QUE_DESCARTAM, `${acao} nao pode contar dos dois lados`).not.toContain(acao);
+    }
+  });
+
+  /* O filtro da tela precisa falar a mesma lingua do cabecalho. */
+  it('da para filtrar so o que virou cadastro', () => {
+    const q = render(and(...condicoesDeGrupos({ decisao: 'unificados' })));
+
+    for (const acao of MOTIVOS_QUE_CRIAM) expect(q.params).toContain(acao);
+    for (const acao of MOTIVOS_QUE_DESCARTAM) expect(q.params).not.toContain(acao);
+  });
+
+  it('da para filtrar so o que foi descartado', () => {
+    const q = render(and(...condicoesDeGrupos({ decisao: 'descartados' })));
+
+    for (const acao of MOTIVOS_QUE_DESCARTAM) expect(q.params).toContain(acao);
+    for (const acao of MOTIVOS_QUE_CRIAM) expect(q.params).not.toContain(acao);
   });
 });
