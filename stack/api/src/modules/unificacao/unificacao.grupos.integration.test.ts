@@ -31,6 +31,14 @@ beforeAll(async () => {
   const dbModule = await import('@/db/databases');
   db = dbModule.db as unknown as typeof db;
   await migrate(dbModule.db, { migrationsFolder: './drizzle' });
+  await db.execute(sqlTag`
+    INSERT INTO venda_produto_dia
+      (id, loja, data, produto_codigo, produto, produto_id_erp, quantidade,
+       valor_unitario, total, hash, origem_atualizada_em)
+    VALUES
+      ('venda-central-12m', 'TNP', CURRENT_DATE, '10000', 'ABACAXI UNID',
+       'erp-abacaxi', 1, 1, 1, 'hash-central-12m', now())
+  `);
 
   const { UnificacaoService } = await import('./unificacao.service');
   const { UnificacaoGruposService } = await import('./unificacao.grupos.service');
@@ -143,16 +151,17 @@ describe('os filtros funcionam sobre a base inteira', () => {
 
   /*
    * O recorte que o Jose pediu na Central: ver so o que ja vendeu. A fonte
-   * `vendidos_tnp` ja chega peneirada (preco-sentinela fora, delivery fundido),
+   * `vendas_pdv_12m` ja chega agrupada por identidade do ERP no periodo,
    * entao estar nela E a prova da venda — nao se reconta venda aqui.
    */
   it('filtra so o que ja vendeu ao menos uma vez', async () => {
     const todos = await grupos.totais();
     const r = await naoVazio({ somenteVendidos: true }, 'somenteVendidos');
 
-    expect(r.grupos.every((g) => g.fontes.includes('vendidos_tnp'))).toBe(true);
-    // medido em 10/09/2026 sobre as fontes reais: 1.657 vendidos de 4.906 grupos
-    expect(r.total).toBeGreaterThan(1000);
+    expect(r.grupos.every((g) => g.fontes.includes('vendas_pdv_12m'))).toBe(true);
+    // A venda semeada acima prova o recorte dinâmico sem depender de um CSV
+    // congelado ou da data em que a suíte for executada.
+    expect(r.total).toBe(1);
     expect(r.total).toBeLessThan(todos.grupos);
   });
 

@@ -10,17 +10,18 @@ import {
 } from './vendas.schemas';
 import { vendasImportAuth } from './vendas.auth';
 import { authMiddleware } from '@/middlewares/auth-handler';
-import { VendasReportController, VendasRankingController, VendasAbcController } from './vendas-report.controller';
+import { VendasReportController, VendasRankingController, VendasAbcController, VendasPulsoController } from './vendas-report.controller';
 import { VendasDeParaController } from './vendas-depara.controller';
 import { VendasUnicosController } from './vendas-unicos.controller';
 import { z } from 'zod/v4';
-import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasAbc } from '@pralis/shared';
+import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasAbc, VendasPulso } from '@pralis/shared';
 
 export async function vendasRoutes(app: FastifyInstance) {
   const controller = container.resolve(VendasController);
   const reportController = container.resolve(VendasReportController);
   const rankingController = container.resolve(VendasRankingController);
   const abcController = container.resolve(VendasAbcController);
+  const pulsoController = container.resolve(VendasPulsoController);
   const deParaController = container.resolve(VendasDeParaController);
   const unicosController = container.resolve(VendasUnicosController);
   const typed = app.withTypeProvider<ZodTypeProvider>();
@@ -94,6 +95,26 @@ export async function vendasRoutes(app: FastifyInstance) {
       },
     },
     abcController.produtos.bind(abcController),
+  );
+
+  /*
+   * O PULSO: faz quanto tempo que não chega lote do robô.
+   *
+   * Existe por um caso real — o robô parou e ninguém percebeu por seis dias.
+   * Relatório vazio não grita: ele só parece um dia fraco. Esta porta é o que
+   * permite a tela avisar em vez de esperar alguém estranhar.
+   */
+  typed.get(
+    '/vendas/pulso',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        response: { 200: apiResponseSchema(VendasPulso.pulsoSchema) },
+        summary: 'Há quanto tempo cada fonte de vendas não recebe lote',
+        tags: ['VENDAS'],
+      },
+    },
+    pulsoController.pulso.bind(pulsoController),
   );
 
   typed.get<{ Querystring: VendasDePara.DeParaQuery }>(

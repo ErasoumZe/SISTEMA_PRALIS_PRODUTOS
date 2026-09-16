@@ -1,746 +1,275 @@
 <script setup lang="ts">
-import type { FiltrosUnificacao, GrupoUnificacao, PaginaGrupos, TotaisUnificacao } from '~/composables/useApi';
+import type {
+  FiltrosUnificacao, GrupoUnificacao, PaginaGrupos, StagingUnificacao, TotaisUnificacao,
+} from '~/composables/useApi';
 
 const api = useApi();
-const { user } = useAuth();
-const isAdmin = computed(() => user.value?.role === 'admin');
-
-const MOTIVOS = [
-  { valor: 'mesmo_cod_barras', rotulo: 'Mesmo código de barras', cor: 'success' },
-  { valor: 'mesmo_cod_interno', rotulo: 'Mesmo código interno', cor: 'warning' },
-  { valor: 'nome_parecido', rotulo: 'Nome parecido', cor: 'info' },
-  { valor: 'unico', rotulo: 'Só numa fonte', cor: 'grey' },
-] as const;
+const flash = useFlash();
 
 const FONTES: Record<string, string> = {
-  sia_li: 'SIA (Lisboa)',
-  compilart_tnp: 'Compilart (TNP)',
-  planilha_tnp: 'Planilha antiga',
-  fiscal_tnp: 'Fiscal contabilidade',
-  pralis: 'Pralis',
-  central_manual: 'Central',
-  /*
-   * As duas últimas faltavam aqui desde que entraram no motor, e o "Vai gravar:
-   * ... (do undefined)" só não aparecia porque elas emprestam nome por último.
-   * Com o recorte dos vendidos ligado elas passam a ser a origem da maioria das
-   * linhas na tela — sem rótulo, o José leria "undefined" o dia inteiro.
-   */
-  planilha_nova: 'Planilha nova (TNP/LI)',
-  vendidos_tnp: 'Já vendidos (TNP)',
+  vendas_pdv_12m: 'Vendas dos PDVs (12 meses)',
+  pralis: 'Cadastro Pralis',
+  planilha_nova: 'Planilha nova',
+  sia_li: 'SIA Lisboa',
+  compilart_tnp: 'Compilart TNP',
+  planilha_tnp: 'Planilha antiga TNP',
+  fiscal_tnp: 'Fiscal TNP',
+  vendidos_tnp: 'Histórico vendido TNP',
 };
 
-const filtros = reactive<FiltrosUnificacao>({ pagina: 1, tamanho: 25, decisao: 'pendente' });
+type Visao = 'pendentes' | 'exatos' | 'revisar' | 'concluidos';
+const visao = ref<Visao>('pendentes');
+const busca = ref('');
+const loja = ref<string>();
+const pagina = ref(1);
 const dados = ref<PaginaGrupos | null>(null);
 const totais = ref<TotaisUnificacao | null>(null);
-const carregando = ref(false);
-const erro = ref('');
-const busca = ref('');
-const flash = useFlash();
-const gruposOficiais = ref<string[]>([]);
-const grupoEscolhido = reactive<Record<string, string>>({});
-
-async function carregarGruposOficiais() {
-  try {
-    gruposOficiais.value = (await api.listGroupTaxRules()).map((r) => r.grupo);
-  } catch {
-    gruposOficiais.value = [];
-  }
-}
+const staging = ref<StagingUnificacao | null>(null);
 
 /**
- * A peneira que está ligada na tela, sem paginação.
+ * Quantas vendas dos últimos 12 meses entraram na última carga.
  *
- * A ação em massa manda ESTA para o servidor: o botão promete criar "os que
- * faltam" do que está à vista, e agir sobre outra coisa seria mentira.
+ * `null` = ainda não sei. `0` = o universo da tela está vazio, e aí a lista
+ * vazia não é "nada a fazer": é o robô de vendas que parou de alimentar o
+ * banco. Sem este aviso, os dois casos são a mesma tela em branco.
  */
-function peneiraAtual(): FiltrosUnificacao {
-  return {
-    filtro: filtros.filtro,
-    loja: filtros.loja,
-    status: filtros.status,
-    revisar: filtros.revisar,
-    semFiscalTnp: filtros.semFiscalTnp,
-    semGrupo: filtros.semGrupo,
-    somenteVendidos: filtros.somenteVendidos,
-    decisao: filtros.decisao,
+const vendasCarregadas = computed<number | null>(() => {
+  const fontes = staging.value?.fontes;
+  if (!fontes) return null;
+  return fontes.find((f) => f.fonte === 'vendas_pdv_12m')?.linhas ?? 0;
+});
+const carregando = ref(false);
+const atualizandoFontes = ref(false);
+const agindo = ref('');
+const nomesEscolhidos = reactive<Record<string, string>>({});
+
+function filtros(): FiltrosUnificacao {
+  const base: FiltrosUnificacao = {
+    pagina: pagina.value,
+    tamanho: 30,
+    somenteVendidos: true,
+    loja: loja.value,
     q: busca.value.trim() || undefined,
+    decisao: visao.value === 'concluidos' ? 'feita' : 'pendente',
   };
+  // "exatos" no servidor cobre os DOIS códigos: barras e interno. Mandar
+  // `mesmo_cod_barras` aqui esconderia quem casa só pelo código interno.
+  if (visao.value === 'exatos') base.filtro = 'exatos';
+  if (visao.value === 'revisar') base.revisar = true;
+  return base;
 }
 
 async function carregar() {
   carregando.value = true;
-  erro.value = '';
   try {
-    const [pagina, health] = await Promise.all([
-      api.unificacaoGrupos({ ...filtros, q: busca.value || undefined }),
-      // o mesmo recorte vai para o cabeçalho: KPI e lista têm de contar a mesma base
-      api.unificacaoHealth({ somenteVendidos: filtros.somenteVendidos }),
+    const [lista, health] = await Promise.all([
+      api.unificacaoGrupos(filtros()),
+      api.unificacaoHealth({ somenteVendidos: true }),
     ]);
-    dados.value = pagina;
+    dados.value = lista;
     totais.value = health.totais;
-    void carregarTotalAutomatico();
-    void carregarTotalACriar();
-  } catch (e: unknown) {
-    dados.value = null;
-    erro.value = (e as { data?: { message?: string } })?.data?.message
-      || 'Não foi possível carregar a central.';
+    staging.value = health.staging;
+    for (const grupo of lista.grupos) {
+      if (!nomesEscolhidos[grupo.id]) nomesEscolhidos[grupo.id] = grupo.candidato.nome;
+    }
+  } catch (error: unknown) {
+    flash.value = {
+      texto: (error as { data?: { message?: string } })?.data?.message || 'Não foi possível carregar a Central.',
+      tipo: 'error',
+    };
   } finally {
     carregando.value = false;
   }
 }
 
-onMounted(() => { void Promise.all([carregar(), carregarGruposOficiais()]); });
-// mudar filtro volta para a primeira página: manter a 7 com outro filtro confunde
-watch(() => [filtros.filtro, filtros.loja, filtros.status, filtros.revisar,
-  filtros.semFiscalTnp, filtros.semGrupo, filtros.somenteVendidos, filtros.decisao],
-() => { filtros.pagina = 1; carregar(); });
-watch(() => filtros.pagina, carregar);
-
-let debounce: ReturnType<typeof setTimeout> | null = null;
-watch(busca, () => {
-  if (debounce) clearTimeout(debounce);
-  debounce = setTimeout(() => { filtros.pagina = 1; carregar(); }, 400);
-});
-
-/** Chip que liga/desliga um filtro sem virar um formulário. */
-function alternar<K extends keyof FiltrosUnificacao>(chave: K, valor: FiltrosUnificacao[K]) {
-  filtros[chave] = filtros[chave] === valor ? undefined : valor;
-}
-
-const agindo = ref('');
-const processandoLote = ref(false);
-
-/** Lote inteiro por código de barras: quantos faltam, quanto já foi, e o pedido de parada. */
-const totalAutomatico = ref<number | null>(null);
-const processandoTodos = ref(false);
-const pararPedido = ref(false);
-const progresso = reactive({ rotulo: '', feitos: 0, falhas: 0, alvo: 0 });
-
-async function carregarTotalAutomatico() {
-  try {
-    totalAutomatico.value = (await api.unificacaoAutoPendentes()).total;
-  } catch {
-    totalAutomatico.value = null; // o botão some em vez de mentir um número
-  }
-}
-
-/**
- * "Criar no Pralis os que faltam": quantos são, sob os filtros de AGORA.
- *
- * Reconta a cada carregamento porque este número é a PROMESSA da confirmação —
- * um total velho faria a tela avisar 300 e criar 12, e ninguém saberia por quê.
- */
-const totalACriar = ref<number | null>(null);
-const processandoFaltantes = ref(false);
-const somaFaltantes = reactive({ criados: 0, pulados: 0, falhas: 0 });
-
-async function carregarTotalACriar() {
-  try {
-    totalACriar.value = (await api.unificacaoFaltantesPendentes(peneiraAtual())).total;
-  } catch {
-    totalACriar.value = null; // o botão some em vez de mentir um número
-  }
-}
-
-/** Os filtros ligados, em português, para a confirmação dizer sobre o que ela é. */
-const resumoDosFiltros = computed(() => {
-  const p: string[] = [];
-  if (filtros.somenteVendidos) p.push('só os que já vendi');
-  if (filtros.filtro) p.push(rotuloDoMotivo(filtros.filtro));
-  if (filtros.loja) p.push(`loja ${filtros.loja}`);
-  if (filtros.status) p.push(filtros.status === 'ativo' ? 'só ativos' : 'só inativos');
-  if (filtros.revisar) p.push('precisa revisar');
-  if (filtros.semFiscalTnp) p.push('sem fiscal TNP');
-  if (filtros.semGrupo) p.push('sem grupo');
-  if (filtros.decisao === 'feita') p.push('já decididos');
-  if (busca.value.trim()) p.push(`busca "${busca.value.trim()}"`);
-  return p.length ? p.join(' · ') : 'nenhum — a base inteira';
-});
-
-async function definirGrupo(g: GrupoUnificacao) {
-  const grupo = grupoEscolhido[g.id]?.trim();
-  if (!grupo) return;
-  agindo.value = g.id;
-  try {
-    await api.unificacaoDefinirGrupo(g.id, grupo);
-    flash.value = { texto: `Grupo definido para "${g.candidato.nome}".`, tipo: 'success' };
-    await carregar();
-  } catch (e: unknown) {
-    flash.value = {
-      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível definir o grupo.',
-      tipo: 'error',
-    };
-  } finally {
-    agindo.value = '';
-  }
-}
-
-async function processarLoteSeguro() {
-  if (!confirm('Unificar até 25 itens com mesmo código, mesmo nome, grupo conhecido e sem conflito?')) return;
-  processandoLote.value = true;
-  try {
-    const r = await api.unificacaoAutoUnificar(25);
-    flash.value = {
-      texto: `${r.concluidos} item(ns) seguro(s) processado(s)${r.falhas ? `; ${r.falhas} falha(s)` : ''}.`,
-      tipo: r.falhas ? 'warning' : 'success',
-    };
-    await carregar();
-  } catch (e: unknown) {
-    flash.value = {
-      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível processar o lote.',
-      tipo: 'error',
-    };
-  } finally {
-    processandoLote.value = false;
-  }
-}
-
-/**
- * Unifica TODOS os grupos de mesmo código de barras, em lotes.
- *
- * Em lotes e não numa chamada só porque cada unificação escreve na planilha:
- * milhares de uma vez estouraria o tempo da requisição e a cota do Google. Cada
- * lote é gravado ao terminar, então fechar a aba no meio não desfaz o que já
- * passou — é só clicar de novo depois.
- *
- * A parada por lote sem NENHUM sucesso é o que impede laço infinito: um grupo
- * que falha continua sem decisão e voltaria a ser escolhido para sempre.
- */
-/**
- * Quantos itens por REQUISIÇÃO.
- *
- * Era 100, e foi o que travou a tela em "0 de 114": cada item grava na
- * planilha, a planilha de produção estava levando 20 a 30 segundos por
- * gravação, e 100 numa requisição só passam de meia hora. O proxy derruba
- * muito antes — e, como a barra só anda ENTRE lotes, ela ficava parada no zero
- * o tempo todo, dando a impressão de que nada estava acontecendo.
- *
- * Cinco porque agora existe prazo de 8 s por espelho no servidor: no pior caso
- * a requisição volta em ~40 s, dentro do tempo de qualquer proxy, e a barra
- * anda de cinco em cinco. Numa planilha saudável cada item leva menos de meio
- * segundo e o lote pequeno não custa nada perceptível.
- */
-const TAMANHO_DO_LOTE = 5;
-
-async function processarTodosPorBarras() {
-  const total = totalAutomatico.value ?? 0;
-  if (!total) return;
-  const aviso = `Unificar os ${total.toLocaleString('pt-BR')} itens de mesmo código de barras?\n\n`
-    + 'São só os que têm nome igual, grupo conhecido e nenhum conflito — os mesmos '
-    + 'critérios do botão de 25.\n\nCada um grava na planilha, então demora. '
-    + 'Você pode parar no meio; o que já passou fica.';
-  if (!confirm(aviso)) return;
-
-  processandoTodos.value = true;
-  pararPedido.value = false;
-  progresso.rotulo = 'Unificando por código de barras';
-  progresso.feitos = 0;
-  progresso.falhas = 0;
-  progresso.alvo = total;
-
-  try {
-    for (;;) {
-      if (pararPedido.value) break;
-      const r = await api.unificacaoAutoUnificar(TAMANHO_DO_LOTE);
-      if (r.selecionados === 0) break; // acabou
-      progresso.feitos += r.concluidos;
-      progresso.falhas += r.falhas;
-      // lote inteiro falhou: insistir repetiria os mesmos itens para sempre
-      if (r.concluidos === 0) break;
-    }
-    const parou = pararPedido.value;
-    flash.value = {
-      texto: `${progresso.feitos.toLocaleString('pt-BR')} item(ns) unificado(s)`
-        + (progresso.falhas ? `; ${progresso.falhas} falha(s) — abra o filtro "Falta decidir" para ver` : '')
-        + (parou ? '. Parado a seu pedido.' : '.'),
-      tipo: progresso.falhas ? 'warning' : 'success',
-    };
-  } catch (e: unknown) {
-    flash.value = {
-      texto: (e as { data?: { message?: string } })?.data?.message
-        || `Falhou depois de ${progresso.feitos} item(ns). O que passou está gravado.`,
-      tipo: 'error',
-    };
-  } finally {
-    processandoTodos.value = false;
-    pararPedido.value = false;
-    await carregar();
-  }
-}
-
-/**
- * Cria de uma vez todos os grupos que ainda NÃO estão no Pralis, dentro dos
- * filtros ligados na tela.
- *
- * Diferente do "Unificar todos por código de barras": aquele só pega
- * casamento forte e sem alertas; este pega tudo o que está à vista e ainda
- * falta — inclusive quem entra como A CLASSIFICAR. Por isso a confirmação
- * repete o número E os filtros: é o filtro que define o tamanho do estrago.
- *
- * Em lotes pelo mesmo motivo do outro: cada criação escreve na planilha. A
- * peneira é CONGELADA antes do laço — mexer num chip no meio da execução não
- * pode trocar o alvo do que já foi prometido.
- */
-async function criarTodosOsQueFaltam() {
-  const total = totalACriar.value ?? 0;
-  if (!total) return;
-  const aviso = `Criar no Pralis os ${total.toLocaleString('pt-BR')} produtos que faltam?\n\n`
-    + `Filtros ligados: ${resumoDosFiltros.value}.\n\n`
-    + 'Quem chega sem grupo entra como A CLASSIFICAR. Cada um grava na planilha, '
-    + 'então demora. Você pode parar no meio; o que já passou fica.';
-  if (!confirm(aviso)) return;
-
-  const peneira = peneiraAtual();
-  processandoFaltantes.value = true;
-  pararPedido.value = false;
-  progresso.rotulo = 'Criando no Pralis os que faltam';
-  progresso.feitos = 0;
-  progresso.falhas = 0;
-  progresso.alvo = total;
-  somaFaltantes.criados = 0;
-  somaFaltantes.pulados = 0;
-  somaFaltantes.falhas = 0;
-
-  try {
-    for (;;) {
-      if (pararPedido.value) break;
-      const r = await api.unificacaoCriarFaltantes(peneira, TAMANHO_DO_LOTE);
-      if (r.selecionados === 0) break; // acabou
-      somaFaltantes.criados += r.criados;
-      somaFaltantes.pulados += r.pulados;
-      somaFaltantes.falhas += r.falhas;
-      progresso.feitos += r.criados + r.pulados;
-      progresso.falhas += r.falhas;
-      // lote inteiro sem avanço: insistir repetiria os mesmos itens para sempre
-      if (r.criados + r.pulados === 0) break;
-    }
-    flash.value = {
-      texto: `${somaFaltantes.criados.toLocaleString('pt-BR')} produto(s) criado(s)`
-        + (somaFaltantes.pulados ? `; ${somaFaltantes.pulados} já existia(m) e foi(ram) completado(s)` : '')
-        + (somaFaltantes.falhas ? `; ${somaFaltantes.falhas} falha(s) — abra "Falta decidir" para ver` : '')
-        + (pararPedido.value ? '. Parado a seu pedido.' : '.'),
-      tipo: somaFaltantes.falhas ? 'warning' : 'success',
-    };
-  } catch (e: unknown) {
-    flash.value = {
-      texto: (e as { data?: { message?: string } })?.data?.message
-        || `Falhou depois de ${somaFaltantes.criados} produto(s). O que passou está gravado.`,
-      tipo: 'error',
-    };
-  } finally {
-    processandoFaltantes.value = false;
-    pararPedido.value = false;
-    await carregar();
-  }
-}
-
-async function acao(g: GrupoUnificacao, tipo: 'unificar' | 'nao_e_o_mesmo' | 'ignorado') {
-  agindo.value = g.id;
-  try {
-    if (tipo === 'unificar') await api.unificacaoUnificar(g.id);
-    else await api.unificacaoMarcar(g.id, tipo);
-    flash.value = {
-      texto: tipo !== 'unificar'
-        ? 'Decisão registrada.'
-        : `"${g.candidato.nome}" ${g.flagJaNoPralis ? 'atualizado' : 'criado'} no cadastro do Pralis.`,
-      tipo: 'success',
-    };
-    await carregar();
-  } catch (e: unknown) {
-    flash.value = {
-      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível concluir.',
-      tipo: 'error',
-    };
-  } finally {
-    agindo.value = '';
-  }
-}
-
-const recarregando = ref(false);
-async function recarregarFontes() {
-  recarregando.value = true;
+async function atualizarFontes() {
+  atualizandoFontes.value = true;
   try {
     await api.unificacaoCarregar();
-    flash.value = { texto: 'Fontes recarregadas e grupos refeitos.', tipo: 'success' };
+    pagina.value = 1;
     await carregar();
-  } catch (e: unknown) {
+    flash.value = { texto: 'Fontes e vendas dos últimos 12 meses atualizadas.', tipo: 'success' };
+  } catch (error: unknown) {
     flash.value = {
-      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível recarregar.',
+      texto: (error as { data?: { message?: string } })?.data?.message || 'Falha ao atualizar as fontes.',
       tipo: 'error',
     };
   } finally {
-    recarregando.value = false;
+    atualizandoFontes.value = false;
   }
 }
 
-const mostrarFlash = computed({
-  get: () => !!flash.value,
-  set: (v: boolean) => { if (!v) flash.value = null; },
+function nomesDoGrupo(grupo: GrupoUnificacao): string[] {
+  return [...new Set(grupo.itens.map((item) => item.nome?.trim()).filter((nome): nome is string => !!nome))];
+}
+
+function itemVendido(grupo: GrupoUnificacao) {
+  return grupo.itens.find((item) => item.fonte === 'vendas_pdv_12m');
+}
+
+function codigoPrincipal(grupo: GrupoUnificacao): string {
+  return grupo.itens.find((item) => item.codBarras)?.codBarras || grupo.chave;
+}
+
+function classificacao(grupo: GrupoUnificacao) {
+  if (grupo.decisao) return { texto: 'Concluído', cor: 'success', icone: 'check_circle' };
+  if (grupo.flagBarrasConflitante) return { texto: 'Conflito de código', cor: 'error', icone: 'error' };
+  if (grupo.flagNomesDivergentes || grupo.motivo === 'nome_parecido') {
+    return { texto: 'Revisar nomes', cor: 'warning', icone: 'rule' };
+  }
+  if (grupo.motivo === 'mesmo_cod_barras' || grupo.motivo === 'mesmo_cod_interno') {
+    return { texto: 'Correspondência exata', cor: 'success', icone: 'link' };
+  }
+  return { texto: 'Sem correspondência', cor: 'grey', icone: 'help' };
+}
+
+async function unificar(grupo: GrupoUnificacao) {
+  const nome = nomesEscolhidos[grupo.id]?.trim();
+  if (!nome) return;
+  agindo.value = grupo.id;
+  try {
+    await api.unificacaoUnificar(grupo.id, { nome });
+    flash.value = { texto: `Produto unificado usando o nome "${nome}".`, tipo: 'success' };
+    await carregar();
+  } catch (error: unknown) {
+    flash.value = {
+      texto: (error as { data?: { message?: string } })?.data?.message || 'Não foi possível unificar.',
+      tipo: 'error',
+    };
+  } finally {
+    agindo.value = '';
+  }
+}
+
+async function marcar(grupo: GrupoUnificacao, acao: 'nao_e_o_mesmo' | 'ignorado') {
+  agindo.value = grupo.id;
+  try {
+    await api.unificacaoMarcar(grupo.id, acao);
+    await carregar();
+  } catch (error: unknown) {
+    flash.value = {
+      texto: (error as { data?: { message?: string } })?.data?.message || 'Não foi possível registrar a decisão.',
+      tipo: 'error',
+    };
+  } finally {
+    agindo.value = '';
+  }
+}
+
+let debounce: ReturnType<typeof setTimeout> | undefined;
+watch(busca, () => {
+  clearTimeout(debounce);
+  debounce = setTimeout(() => { pagina.value = 1; void carregar(); }, 350);
 });
-
-const brl = (v: number | string | null) =>
-  v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
-const corDoMotivo = (m: string) => MOTIVOS.find((x) => x.valor === m)?.cor ?? 'grey';
-const rotuloDoMotivo = (m: string) => MOTIVOS.find((x) => x.valor === m)?.rotulo ?? m;
-
-/*
- * "Produtos únicos" sozinho quer dizer a base inteira. Com o recorte ligado o
- * número é outro, e o cartão tem de dizer isso: 1.6xx embaixo do rótulo que
- * vinha marcando 7.924 pareceria conta errada, não filtro ligado.
- */
-const rotuloUnicos = computed(() =>
-  (filtros.somenteVendidos ? 'Produtos únicos que já vendi' : 'Produtos únicos'));
-
-/** Vermelho onde as fontes discordam — é o que pede olho humano. */
-const nomesDoGrupo = (g: GrupoUnificacao) =>
-  [...new Set(g.itens.map((i) => i.nome).filter(Boolean))] as string[];
+watch([visao, loja], () => { pagina.value = 1; void carregar(); });
+watch(pagina, () => void carregar());
+onMounted(() => void carregar());
 </script>
 
 <template>
-  <div>
-    <v-alert v-if="!isAdmin" type="warning" variant="tonal" class="mb-4">
-      Esta tela é do administrador.
+  <div class="central mx-auto">
+    <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-5">
+      <div>
+        <h1 class="text-h4 font-weight-bold">Central de Produtos</h1>
+        <p class="text-body-2 text-medium-emphasis mt-1 mb-0">
+          Produtos que passaram pelos PDVs nos últimos 12 meses, comparados aos cadastros existentes.
+        </p>
+      </div>
+      <v-btn color="primary" variant="tonal" prepend-icon="sync" :loading="atualizandoFontes" @click="atualizarFontes">
+        Atualizar fontes
+      </v-btn>
+    </div>
+
+    <v-alert v-if="vendasCarregadas === 0" type="warning" variant="tonal" class="mb-4" icon="report">
+      <div class="font-weight-bold">Nenhuma venda dos últimos 12 meses no banco.</div>
+      <div class="text-body-2">
+        O universo desta tela são os produtos que passaram pelos PDVs. Sem venda registrada,
+        a lista fica vazia mesmo havendo cadastro. Confira se o robô de vendas está enviando
+        dados antes de concluir que não há nada a unificar.
+      </div>
     </v-alert>
 
-    <template v-else>
-      <!-- KPI da base de reconciliação, não do catálogo vivo; acompanha o recorte dos vendidos -->
-      <div v-if="totais" class="d-flex flex-wrap ga-3 mb-4">
-        <v-card v-for="k in [
-          { r: rotuloUnicos, v: totais.grupos, c: undefined },
-          { r: 'A criar no Pralis', v: totais.aCriar, c: 'primary' },
-          { r: 'Já no Pralis', v: totais.jaNoPralis, c: 'success' },
-          { r: 'Sem fiscal TNP', v: totais.semFiscalTnp, c: 'warning' },
-          { r: 'A classificar', v: totais.semGrupo, c: 'warning' },
-          { r: 'Nomes divergentes', v: totais.nomesDivergentes, c: 'error' },
-          { r: 'Falta decidir', v: totais.pendentes, c: undefined },
-        ]" :key="k.r" flat border rounded="lg" class="pa-3" style="min-width: 150px; flex: 1 1 150px">
-          <div class="text-caption text-medium-emphasis">{{ k.r }}</div>
-          <div class="text-h5 font-weight-bold" :class="k.c ? `text-${k.c}` : ''">
-            {{ k.v.toLocaleString('pt-BR') }}
+    <v-row v-if="totais" dense class="mb-4">
+      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
+        <div class="text-caption text-medium-emphasis">Produtos vendidos</div>
+        <div class="text-h5 font-weight-bold">{{ totais.grupos.toLocaleString('pt-BR') }}</div>
+      </v-card></v-col>
+      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
+        <div class="text-caption text-medium-emphasis">Já no Pralis</div>
+        <div class="text-h5 font-weight-bold text-success">{{ totais.jaNoPralis.toLocaleString('pt-BR') }}</div>
+      </v-card></v-col>
+      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
+        <div class="text-caption text-medium-emphasis">A analisar</div>
+        <div class="text-h5 font-weight-bold text-warning">{{ totais.nomesDivergentes.toLocaleString('pt-BR') }}</div>
+      </v-card></v-col>
+      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
+        <div class="text-caption text-medium-emphasis">Concluídos</div>
+        <div class="text-h5 font-weight-bold">{{ totais.decididos.toLocaleString('pt-BR') }}</div>
+      </v-card></v-col>
+    </v-row>
+
+    <v-card flat border rounded="lg" class="pa-3 mb-4">
+      <div class="d-flex flex-wrap ga-3 align-center">
+        <v-text-field v-model="busca" prepend-inner-icon="search" label="Buscar produto ou código" hide-details clearable density="compact" class="busca" />
+        <v-select v-model="loja" :items="[{ title: 'TNP', value: 'TNP' }, { title: 'Lisboa', value: 'LI' }]" label="Loja" hide-details clearable density="compact" class="loja" />
+      </div>
+      <div class="d-flex flex-wrap ga-2 mt-3">
+        <v-chip :variant="visao === 'pendentes' ? 'flat' : 'tonal'" color="primary" @click="visao = 'pendentes'">Pendentes</v-chip>
+        <v-chip :variant="visao === 'exatos' ? 'flat' : 'tonal'" color="success" @click="visao = 'exatos'">Correspondência exata</v-chip>
+        <v-chip :variant="visao === 'revisar' ? 'flat' : 'tonal'" color="warning" @click="visao = 'revisar'">Precisa analisar</v-chip>
+        <v-chip :variant="visao === 'concluidos' ? 'flat' : 'tonal'" @click="visao = 'concluidos'">Concluídos</v-chip>
+      </div>
+    </v-card>
+
+    <v-progress-linear v-if="carregando" indeterminate color="primary" class="mb-3" />
+    <v-alert v-if="!carregando && dados?.grupos.length === 0" type="info" variant="tonal">Nenhum produto encontrado com estes filtros.</v-alert>
+
+    <v-card v-for="grupo in dados?.grupos || []" :key="grupo.id" flat border rounded="lg" class="pa-4 mb-3">
+      <div class="d-flex flex-wrap align-start justify-space-between ga-3">
+        <div>
+          <div class="text-h6 font-weight-bold">{{ grupo.candidato.nome || '(sem nome)' }}</div>
+          <div class="text-body-2 text-medium-emphasis mt-1">
+            Código {{ codigoPrincipal(grupo) }}
+            <span v-if="itemVendido(grupo)?.raw?.ultimaVenda"> · Última venda {{ itemVendido(grupo)?.raw?.ultimaVenda }}</span>
           </div>
-        </v-card>
+        </div>
+        <v-chip :color="classificacao(grupo).cor" :prepend-icon="classificacao(grupo).icone" variant="tonal" size="small">
+          {{ classificacao(grupo).texto }}
+        </v-chip>
       </div>
 
-      <!-- filtros: todos operam no servidor, sobre a base inteira -->
-      <v-card flat border rounded="lg" class="pa-3 mb-4">
-        <div class="d-flex flex-wrap ga-2 align-center">
-          <v-text-field
-            v-model="busca"
-            density="compact"
-            variant="outlined"
-            hide-details
-            clearable
-            placeholder="Buscar por nome ou código"
-            prepend-inner-icon="search"
-            style="min-width: 240px; max-width: 340px"
-          />
-          <!--
-            Na frente dos outros chips de propósito: não é mais um recorte de
-            navegação, é a pergunta que separa o que a loja vende de verdade do
-            histórico inteiro. Começa DESLIGADO — esconder produto por padrão
-            faria alguém procurar o que está ali e não achar.
-          -->
-          <v-chip
-            :color="filtros.somenteVendidos ? 'primary' : 'grey-darken-1'"
-            :variant="filtros.somenteVendidos ? 'flat' : 'outlined'"
-            size="small"
-            @click="alternar('somenteVendidos', filtros.somenteVendidos ? undefined : true)"
-          >
-            <v-icon start size="16">{{ filtros.somenteVendidos ? 'check' : 'sell' }}</v-icon>
-            Só os que já vendi
-          </v-chip>
-          <v-divider vertical class="mx-1" />
-          <v-chip
-            v-for="m in MOTIVOS"
-            :key="m.valor"
-            :color="filtros.filtro === m.valor ? m.cor : undefined"
-            :variant="filtros.filtro === m.valor ? 'flat' : 'outlined'"
-            size="small"
-            @click="alternar('filtro', m.valor)"
-          >{{ m.rotulo }}</v-chip>
+      <div class="d-flex flex-wrap ga-2 my-3">
+        <v-chip v-for="fonte in grupo.fontes" :key="fonte" size="x-small" variant="tonal">{{ FONTES[fonte] || fonte }}</v-chip>
+        <v-chip v-if="grupo.fontes.includes('planilha_nova')" size="x-small" color="info" variant="flat">na planilha nova</v-chip>
+        <v-chip v-if="grupo.flagJaNoPralis" size="x-small" color="success" variant="flat">já cadastrado</v-chip>
+      </div>
 
-          <v-divider vertical class="mx-1" />
-          <v-chip
-            v-for="l in ['LI', 'TNP']"
-            :key="l"
-            :color="filtros.loja === l ? 'primary' : undefined"
-            :variant="filtros.loja === l ? 'flat' : 'outlined'"
-            size="small"
-            @click="alternar('loja', l)"
-          >{{ l === 'LI' ? 'Lisboa' : 'TNP' }}</v-chip>
+      <v-select v-if="!grupo.decisao" v-model="nomesEscolhidos[grupo.id]" :items="nomesDoGrupo(grupo)" label="Nome que será mantido" density="compact" hide-details class="nome mb-3" />
+      <div v-if="nomesDoGrupo(grupo).length > 1" class="text-caption text-medium-emphasis mb-3">
+        Nomes encontrados: {{ nomesDoGrupo(grupo).join(' · ') }}
+      </div>
 
-          <v-divider vertical class="mx-1" />
-          <v-chip
-            v-for="s in ['ativo', 'inativo']"
-            :key="s"
-            :color="filtros.status === s ? 'primary' : undefined"
-            :variant="filtros.status === s ? 'flat' : 'outlined'"
-            size="small"
-            @click="alternar('status', s)"
-          >{{ s === 'ativo' ? 'Ativos' : 'Inativos' }}</v-chip>
+      <div v-if="!grupo.decisao" class="d-flex flex-wrap ga-2">
+        <v-btn color="primary" :loading="agindo === grupo.id" :disabled="!nomesEscolhidos[grupo.id]" @click="unificar(grupo)">
+          {{ grupo.flagJaNoPralis ? 'Unificar com cadastro existente' : 'Adicionar ao cadastro unificado' }}
+        </v-btn>
+        <v-btn variant="text" :disabled="!!agindo" @click="marcar(grupo, 'nao_e_o_mesmo')">Não é o mesmo produto</v-btn>
+        <v-btn variant="text" color="grey" :disabled="!!agindo" @click="marcar(grupo, 'ignorado')">Ignorar</v-btn>
+      </div>
+      <div v-else class="text-body-2 text-success">
+        Decisão: {{ grupo.decisao }}<span v-if="grupo.decididoPor"> por {{ grupo.decididoPor }}</span>
+      </div>
+    </v-card>
 
-          <v-divider vertical class="mx-1" />
-          <v-chip
-            :color="filtros.revisar ? 'error' : undefined"
-            :variant="filtros.revisar ? 'flat' : 'outlined'"
-            size="small"
-            @click="alternar('revisar', filtros.revisar ? undefined : true)"
-          >Precisa revisar</v-chip>
-          <v-chip
-            :color="filtros.semFiscalTnp ? 'warning' : undefined"
-            :variant="filtros.semFiscalTnp ? 'flat' : 'outlined'"
-            size="small"
-            @click="alternar('semFiscalTnp', filtros.semFiscalTnp ? undefined : true)"
-          >Sem fiscal TNP</v-chip>
-          <v-chip
-            :color="filtros.semGrupo ? 'warning' : undefined"
-            :variant="filtros.semGrupo ? 'flat' : 'outlined'"
-            size="small"
-            @click="alternar('semGrupo', filtros.semGrupo ? undefined : true)"
-          >Sem grupo</v-chip>
-          <v-chip
-            :color="filtros.decisao === 'feita' ? 'success' : undefined"
-            :variant="filtros.decisao === 'feita' ? 'flat' : 'outlined'"
-            size="small"
-            @click="filtros.decisao = filtros.decisao === 'pendente' ? 'feita' : 'pendente'"
-          >{{ filtros.decisao === 'feita' ? 'Já decididos' : 'Falta decidir' }}</v-chip>
-
-          <v-spacer />
-          <v-btn
-            size="small"
-            color="primary"
-            variant="tonal"
-            prepend-icon="playlist_add_check"
-            :loading="processandoLote"
-            @click="processarLoteSeguro"
-          >Unificar 25 seguros</v-btn>
-          <v-btn
-            v-if="totalAutomatico"
-            size="small"
-            color="primary"
-            variant="flat"
-            prepend-icon="done_all"
-            :disabled="processandoLote || processandoTodos || processandoFaltantes"
-            @click="processarTodosPorBarras"
-          >Unificar todos por código de barras ({{ totalAutomatico.toLocaleString('pt-BR') }})</v-btn>
-          <!--
-            A ação em massa desta tela: cria TUDO o que está à vista e ainda não
-            existe no Pralis. O número no rótulo é o mesmo que a confirmação
-            repete — sai do servidor, sob os filtros de agora.
-          -->
-          <v-btn
-            v-if="totalACriar"
-            size="small"
-            color="primary"
-            variant="flat"
-            prepend-icon="library_add"
-            :disabled="processandoLote || processandoTodos || processandoFaltantes"
-            @click="criarTodosOsQueFaltam"
-          >Criar no Pralis os que faltam ({{ totalACriar.toLocaleString('pt-BR') }})</v-btn>
-          <v-btn
-            size="small"
-            variant="text"
-            prepend-icon="refresh"
-            :loading="recarregando"
-            @click="recarregarFontes"
-          >Recarregar fontes</v-btn>
-        </div>
-      </v-card>
-
-      <!-- o mesmo painel serve os dois lotes; o rótulo diz qual está rodando -->
-      <v-card v-if="processandoTodos || processandoFaltantes" variant="tonal" color="primary" class="pa-4 mb-4">
-        <div class="d-flex align-center flex-wrap ga-4">
-          <div class="flex-grow-1" style="min-width:220px">
-            <div class="text-body-2 mb-1">
-              {{ progresso.rotulo }} — {{ progresso.feitos.toLocaleString('pt-BR') }}
-              de {{ progresso.alvo.toLocaleString('pt-BR') }}
-              <span v-if="progresso.falhas">· {{ progresso.falhas }} falha(s)</span>
-            </div>
-            <v-progress-linear
-              :model-value="progresso.alvo ? (progresso.feitos / progresso.alvo) * 100 : 0"
-              height="8"
-              rounded
-            />
-          </div>
-          <v-btn
-            size="small"
-            variant="outlined"
-            :disabled="pararPedido"
-            @click="pararPedido = true"
-          >{{ pararPedido ? 'Parando…' : 'Parar' }}</v-btn>
-        </div>
-        <div class="text-caption mt-2">
-          Cada item grava na planilha, por isso demora. O que já passou está gravado —
-          parar aqui não desfaz nada.
-        </div>
-      </v-card>
-
-      <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
-      <div v-if="carregando" class="text-center py-8"><v-progress-circular indeterminate /></div>
-
-      <template v-else-if="dados">
-        <div class="text-body-2 text-medium-emphasis mb-2">
-          {{ dados.total.toLocaleString('pt-BR') }} grupo(s) · página {{ dados.pagina }} de {{ dados.paginas || 1 }}
-        </div>
-
-        <v-alert v-if="!dados.grupos.length" type="info" variant="tonal">
-          Nenhum grupo com esses filtros.
-        </v-alert>
-
-        <v-card
-          v-for="g in dados.grupos"
-          :key="g.id"
-          flat
-          border
-          rounded="lg"
-          class="pa-4 mb-3"
-        >
-          <div class="d-flex align-center flex-wrap ga-2 mb-2">
-            <div style="min-width: 0">
-              <div class="text-body-1 font-weight-bold text-truncate">
-                {{ g.candidato.nome || '(sem nome em nenhuma fonte)' }}
-              </div>
-              <div class="text-caption text-medium-emphasis">
-                {{ g.chave }} ·
-                {{ g.candidato.grupo || 'A CLASSIFICAR' }}
-                <span v-if="g.candidato.grupoDe"> (do {{ FONTES[g.candidato.grupoDe] }})</span>
-              </div>
-            </div>
-            <v-spacer />
-            <v-chip size="x-small" :color="corDoMotivo(g.motivo)" variant="tonal">
-              {{ rotuloDoMotivo(g.motivo) }}
-            </v-chip>
-            <v-chip v-if="!g.ativo" size="x-small" variant="tonal">inativo</v-chip>
-            <v-chip v-if="g.flagJaNoPralis" size="x-small" color="success" variant="tonal">já no Pralis</v-chip>
-          </div>
-
-          <!-- o que pede olho humano, em vermelho -->
-          <div v-if="g.flagNomesDivergentes || g.flagBarrasConflitante || g.flagSemFiscalTnp || g.flagSemGrupo"
-               class="d-flex flex-wrap ga-2 mb-3">
-            <v-chip v-if="g.flagNomesDivergentes" size="x-small" color="error" variant="flat">
-              nomes diferentes: {{ nomesDoGrupo(g).join(' | ') }}
-            </v-chip>
-            <v-chip v-if="g.flagBarrasConflitante" size="x-small" color="error" variant="flat">
-              código de barras cobre produtos diferentes na origem
-            </v-chip>
-            <v-chip v-if="g.flagSemFiscalTnp" size="x-small" color="warning" variant="flat">
-              sem fiscal da contabilidade (TNP)
-            </v-chip>
-            <v-chip v-if="g.flagSemGrupo" size="x-small" color="warning" variant="flat">
-              sem grupo — entra como A CLASSIFICAR
-            </v-chip>
-          </div>
-
-          <!-- as fontes lado a lado -->
-          <div style="overflow-x: auto">
-            <v-table density="compact">
-              <thead>
-                <tr>
-                  <th class="text-left">Fonte</th>
-                  <th class="text-left">Loja</th>
-                  <th class="text-left">Produto</th>
-                  <th class="text-left">Cód. barras</th>
-                  <th class="text-left">Interno</th>
-                  <th class="text-right">Custo</th>
-                  <th class="text-right">V. venda</th>
-                  <th class="text-left">NCM</th>
-                  <th class="text-left">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(i, idx) in g.itens" :key="idx">
-                  <td class="text-caption">{{ FONTES[i.fonte] || i.fonte }}</td>
-                  <td class="text-caption">{{ i.loja }}</td>
-                  <td :class="g.flagNomesDivergentes ? 'text-error' : ''">{{ i.nome || '—' }}</td>
-                  <td class="text-caption">{{ i.codBarras || '—' }}</td>
-                  <td class="text-caption">{{ i.codInterno || '—' }}</td>
-                  <td class="text-right">{{ brl(i.custo) }}</td>
-                  <td class="text-right">{{ brl(i.venda) }}</td>
-                  <td class="text-caption">{{ i.ncm || '—' }}</td>
-                  <td class="text-caption">
-                    {{ i.ativo === null ? '—' : (i.ativo ? 'ativo' : 'inativo') }}
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-          </div>
-
-          <div v-if="g.flagSemGrupo" class="d-flex flex-wrap ga-2 align-center mt-3">
-            <v-autocomplete
-              v-model="grupoEscolhido[g.id]"
-              :items="gruposOficiais"
-              label="Grupo oficial"
-              density="compact"
-              variant="outlined"
-              hide-details
-              style="min-width: 300px; max-width: 560px"
-            />
-            <v-btn
-              size="small"
-              variant="tonal"
-              :disabled="!grupoEscolhido[g.id]"
-              :loading="agindo === g.id"
-              @click="definirGrupo(g)"
-            >Salvar grupo</v-btn>
-          </div>
-
-          <!-- o que será gravado, com a fonte de cada campo -->
-          <div class="text-caption text-medium-emphasis mt-3">
-            Vai gravar: <strong>{{ g.candidato.nome }}</strong> (do {{ FONTES[g.candidato.nomeDe] }}) ·
-            custo {{ brl(g.candidato.custo) }}<span v-if="g.candidato.custoDe"> (do {{ FONTES[g.candidato.custoDe] }})</span> ·
-            venda {{ brl(g.candidato.venda) }} ·
-            fiscal LI {{ g.candidato.fiscalLi ? 'do SIA' : '—' }},
-            fiscal TNP {{ g.candidato.fiscalTnp ? 'da contabilidade' : 'ausente' }}
-          </div>
-
-          <div v-if="g.decisao" class="text-caption mt-2">
-            <v-chip size="x-small" variant="tonal">{{ g.decisao }}</v-chip>
-            <span v-if="g.decididoPor" class="ml-1">por {{ g.decididoPor }}</span>
-          </div>
-
-          <div v-else class="d-flex flex-wrap ga-2 mt-3">
-            <!--
-              Grupo que já existe no Pralis é ATUALIZADO, não recriado. O rótulo
-              precisa dizer isso: "criar" num produto que já existe assusta, e
-              foi justamente o que gerava o erro de duplicado.
-            -->
-            <v-btn
-              size="small"
-              color="primary"
-              variant="flat"
-              :loading="agindo === g.id"
-              @click="acao(g, 'unificar')"
-            >{{ g.flagJaNoPralis ? 'Unificar e atualizar no Pralis' : 'Unificar e criar no Pralis' }}</v-btn>
-            <v-btn
-              v-if="g.itens.length > 1"
-              size="small"
-              variant="text"
-              :loading="agindo === g.id"
-              @click="acao(g, 'nao_e_o_mesmo')"
-            >Não é o mesmo</v-btn>
-            <v-btn
-              size="small"
-              variant="text"
-              :loading="agindo === g.id"
-              @click="acao(g, 'ignorado')"
-            >Ignorar</v-btn>
-          </div>
-        </v-card>
-
-        <v-pagination
-          v-if="dados.paginas > 1"
-          v-model="filtros.pagina"
-          :length="dados.paginas"
-          :total-visible="5"
-          density="comfortable"
-          class="mt-4"
-        />
-      </template>
-    </template>
-
-    <v-snackbar v-model="mostrarFlash" :color="flash?.tipo" timeout="4000">
-      {{ flash?.texto }}
-    </v-snackbar>
+    <div v-if="dados && dados.paginas > 1" class="d-flex justify-center mt-5">
+      <v-pagination v-model="pagina" :length="dados.paginas" :total-visible="7" />
+    </div>
   </div>
 </template>
+
+<style scoped>
+.central { max-width: 1180px; }
+.busca { min-width: 280px; flex: 1 1 420px; }
+.loja { max-width: 220px; min-width: 180px; }
+.nome { max-width: 680px; }
+</style>

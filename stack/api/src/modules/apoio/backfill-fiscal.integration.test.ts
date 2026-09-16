@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import type { TaxRuleService, ResultadoFiscal } from './tax-rule.service';
-import type { ProductRepository } from '@/modules/product/product.repository';
 import type { ProductSheetRepository } from '@/modules/google-sheets/product-sheet.repository';
 
 /**
@@ -74,7 +73,6 @@ const motor = (resultado: Partial<ResultadoFiscal>, chamadas: string[] = []) => 
 }) as unknown as TaxRuleService;
 
 const semSync = { async ensurePending() {} } as unknown as ProductSheetRepository;
-const semRepo = {} as unknown as ProductRepository;
 
 const criar = async (id: string, nome: string, grupo = 'MER PADARIA') => {
   await db.execute(sqlTag`
@@ -90,7 +88,7 @@ beforeEach(async () => { await db.execute(sqlTag`DELETE FROM products`); });
 describe('BackfillFiscalService', () => {
   it('por padrão NÃO escreve: relata o que faria', async () => {
     await criar(ID(1), 'BOLO REDONDO LARANJA');
-    const s = new BackfillFiscalService(motor({}), semRepo, semSync);
+    const s = new BackfillFiscalService(motor({}), semSync);
 
     const r = await s.executar({});
 
@@ -102,7 +100,7 @@ describe('BackfillFiscalService', () => {
 
   it('com --apply grava a carga e o estado', async () => {
     await criar(ID(2), 'BOLO REDONDO LARANJA');
-    const s = new BackfillFiscalService(motor({}), semRepo, semSync);
+    const s = new BackfillFiscalService(motor({}), semSync);
 
     await s.executar({}, true);
 
@@ -132,7 +130,7 @@ describe('BackfillFiscalService', () => {
         destinos.push(input);
       },
     } as unknown as ProductSheetRepository;
-    const s = new BackfillFiscalService(motor({}), semRepo, sync);
+    const s = new BackfillFiscalService(motor({}), sync);
 
     await s.executar({ productId: ID(9) }, true);
 
@@ -161,7 +159,7 @@ describe('BackfillFiscalService', () => {
 
   it('rodar duas vezes não muda nada na segunda: já está completo', async () => {
     await criar(ID(3), 'BOLO REDONDO LARANJA');
-    const s = new BackfillFiscalService(motor({}), semRepo, semSync);
+    const s = new BackfillFiscalService(motor({}), semSync);
 
     await s.executar({}, true);
     const segunda = await s.executar({}, true);
@@ -175,7 +173,7 @@ describe('BackfillFiscalService', () => {
     await criar(ID(4), 'QUALQUER', 'SORVETES');
     const s = new BackfillFiscalService(
       motor({ estado: 'pendente_grupo_invalido', motivo: 'grupo fora das regras', classificacao: null }),
-      semRepo, semSync,
+      semSync,
     );
 
     await s.executar({}, true);
@@ -189,7 +187,7 @@ describe('BackfillFiscalService', () => {
     await criar(ID(6), 'B');
     await criar(ID(7), 'C');
     const vistos: string[] = [];
-    const s = new BackfillFiscalService(motor({}, vistos), semRepo, semSync);
+    const s = new BackfillFiscalService(motor({}, vistos), semSync);
 
     const p1 = await s.executar({ limite: 2 });
     const p2 = await s.executar({ limite: 2, cursor: p1.proximoCursor! });
@@ -203,7 +201,7 @@ describe('BackfillFiscalService', () => {
     await criar(ID(8), 'ALVO');
     await criar(ID(9), 'OUTRO');
     const vistos: string[] = [];
-    const s = new BackfillFiscalService(motor({}, vistos), semRepo, semSync);
+    const s = new BackfillFiscalService(motor({}, vistos), semSync);
 
     await s.executar({ productId: ID(8) });
 
@@ -212,7 +210,7 @@ describe('BackfillFiscalService', () => {
 
   it('o panorama conta por estado, inclusive quem nem tem registro', async () => {
     await criar(ID(1), 'SEM REGISTRO');
-    const s = new BackfillFiscalService(motor({}), semRepo, semSync);
+    const s = new BackfillFiscalService(motor({}), semSync);
 
     expect(await s.panorama()).toMatchObject({ sem_registro: 1 });
   });

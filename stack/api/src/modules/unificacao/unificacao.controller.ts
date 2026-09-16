@@ -62,11 +62,16 @@ export class UnificacaoController {
 
   /** Escreve no catálogo mestre. Só por clique humano. */
   async unificar(
-    request: FastifyRequest<{ Params: { id: string }; Body?: { forcar?: boolean } }>,
+    request: FastifyRequest<{ Params: { id: string }; Body?: { forcar?: boolean; nome?: string } }>,
     reply: FastifyReply,
   ) {
     const user = exigirAdmin(request);
-    const r = await this.aplicar.unificar(user, request.params.id, request.body?.forcar ?? false);
+    const r = await this.aplicar.unificar(
+      user,
+      request.params.id,
+      request.body?.forcar ?? false,
+      request.body?.nome,
+    );
     return reply.status(201).send(buildResponse(r, 'Produto criado no cadastro do Pralis'));
   }
 

@@ -27,10 +27,20 @@ const LOJA_DA_FONTE: Record<string, LojaFonte> = {
  * vendido ao menos uma vez. Por isso "já vendi isso?" se responde olhando as
  * FONTES do grupo, e não recontando venda por aqui.
  */
-export const FONTE_VENDIDOS = 'vendidos_tnp';
+export const FONTE_VENDIDOS = 'vendas_pdv_12m';
+
+/**
+ * Os dois motivos que o José trata como casamento DIRETO: "o que existir de
+ * produto igual, mesmo codigo de barras ou codigo interno". Ficam juntos numa
+ * constante porque a tela, o filtro e a classificação precisam concordar — se
+ * cada um listar o seu, um produto aparece como exato num lugar e como
+ * "revisar" no outro.
+ */
+export const MOTIVOS_EXATOS = ['mesmo_cod_barras', 'mesmo_cod_interno'] as const;
 
 export interface FiltrosGrupos {
-  filtro?: 'mesmo_cod_barras' | 'mesmo_cod_interno' | 'nome_parecido' | 'unico';
+  /** `exatos` = os dois códigos de uma vez; os demais olham um motivo só. */
+  filtro?: 'exatos' | 'mesmo_cod_barras' | 'mesmo_cod_interno' | 'nome_parecido' | 'unico';
   loja?: LojaFonte;
   status?: 'ativo' | 'inativo';
   /** Só os que pedem olho humano (nome divergente, sem fiscal TNP, sem grupo). */
@@ -71,7 +81,8 @@ const numero = (v: string | null): number | null => (v == null ? null : Number(v
  */
 export function condicoesDeGrupos(f: FiltrosGrupos): SQL[] {
   const onde: SQL[] = [];
-  if (f.filtro) onde.push(eq(unifGrupo.motivo, f.filtro));
+  if (f.filtro === 'exatos') onde.push(inArray(unifGrupo.motivo, [...MOTIVOS_EXATOS]));
+  else if (f.filtro) onde.push(eq(unifGrupo.motivo, f.filtro));
   if (f.loja) onde.push(sql`${unifGrupo.lojas} @> ARRAY[${f.loja}]::text[]`);
   if (f.status) onde.push(eq(unifGrupo.ativo, f.status === 'ativo'));
   if (f.semFiscalTnp) onde.push(eq(unifGrupo.flagSemFiscalTnp, true));
@@ -395,6 +406,7 @@ export class UnificacaoGruposService {
           venda: unifFonteProduto.venda,
           ncm: unifFonteProduto.ncm,
           cst: unifFonteProduto.cst,
+          raw: unifFonteProduto.raw,
         })
         .from(unifGrupoItem)
         .leftJoin(unifFonteProduto, eq(unifGrupoItem.fonteProdutoId, unifFonteProduto.id))

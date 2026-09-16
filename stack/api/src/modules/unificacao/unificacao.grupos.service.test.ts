@@ -122,8 +122,8 @@ describe('Central de produtos — recorte "só os que já vendi"', () => {
    * delivery fundido). Se alguém trocar o nome dela, é aqui que estoura — e não
    * numa tela mostrando produto que nunca vendeu.
    */
-  it('a prova da venda é a fonte vendidos_tnp', () => {
-    expect(FONTE_VENDIDOS).toBe('vendidos_tnp');
+  it('a prova da venda é a fonte dinâmica dos PDVs nos últimos 12 meses', () => {
+    expect(FONTE_VENDIDOS).toBe('vendas_pdv_12m');
   });
 });
 
@@ -198,5 +198,44 @@ describe('Central de produtos — "criar todos os que faltam"', () => {
     await servico.idsACriar({}, 9999);
 
     expect(espiao.limites).toEqual([200]);
+  });
+});
+
+/**
+ * "Correspondência exata" na Central.
+ *
+ * O José definiu o caso direto com DOIS códigos, não um: "o que existir de
+ * produto igual, mesmo codigo de barras OU codigo interno, devem poder ser
+ * unificados diretamente". Um filtro preso em `mesmo_cod_barras` esconde o
+ * produto que casa só pelo código interno — e ele cai na aba de análise, que é
+ * justamente a fila que esta reforma existe para esvaziar.
+ *
+ * O teste é de SQL porque é ali que a peneira mora: a tela não filtra nada.
+ */
+describe('Central de produtos — correspondência exata', () => {
+  const MOTIVOS_EXATOS = ['mesmo_cod_barras', 'mesmo_cod_interno'];
+
+  it('cobre o casamento por código de barras E por código interno', () => {
+    const q = render(and(...condicoesDeGrupos({ filtro: 'exatos' })));
+
+    for (const motivo of MOTIVOS_EXATOS) {
+      expect(q.params, `"exatos" deixou ${motivo} fora da correspondência direta`)
+        .toContain(motivo);
+    }
+  });
+
+  /* Continuar podendo olhar um motivo isolado é o que permite auditar o outro. */
+  it('não atropela quem pede um motivo específico', () => {
+    const q = render(and(...condicoesDeGrupos({ filtro: 'mesmo_cod_interno' })));
+
+    expect(q.params).toContain('mesmo_cod_interno');
+    expect(q.params).not.toContain('mesmo_cod_barras');
+  });
+
+  it('o recorte dos vendidos continua valendo por cima', () => {
+    const q = render(and(...condicoesDeGrupos({ filtro: 'exatos', somenteVendidos: true })));
+
+    expect(q.params).toContain(FONTE_VENDIDOS);
+    expect(q.params).toContain('mesmo_cod_interno');
   });
 });

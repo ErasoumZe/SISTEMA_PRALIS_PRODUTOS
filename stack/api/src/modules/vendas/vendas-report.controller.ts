@@ -8,6 +8,8 @@ import { VendasRankingService } from './vendas-ranking.service';
 import { podeVerDinheiro, semDinheiro } from './vendas-ranking-sigilo';
 import type { VendasAbc } from '@pralis/shared';
 import { VendasAbcService } from './vendas-abc.service';
+import { VendasReportRepository } from './vendas-report.repository';
+import { montarPulso } from './vendas-pulso';
 
 type VendasReportQuery = VendasSchemas.VendasReportQuery;
 
@@ -88,5 +90,23 @@ export class VendasAbcController {
       store, request.query.inicio, request.query.fim, request.query.classe,
     );
     return reply.status(200).send(buildResponse(data, 'Produtos da curva ABC'));
+  }
+}
+
+/**
+ * O pulso da importação. Aberto a qualquer sessão autenticada de propósito:
+ * é sinal de saúde do sistema, não dado de negócio — não traz valor nenhum,
+ * só datas. Quem vê a tela de vendas precisa saber que o dado está velho.
+ */
+@injectable()
+export class VendasPulsoController {
+  constructor(@inject(VendasReportRepository) private repository: VendasReportRepository) {}
+
+  async pulso(request: FastifyRequest, reply: FastifyReply) {
+    if (!request.currentUser) throw new AppError('Não autenticado.', 401, 'UNAUTHENTICATED');
+    const leituras = await this.repository.pulsoDasFontes();
+    /* Data pelo relógio do servidor, em UTC — a mesma base das colunas `date`. */
+    const hoje = new Date().toISOString().slice(0, 10);
+    return reply.status(200).send(buildResponse(montarPulso(leituras, hoje), 'Pulso da importação'));
   }
 }

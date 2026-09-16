@@ -31,7 +31,6 @@ export const apiResponseSchema = <T extends z.ZodType>(dataSchema: T) =>
     details: z.any(),
   });
 
-export const messageReplySchema = z.object({ message: z.string() });
 
 export function buildResponse<T>(data: T, message = 'Success', details: unknown = null): ApiResponse<T> {
   return { message, data, details };

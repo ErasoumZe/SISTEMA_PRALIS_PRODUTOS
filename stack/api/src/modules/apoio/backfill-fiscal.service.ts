@@ -2,7 +2,6 @@ import { inject, injectable } from 'tsyringe';
 import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/db/databases';
 import { products, productFiscal } from '@/modules/product/product.table';
-import { ProductRepository } from '@/modules/product/product.repository';
 import { ProductSheetRepository } from '@/modules/google-sheets/product-sheet.repository';
 import { env } from '@/config/env';
 import { TaxRuleService, type EstadoFiscal } from './tax-rule.service';
@@ -49,9 +48,16 @@ const PEDEM_TENTATIVA: EstadoFiscal[] = [
 
 @injectable()
 export class BackfillFiscalService {
+  /*
+   * `ProductRepository` saiu daqui: era injetado e nunca usado.
+   *
+   * O backfill lê produto por consulta própria (`elegiveis`) e grava pelo
+   * caminho fiscal — nunca passou pelo repositório. A injeção sobrando obrigava
+   * todo teste a montar um dublê a mais e amarrava este serviço a um módulo do
+   * qual ele não depende.
+   */
   constructor(
     @inject(TaxRuleService) private taxRules: TaxRuleService,
-    @inject(ProductRepository) private produtos: ProductRepository,
     @inject(ProductSheetRepository) private sync: ProductSheetRepository,
   ) {}
 

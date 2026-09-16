@@ -115,7 +115,7 @@ class UnionFind {
  * exatamente o nome que tinham, e só quem não tinha nenhum passa a ter.
  */
 const ORDEM_NOME = [
-  'pralis', 'compilart_tnp', 'sia_li', 'planilha_tnp', 'fiscal_tnp',
+  'pralis', 'compilart_tnp', 'sia_li', 'vendas_pdv_12m', 'planilha_tnp', 'fiscal_tnp',
   'planilha_nova', 'vendidos_tnp',
 ];
 

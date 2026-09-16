@@ -3,7 +3,7 @@ import { customAlphabet } from 'nanoid';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { ProductRepository } from './product.repository';
 import { ProductSheetService, type SheetSyncOutcome } from '@/modules/google-sheets/product-sheet.service';
-import { esperarEspelho, PRAZO_ESPELHO_NA_TELA } from '@/modules/google-sheets/espelho-na-tela';
+import { esperarEspelho } from '@/modules/google-sheets/espelho-na-tela';
 import {
   LOJAS_ESPELHADAS,
   ProductSheetLojaService,
