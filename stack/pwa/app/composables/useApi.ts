@@ -50,6 +50,13 @@ export interface TotaisUnificacao {
   grupos: number; porMotivo: Record<string, number>; jaNoPralis: number; aCriar: number;
   semFiscalTnp: number; semGrupo: number; nomesDivergentes: number; barrasConflitante: number;
   pendentes: number; decididos: number;
+  /**
+   * `decididos` soma as duas naturezas; estas duas as separam. Um descarte
+   * (`não é o mesmo`, `ignorado`) tira o grupo da fila sem criar nada, então
+   * contá-lo junto com a unificação faz a tela prometer cadastro que ninguém
+   * mandou criar.
+   */
+  unificados: number; descartados: number;
 }
 
 /**
@@ -366,11 +373,22 @@ export function useApi() {
         '/admin/produtos/reenvio', { ...base },
       )),
 
-    /** Reenvia agora, sem esperar o job de 5 em 5 minutos. */
-    reenviarAgora: (limite = 50) =>
-      unwrap($fetch<{ data: { tentados: number; sincronizados: number; falharam: number; desistidos: number } }>(
-        '/admin/produtos/reenvio', { ...base, method: 'POST', body: { limite } },
-      )),
+    /**
+     * Reenvia agora, sem esperar o job de 5 em 5 minutos.
+     *
+     * `incluirDesistidos` devolve à fila quem já estourou o teto de tentativas.
+     * É uma afirmação humana — "a causa foi corrigida" —, por isso nunca vai
+     * ligado por padrão e o job automático não o usa.
+     */
+    reenviarAgora: (limite = 50, incluirDesistidos = false) =>
+      unwrap($fetch<{
+        data: {
+          tentados: number; sincronizados: number; falharam: number;
+          desistidos: number; reanimados: number;
+        };
+      }>('/admin/produtos/reenvio', {
+        ...base, method: 'POST', body: { limite, incluirDesistidos },
+      })),
 
     // ---- admin ----
     dashboard: () => unwrap($fetch<{ data: Dashboard }>('/admin/dashboard', { ...base })),
