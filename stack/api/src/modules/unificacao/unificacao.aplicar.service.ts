@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import { customAlphabet } from 'nanoid';
 import { eq, sql } from 'drizzle-orm';
-import type { ProductRequests, ProductSchemas } from '@pralis/shared';
+import type { ProductRequests } from '@pralis/shared';
 import { db } from '@/db/databases';
 import { AppError } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
@@ -17,10 +17,6 @@ import type { CandidatoUnificado } from './unificacao.motor';
 const rand4 = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 4);
 const genCodigo = () => `PR-${rand4()}-${rand4()}`;
 
-/** Lojas que recebem cópia. BASE é o mestre, HORA ainda não entra. */
-const LOJAS_DESTINO = ['LI', 'TNP'] as const;
-type LojaDestino = (typeof LOJAS_DESTINO)[number];
-
 export type AcaoUnificacao = 'unificado' | 'nao_e_o_mesmo' | 'criado' | 'ignorado';
 
 export interface ResultadoUnificar {
@@ -29,8 +25,6 @@ export interface ResultadoUnificar {
   productId: string;
   codigo: string;
   codigoInterno: string;
-  lojasCriadas: LojaDestino[];
-  lojasAtualizadas: LojaDestino[];
   sheetSync: string;
 }
 
@@ -68,9 +62,8 @@ export interface ResultadoLoteFaltantes {
  *  - `registerPending` + `syncProduct` — sem isso o unificado não chega ao
  *    Sheets nem, por consequência, ao Criare.
  *
- * O fiscal é gravado POR LOJA e copiado da fonte: LI do SIA, TNP da
- * contabilidade. O produto BASE fica SEM fiscal — fiscal é da loja, e inventar
- * um "fiscal do BASE" seria escolher um dos dois sem base para isso.
+ * A Central grava somente a BASE. A cópia e o fiscal de cada loja entram no
+ * fluxo explícito "Importar da Base", para TNP e LI permanecerem independentes.
  */
 @injectable()
 export class UnificacaoAplicarService {
@@ -112,48 +105,10 @@ export class UnificacaoAplicarService {
     return itens.map((i) => i.codBarras).find((b) => !!b && b.trim() !== '') ?? null;
   }
 
-  /**
-   * Fiscal da loja, copiado da fonte. Campo que a fonte não traz sai NULO —
-   * nada de herdar do grupo nem da outra loja.
-   */
-  private fiscalDaLoja(loja: LojaDestino, c: CandidatoUnificado): ProductSchemas.ProductEntity['fiscal'] {
-    const vazio = {
-      cest: null, categoria: null, cstPisCofins: null, aliquotaCheia: null,
-      aliquotaFcp: null, aliquotaPis: null, aliquotaCofins: null,
-      tributacaoSimples: null, aliquotaSimples: null, icmsRe: null, baseFiscal: null,
-      codigoFiscal: null, produtoFiscal: null, cstReforma: null, cClassTrib: null,
-      aliquotaIbs: null, aliquotaCbs: null, origemFiscal: null,
-      aliquotaEcf: null,
-      aliquotaEcfId: null,
-      /*
-       * A Central NÃO classifica: ela copia o fiscal que as fontes dela trazem
-       * e para aí. Consultar a regra do grupo e o cadastro de ECF para cada
-       * grupo do lote seriam milhares de chamadas ao Google dentro de uma
-       * requisição — o backfill existe justamente para isso.
-       *
-       * Marcar `nao_classificado` é o que impede o produto de parecer pronto:
-       * `null` aqui era indistinguível de "já foi classificado e está completo".
-       */
-      estado: 'nao_classificado' as const,
-      motivo: 'Criado pela Central; a carga fiscal ainda não foi buscada.',
-      pctNcm: null,
-    };
-    if (loja === 'LI') {
-      if (!c.fiscalLi) return null;
-      // o SIA entrega NCM e redução. `icms` fica nulo porque a alíquota interna
-      // do SIA não é a mesma coisa que o ICMS efetivo da contabilidade — cada
-      // loja grava o que a SUA fonte diz, e nenhuma preenche a lacuna da outra.
-      return { ...vazio, ncm: c.fiscalLi.ncm, reducaoIcms: c.fiscalLi.reducao, icms: null };
-    }
-    if (!c.fiscalTnp) return null;
-    return { ...vazio, ncm: c.fiscalTnp.ncm, reducaoIcms: null, icms: c.fiscalTnp.icmsEfetivo };
-  }
-
   private payload(
     c: CandidatoUnificado,
     barras: string | null,
     ativo: boolean,
-    fiscal: ProductSchemas.ProductEntity['fiscal'],
   ): ProductRequests.CreateProductRequest {
     return {
       nome: c.nome,
@@ -186,7 +141,8 @@ export class UnificacaoAplicarService {
       localVenda2: null,
       promocoes: [],
       transformacao: null,
-      fiscal,
+      // O fiscal pertence à loja e será aplicado quando a BASE for importada.
+      fiscal: null,
     };
   }
 
@@ -235,9 +191,15 @@ export class UnificacaoAplicarService {
   /**
    * O que a atualização pode mexer no cadastro.
    *
-   * Nome e grupo: só preenche o que estiver VAZIO. O que o José curou no Pralis
-   * é dele — a divergência continua marcada em vermelho na tela para ele
-   * decidir, e não é apagada por trás.
+   * Nome: só o nome ESCOLHIDO na tela sobrescreve o que já está no Pralis. A
+   * distinção é `nomeDe === 'escolha_manual'`, carimbado por `unificar` depois
+   * de conferir que o nome veio das fontes daquele produto. O nome que o motor
+   * deduziu sozinho continua servindo só para preencher cadastro SEM nome: o
+   * lote automático e o "criar todos os que faltam" unificam sem nome
+   * escolhido, e sem essa distinção apagariam em massa o nome que o José curou
+   * no Pralis, sem ninguém ter clicado nisso.
+   *
+   * Grupo só é preenchido quando ainda está vazio.
    *
    * Custo e venda: o Compilart SOBRESCREVE, porque é o catálogo vivo da loja e
    * o Pralis pode estar com valor velho. Sem Compilart no grupo, não mexe.
@@ -247,35 +209,14 @@ export class UnificacaoAplicarService {
     c: CandidatoUnificado,
     temCompilart: boolean,
   ): ProductRequests.UpdateProductRequest {
+    const escolhidoNaTela = c.nomeDe === 'escolha_manual';
+    const trocaNome = c.nome.trim() !== '' && c.nome !== atual.nome
+      && (escolhidoNaTela || !atual.nome?.trim());
     return {
-      ...(atual.nome?.trim() ? {} : { nome: c.nome }),
+      ...(trocaNome ? { nome: c.nome } : {}),
       ...(atual.grupo?.trim() ? {} : { grupo: c.grupo ?? 'A CLASSIFICAR' }),
       ...(temCompilart && c.custo != null ? { custo: c.custo } : {}),
       ...(temCompilart && c.venda != null ? { vVendaPontual: c.venda } : {}),
-    };
-  }
-
-  /**
-   * Fiscal existente + o que a fonte da loja diz.
-   *
-   * Mescla em vez de substituir: `replaceRelations` apaga e regrava o bloco
-   * inteiro, e mandar só os campos da fonte jogaria fora o resto (o
-   * `cstPisCofins` que veio da regra do grupo quando o produto foi cadastrado
-   * pelo caminho normal, por exemplo).
-   */
-  private fiscalMesclado(
-    atual: ProductSchemas.ProductEntity['fiscal'],
-    loja: LojaDestino,
-    c: CandidatoUnificado,
-  ): ProductSchemas.ProductEntity['fiscal'] {
-    const daFonte = this.fiscalDaLoja(loja, c);
-    if (!daFonte) return atual; // a fonte não tem fiscal para esta loja: não mexe
-    if (!atual) return daFonte;
-    return {
-      ...atual,
-      ncm: daFonte.ncm ?? atual.ncm,
-      reducaoIcms: daFonte.reducaoIcms ?? atual.reducaoIcms,
-      icms: daFonte.icms ?? atual.icms,
     };
   }
 
@@ -328,7 +269,7 @@ export class UnificacaoAplicarService {
     if (existente) {
       return this.atualizar(user, grupo, itens, candidato, existente);
     }
-    return this.criar(user, grupo, itens, candidato, barras);
+    return this.criar(user, grupo, candidato, barras);
   }
 
   /**
@@ -401,44 +342,11 @@ export class UnificacaoAplicarService {
     // reenfileira: sem isto a atualização não chega ao Sheets nem ao Criare
     await this.sheets.registerPending(base.id);
 
-    const espelhos = await this.repo.listByBaseProductId(base.id);
-    const lojasCriadas: LojaDestino[] = [];
-    const lojasAtualizadas: LojaDestino[] = [];
-
-    for (const loja of LOJAS_DESTINO) {
-      if (!grupo.lojas.includes(loja)) continue;
-      const espelho = espelhos.find((e) => e.loja === loja);
-      const ativoNaLoja = itens.some((i) => i.loja === loja && i.ativo === true);
-
-      if (espelho) {
-        await this.repo.update(espelho.id, {
-          ...this.patchCadastro(espelho, candidato, temCompilart),
-          fiscal: this.fiscalMesclado(espelho.fiscal, loja, candidato),
-        });
-        lojasAtualizadas.push(loja);
-        continue;
-      }
-      await this.repo.create(
-        this.payload(candidato, barras, ativoNaLoja, this.fiscalDaLoja(loja, candidato)),
-        {
-          loja,
-          codigo: await this.novoCodigo(),
-          codigoInterno: base.codigoInterno,
-          createdByUserId: user.id,
-          createdByName: user.name,
-          baseProductId: base.id,
-        },
-      );
-      lojasCriadas.push(loja);
-    }
-
     await this.registrar(grupo.chave, 'unificado', user, {
       modo: 'atualizado',
       encontradoPor: existente.por,
       nome: base.nome,
       custoVendaDoCompilart: temCompilart,
-      lojasAtualizadas,
-      lojasCriadas,
       fontes: grupo.fontes,
     }, base.id);
 
@@ -450,17 +358,14 @@ export class UnificacaoAplicarService {
       productId: base.id,
       codigo: base.codigo,
       codigoInterno: base.codigoInterno ?? '',
-      lojasCriadas,
-      lojasAtualizadas,
       sheetSync: sync.outcome,
     };
   }
 
-  /** Cria o produto BASE e as cópias das lojas presentes no grupo. */
+  /** Cria somente o produto BASE. Cada loja importa depois, de forma independente. */
   private async criar(
     user: CurrentUser,
     grupo: typeof unifGrupo.$inferSelect,
-    itens: Array<{ loja: string; ativo: boolean | null }>,
     candidato: CandidatoUnificado,
     barras: string | null,
   ): Promise<ResultadoUnificar> {
@@ -469,34 +374,14 @@ export class UnificacaoAplicarService {
 
     // BASE sem fiscal: fiscal é da loja. Espelho da planilha enfileirado junto.
     const base = await this.repo.create(
-      this.payload(candidato, barras, candidato.ativo, null),
+      this.payload(candidato, barras, candidato.ativo),
       { loja: 'BASE', codigo, codigoInterno, createdByUserId: user.id, createdByName: user.name },
       (productId, tx) => this.sheets.registerPending(productId, tx),
     );
 
-    const lojasCriadas: LojaDestino[] = [];
-    for (const loja of LOJAS_DESTINO) {
-      if (!grupo.lojas.includes(loja)) continue;
-      if (await this.repo.findDuplicate(loja, candidato.nome, barras)) continue;
-
-      const ativoNaLoja = itens.some((i) => i.loja === loja && i.ativo === true);
-      await this.repo.create(
-        this.payload(candidato, barras, ativoNaLoja, this.fiscalDaLoja(loja, candidato)),
-        {
-          loja,
-          codigo: await this.novoCodigo(),
-          codigoInterno, // mesmo código interno entre as lojas, como na importação
-          createdByUserId: user.id,
-          createdByName: user.name,
-          baseProductId: base.id,
-        },
-      );
-      lojasCriadas.push(loja);
-    }
-
     await this.registrar(grupo.chave, 'unificado', user, {
       modo: 'criado',
-      nome: candidato.nome, grupo: candidato.grupo, barras, lojasCriadas, fontes: grupo.fontes,
+      nome: candidato.nome, grupo: candidato.grupo, barras, fontes: grupo.fontes,
     }, base.id);
 
     // Depois do commit: o produto JÁ está salvo. Se o Google falhar, fica
@@ -510,8 +395,6 @@ export class UnificacaoAplicarService {
       productId: base.id,
       codigo,
       codigoInterno,
-      lojasCriadas,
-      lojasAtualizadas: [],
       sheetSync: sync.outcome,
     };
   }

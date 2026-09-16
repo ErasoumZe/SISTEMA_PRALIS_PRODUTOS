@@ -316,6 +316,94 @@ describe('recalcular', () => {
     await db.execute(sqlTag`UPDATE unif_grupo SET decisao = NULL, decidido_por = NULL WHERE chave = '10000'`);
   });
 
+  /*
+   * O caso real de 16/09/2026: 1.631 grupos marcados como "viraram cadastro" e
+   * algumas centenas de produtos na Base. Zerar o catalogo apaga o produto e
+   * NAO limpa a decisao — o grupo continuava escondido e o cabecalho continuava
+   * contando cadastro que nao existe mais.
+   */
+  it('decisao cujo produto BASE foi apagado volta a ficar pendente', async () => {
+    await db.execute(sqlTag`
+      UPDATE unif_grupo SET decisao = 'unificado', decidido_por = 'Jose', decidido_em = now()
+      WHERE chave = '10000'`);
+    await db.execute(sqlTag`
+      INSERT INTO unif_decisao (id, grupo_chave, acao, product_id, detalhe, usuario_nome)
+      VALUES ('d-sumiu', '10000', 'unificado', 'produto-que-nao-existe', '{}'::jsonb, 'Jose')`);
+
+    await grupos.recalcular();
+
+    const r = await db.execute(sqlTag`SELECT decisao FROM unif_grupo WHERE chave = '10000'`);
+    expect(r.rows[0]!.decisao).toBeNull();
+
+    await db.execute(sqlTag`DELETE FROM unif_decisao WHERE id = 'd-sumiu'`);
+  });
+
+  it('decisao cujo produto BASE existe continua concluida', async () => {
+    await db.execute(sqlTag`
+      INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
+                            habilitar_ajuda, auto)
+      VALUES ('base-vivo', 'BASE', 'PR-VV', 'ABACAXI UNID', 'UN', 'revenda', 'ativo', 1, 1, false, false)`);
+    await db.execute(sqlTag`
+      UPDATE unif_grupo SET decisao = 'unificado', decidido_por = 'Jose', decidido_em = now()
+      WHERE chave = '10000'`);
+    await db.execute(sqlTag`
+      INSERT INTO unif_decisao (id, grupo_chave, acao, product_id, detalhe, usuario_nome)
+      VALUES ('d-vivo', '10000', 'unificado', 'base-vivo', '{}'::jsonb, 'Jose')`);
+
+    await grupos.recalcular();
+
+    const r = await db.execute(sqlTag`SELECT decisao FROM unif_grupo WHERE chave = '10000'`);
+    expect(r.rows[0]!.decisao).toBe('unificado');
+
+    await db.execute(sqlTag`DELETE FROM unif_decisao WHERE id = 'd-vivo'`);
+    await db.execute(sqlTag`DELETE FROM products WHERE id = 'base-vivo'`);
+    await db.execute(sqlTag`UPDATE unif_grupo SET decisao = NULL, decidido_por = NULL WHERE chave = '10000'`);
+  });
+
+  /*
+   * O cadastro aposentado pela propria unificacao (`status = 'unificado'`) fica
+   * no banco para o desfazer, mas nao e mais um produto. Contar como vivo
+   * deixaria a decisao presa a um cadastro que sumiu das listagens.
+   */
+  it('BASE aposentado por unificacao NAO conta como produto vivo', async () => {
+    await db.execute(sqlTag`
+      INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
+                            habilitar_ajuda, auto)
+      VALUES ('base-aposentado', 'BASE', 'PR-AP', 'ABACAXI UNID', 'UN', 'revenda', 'unificado', 1, 1, false, false)`);
+    await db.execute(sqlTag`
+      UPDATE unif_grupo SET decisao = 'unificado', decidido_por = 'Jose', decidido_em = now()
+      WHERE chave = '10000'`);
+    await db.execute(sqlTag`
+      INSERT INTO unif_decisao (id, grupo_chave, acao, product_id, detalhe, usuario_nome)
+      VALUES ('d-apos', '10000', 'unificado', 'base-aposentado', '{}'::jsonb, 'Jose')`);
+
+    await grupos.recalcular();
+
+    const r = await db.execute(sqlTag`SELECT decisao FROM unif_grupo WHERE chave = '10000'`);
+    expect(r.rows[0]!.decisao).toBeNull();
+
+    await db.execute(sqlTag`DELETE FROM unif_decisao WHERE id = 'd-apos'`);
+    await db.execute(sqlTag`DELETE FROM products WHERE id = 'base-aposentado'`);
+  });
+
+  /* Descartar nao cria cadastro: nao ha produto para conferir, e a decisao fica. */
+  it('descarte continua valendo mesmo sem produto nenhum', async () => {
+    await db.execute(sqlTag`
+      UPDATE unif_grupo SET decisao = 'nao_e_o_mesmo', decidido_por = 'Jose', decidido_em = now()
+      WHERE chave = '10000'`);
+    await db.execute(sqlTag`
+      INSERT INTO unif_decisao (id, grupo_chave, acao, product_id, detalhe, usuario_nome)
+      VALUES ('d-descarte', '10000', 'nao_e_o_mesmo', NULL, '{}'::jsonb, 'Jose')`);
+
+    await grupos.recalcular();
+
+    const r = await db.execute(sqlTag`SELECT decisao FROM unif_grupo WHERE chave = '10000'`);
+    expect(r.rows[0]!.decisao).toBe('nao_e_o_mesmo');
+
+    await db.execute(sqlTag`DELETE FROM unif_decisao WHERE id = 'd-descarte'`);
+    await db.execute(sqlTag`UPDATE unif_grupo SET decisao = NULL, decidido_por = NULL WHERE chave = '10000'`);
+  });
+
   it('recalcular duas vezes da o mesmo numero de grupos', async () => {
     const a = await grupos.recalcular();
     const b = await grupos.recalcular();

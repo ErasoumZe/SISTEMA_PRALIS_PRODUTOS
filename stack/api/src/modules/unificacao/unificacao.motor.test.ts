@@ -251,3 +251,114 @@ describe('flags de revisao — marcam, nao bloqueiam', () => {
     expect(g.flags.semBarras).toBe(true);
   });
 });
+
+/*
+ * As chaves que a Central passou a usar para confrontar TUDO que ja foi
+ * cadastrado um dia. Antes, dois registros do mesmo produto so se encontravam
+ * pelo codigo de barras ou pelo nome — e nome e chave FRACA.
+ */
+describe('uniao pelo ID do sistema e pelo codigo interno', () => {
+  it('a linha da planilha com ID encontra a BASE mesmo com nome e barras diferentes', () => {
+    const grupos = agruparSimples([
+      item({
+        fonte: 'pralis', loja: 'BASE', idSistema: 'uuid-1', chaveBarras: '111',
+        nome: 'ABACAXI PEROLA', nomeNormalizado: 'ABACAXI PEROLA',
+      }),
+      item({
+        fonte: 'planilha_nova', loja: 'BASE', idSistema: 'uuid-1', chaveBarras: '222',
+        nome: 'ABACAXI UNID', nomeNormalizado: 'ABACAXI UNID',
+      }),
+    ]);
+
+    expect(grupos).toHaveLength(1);
+    expect(grupos[0]!.motivo).toBe('mesmo_id_sistema');
+  });
+
+  /*
+   * O ID e a chave MAIS forte que existe: foi o proprio sistema que a gravou na
+   * planilha. Ela tem de ganhar do codigo de barras quando os dois discordam,
+   * senao a linha que o espelho escreveu volta como se fosse outro produto.
+   */
+  it('o ID ganha do codigo de barras quando os dois estao presentes', () => {
+    const grupos = agruparSimples([
+      item({ fonte: 'pralis', loja: 'BASE', idSistema: 'uuid-9', chaveBarras: '111', nomeNormalizado: 'A' }),
+      item({ fonte: 'planilha_nova', loja: 'BASE', idSistema: 'uuid-9', chaveBarras: '111', nomeNormalizado: 'B' }),
+    ]);
+
+    expect(grupos).toHaveLength(1);
+    expect(grupos[0]!.motivo).toBe('mesmo_id_sistema');
+  });
+
+  it('linhas SEM ID nao se juntam por isso', () => {
+    const grupos = agruparSimples([
+      item({ fonte: 'planilha_nova', loja: 'BASE', chaveBarras: '111', nomeNormalizado: 'A' }),
+      item({ fonte: 'planilha_nova', loja: 'BASE', chaveBarras: '222', nomeNormalizado: 'B' }),
+    ]);
+
+    expect(grupos).toHaveLength(2);
+  });
+
+  /*
+   * O codigo interno era classificado como "correspondencia exata" na tela, mas
+   * nao unia nada: dois registros com o MESMO interno e nomes diferentes
+   * ficavam em grupos separados, e a tela prometia um casamento que o motor nao
+   * fazia.
+   */
+  it('o mesmo codigo interno une a MESMA loja mesmo com nomes diferentes', () => {
+    const grupos = agruparSimples([
+      item({ fonte: 'pralis', loja: 'TNP', codInterno: '55', nomeNormalizado: 'REFRIGERANTE COLA' }),
+      item({ fonte: 'compilart_tnp', loja: 'TNP', codInterno: '55', nomeNormalizado: 'REFRI COLA 2L' }),
+    ]);
+
+    expect(grupos).toHaveLength(1);
+    expect(grupos[0]!.motivo).toBe('mesmo_cod_interno');
+  });
+
+  it('o zero a esquerda nao separa o mesmo codigo interno', () => {
+    const grupos = agruparSimples([
+      item({ fonte: 'pralis', loja: 'TNP', codInterno: '007', nomeNormalizado: 'A' }),
+      item({ fonte: 'compilart_tnp', loja: 'TNP', codInterno: '7', nomeNormalizado: 'B' }),
+    ]);
+
+    expect(grupos).toHaveLength(1);
+  });
+
+  /* `soDigitos` zeraria um interno alfanumerico e uniria tudo que nao e numero. */
+  it('codigo interno alfanumerico continua sendo ele mesmo', () => {
+    const iguais = agruparSimples([
+      item({ fonte: 'pralis', loja: 'TNP', codInterno: 'ab-10', nomeNormalizado: 'A' }),
+      item({ fonte: 'compilart_tnp', loja: 'TNP', codInterno: 'AB-10', nomeNormalizado: 'B' }),
+    ]);
+    expect(iguais).toHaveLength(1);
+
+    const diferentes = agruparSimples([
+      item({ fonte: 'pralis', loja: 'TNP', codInterno: 'AB-10', nomeNormalizado: 'A' }),
+      item({ fonte: 'compilart_tnp', loja: 'TNP', codInterno: 'CD-20', nomeNormalizado: 'B' }),
+    ]);
+    expect(diferentes).toHaveLength(2);
+  });
+
+  it('o codigo interno NAO cruza lojas diferentes', () => {
+    const grupos = agruparSimples([
+      item({ fonte: 'pralis', loja: 'LI', codInterno: '55', nomeNormalizado: 'A' }),
+      item({ fonte: 'pralis', loja: 'TNP', codInterno: '55', nomeNormalizado: 'B' }),
+    ]);
+
+    expect(grupos).toHaveLength(2);
+  });
+
+  /*
+   * Nas duas fontes TNP sem coluna de barras o campo "interno" guarda a
+   * linhagem do codigo do Creare, que ja virou chave FORTE. Se ele tambem
+   * entrasse como codigo interno, casaria com a numeracao propria do Compilart,
+   * que e outra coisa com os mesmos digitos.
+   */
+  it('a numeracao do Compilart nao casa com a linhagem do Creare', () => {
+    const grupos = agruparSimples([
+      item({ fonte: 'compilart_tnp', loja: 'TNP', codInterno: '4396', nome: 'A', nomeNormalizado: 'A' }),
+      item({ fonte: 'fiscal_tnp', loja: 'TNP', codInterno: '4396', nome: 'B', nomeNormalizado: 'B' }),
+    ]);
+
+    expect(grupos).toHaveLength(2);
+  });
+});

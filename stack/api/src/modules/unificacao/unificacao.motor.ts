@@ -7,11 +7,13 @@
  */
 
 export type LojaFonte = 'LI' | 'TNP' | 'BASE' | 'HORA';
-export type MotivoGrupo = 'mesmo_cod_barras' | 'mesmo_cod_interno' | 'nome_parecido' | 'unico';
+export type MotivoGrupo = 'mesmo_id_sistema' | 'mesmo_cod_barras' | 'mesmo_cod_interno' | 'nome_parecido' | 'unico';
 
 /** Uma linha do staging, já pronta para agrupar. */
 export interface ItemFonte {
   id: string;
+  /** UUID compartilhado pela BASE e pela linha correspondente da planilha nova. */
+  idSistema?: string;
   fonte: string;
   loja: LojaFonte;
   codInterno: string;
@@ -77,6 +79,12 @@ export interface GrupoReconciliado {
 const FONTES_CHAVE_NO_INTERNO = new Set(['planilha_tnp', 'fiscal_tnp']);
 
 const soDigitos = (v: string) => v.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+
+/** Código interno comparável sem perder códigos alfanuméricos. */
+const chaveInterna = (v: string): string => {
+  const limpo = v.trim().toUpperCase();
+  return /^\d+$/.test(limpo) ? limpo.replace(/^0+(?=\d)/, '') : limpo;
+};
 
 /** A chave FORTE do item: barras quando existe, senão o código do Creare. */
 export function chaveForte(item: ItemFonte): string {
@@ -179,15 +187,20 @@ export function montarCandidato(itens: ItemFonte[]): CandidatoUnificado {
 function motivoDo(itens: ItemFonte[]): MotivoGrupo {
   if (itens.length === 1) return 'unico';
 
+  const ids = itens.map((item) => item.idSistema).filter(Boolean);
+  if (new Set(ids).size < ids.length) return 'mesmo_id_sistema';
+
   const chaves = itens.map(chaveForte).filter(Boolean);
   if (new Set(chaves).size < chaves.length) return 'mesmo_cod_barras';
 
   // código interno só vale DENTRO da mesma loja — nunca cruza
   const porLoja = new Map<string, string[]>();
   for (const i of itens) {
-    if (!i.codInterno) continue;
+    // Nessas duas fontes o campo chamado interno guarda, na verdade, a
+    // linhagem do código de barras do Creare. Ele já entrou na chave forte.
+    if (!i.codInterno || FONTES_CHAVE_NO_INTERNO.has(i.fonte)) continue;
     const k = i.loja;
-    porLoja.set(k, [...(porLoja.get(k) ?? []), i.codInterno]);
+    porLoja.set(k, [...(porLoja.get(k) ?? []), chaveInterna(i.codInterno)]);
   }
   for (const internos of porLoja.values()) {
     if (new Set(internos).size < internos.length) return 'mesmo_cod_interno';
@@ -203,8 +216,10 @@ export interface EntradaAgrupamento {
 }
 
 /**
- * Agrupa por união de duas chaves:
+ * Agrupa por união de chaves:
+ *  - ID do sistema: liga a linha da planilha diretamente à BASE;
  *  - chave FORTE (código de barras / código do Creare): cruza lojas;
+ *  - código interno: casa somente dentro da mesma loja/catálogo;
  *  - nome normalizado: chave FRACA, só sugere.
  *
  * Medido sobre as 12.844 linhas reais: incluir o nome dá 4.322 grupos com o
@@ -217,8 +232,12 @@ export function agrupar({ itens, barrasConflitantes }: EntradaAgrupamento): Grup
   itens.forEach((item, i) => {
     const no = `L${i}`;
     uf.achar(no);
+    if (item.idSistema) uf.unir(no, `P:${item.idSistema}`);
     const forte = chaveForte(item);
     if (forte) uf.unir(no, `B:${forte}`);
+    if (item.codInterno && !FONTES_CHAVE_NO_INTERNO.has(item.fonte)) {
+      uf.unir(no, `I:${item.loja}:${chaveInterna(item.codInterno)}`);
+    }
     if (item.nomeNormalizado) uf.unir(no, `N:${item.nomeNormalizado}`);
   });
 
