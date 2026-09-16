@@ -25,7 +25,13 @@ onMounted(() => {
 interface NavItem { title: string; icon: string; to: string; section: string }
 const nav = computed<NavItem[]>(() => {
   const items: NavItem[] = [];
-  if (isAdmin.value) items.push({ title: 'Dashboard', icon: 'dashboard', to: '/dashboard', section: 'Geral' });
+  /*
+   * Dashboard SAIU do menu, como "Conferir planilha" saiu antes: o sistema já
+   * abre em Produtos, então ela era uma linha que nunca se clicava disputando
+   * espaço com o que se usa toda hora. A TELA continua inteira em `/dashboard`
+   * — produtos por loja, ativos x inativos e produtividade ainda respondem
+   * perguntas que nenhuma outra tela responde.
+   */
   items.push({ title: 'Produtos', icon: 'inventory_2', to: '/', section: 'Geral' });
   // Relatório de vendas cobre só TNP e LI. Esconder o item de quem não pode
   // entrar evita mandar a pessoa numa tela que responde 403. O servidor
