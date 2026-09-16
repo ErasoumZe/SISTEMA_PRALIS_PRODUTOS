@@ -471,7 +471,21 @@ function preco(p: Product): string | null {
       </v-col>
     </v-row>
 
-    <v-card v-else-if="!loading && !erro" flat border rounded="lg" class="pa-12 text-center text-medium-emphasis">
+    <!--
+      Condição PRÓPRIA, e não `v-else` da lista de cards.
+      Encadeado, ele aparecia junto com a visualização em lista: o `v-if` dos
+      cards fica falso quando o modo é lista, o `v-else` assumia, e a tela
+      mostrava "Nenhum produto cadastrado ainda" logo abaixo de 332 produtos.
+      Quem decide se este bloco aparece é a AUSÊNCIA de produtos, não o modo
+      de visualização que está ligado.
+    -->
+    <v-card
+      v-if="!paginados.length && !loading && !erro"
+      flat
+      border
+      rounded="lg"
+      class="pa-12 text-center text-medium-emphasis"
+    >
       <v-icon size="48" class="mb-2">inventory_2</v-icon>
       <!-- "cadastrado" é o verbo do admin; a loja não cadastra, ela importa -->
       <div>
