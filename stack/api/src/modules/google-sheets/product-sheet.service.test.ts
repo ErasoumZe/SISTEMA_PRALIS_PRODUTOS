@@ -113,6 +113,7 @@ function planilha() {
 const envOriginal = {
   enabled: env.GOOGLE_SHEETS_ENABLED,
   spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+  baseTab: env.GOOGLE_SHEETS_BASE_TAB,
   email: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
   key: env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
 };
@@ -123,6 +124,7 @@ beforeEach(() => {
   // mais ID padrão — sem isso a sincronização é recusada.
   env.GOOGLE_SHEETS_ENABLED = true;
   env.GOOGLE_SHEETS_SPREADSHEET_ID = 'id-de-teste-nao-oficial';
+  env.GOOGLE_SHEETS_BASE_TAB = '(BASE) CADASTRO PRODUTOS';
   env.GOOGLE_SERVICE_ACCOUNT_EMAIL = 'teste@exemplo.iam.gserviceaccount.com';
   env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n';
 });
@@ -130,6 +132,7 @@ beforeEach(() => {
 afterEach(() => {
   env.GOOGLE_SHEETS_ENABLED = envOriginal.enabled;
   env.GOOGLE_SHEETS_SPREADSHEET_ID = envOriginal.spreadsheetId;
+  env.GOOGLE_SHEETS_BASE_TAB = envOriginal.baseTab;
   env.GOOGLE_SERVICE_ACCOUNT_EMAIL = envOriginal.email;
   env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = envOriginal.key;
 });
