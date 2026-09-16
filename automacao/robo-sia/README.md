@@ -1,6 +1,6 @@
-# Robô do SIA — ciclo das 22:30 (máquina da Lisboa)
+# Robô do SIA — ciclo das 22:30 (uma máquina por loja)
 
-Todo dia às 22:30, na máquina da Lisboa, o cadastro do Pralis vira cadastro no
+Todo dia às 22:30, na máquina **da loja**, o cadastro do Pralis vira cadastro no
 PDV. São três passos, nessa ordem:
 
 ```
@@ -12,6 +12,28 @@ PDV. São três passos, nessa ordem:
 O passo 2 apenas parseia o arquivo para a grade. Quem escreve em `produto`,
 `codigos`, `estoques`, `tributacaopiscofins` e `aliquotas_internas_produto` é o
 passo 3.
+
+## A LOJA É O PARÂMETRO MAIS IMPORTANTE
+
+```powershell
+.\ROBO-SIA-AUTO.ps1 -Loja TNP     # máquina da padaria
+.\ROBO-SIA-AUTO.ps1 -Loja LI      # máquina da Lisboa
+```
+
+Sem `-Loja` o padrão é `LI`, que era o comportamento antigo. O arquivo fica em
+`C:\cadastro-sia\cadastro-<loja>.txt` — um por loja, para nunca haver dúvida
+sobre de qual cadastro veio o que está em disco. `-Arquivo` sobrescreve o
+caminho quando for preciso.
+
+**Rodar a loja errada não é engano inofensivo.** O TXT carrega o `CODITEM` do
+SIA daquela loja, e o importador usa o `CODITEM` para decidir entre ATUALIZAR e
+INSERIR. O mesmo número é outro produto no outro cadastro: aplicar o arquivo da
+Lisboa na padaria grava por cima de produtos diferentes, em silêncio.
+
+**Cada loja precisa do seu de-para** carregado na API antes de qualquer
+exportação (`npm run creare:depara -- <exportação do SIA> --loja TNP`). Sem ele
+a API recusa a exportação com `CREARE_DEPARA_MISSING` — de propósito, porque
+sem `CODITEM` o importador insere tudo e duplica o catálogo.
 
 ## Antes de tudo: variáveis de ambiente da máquina
 
@@ -31,19 +53,23 @@ O token nunca aparece em log: o script registra a URL, jamais o `Authorization`.
 ## Passo 1 — baixar
 
 ```powershell
-.\baixar-cadastro.ps1                # catálogo todo da LI
-.\baixar-cadastro.ps1 -Limite 10     # primeira execução real, pequena
+.\baixar-cadastro.ps1 -Loja TNP -Destino 'C:\cadastro-sia\cadastro-tnp.txt'
+.\baixar-cadastro.ps1 -Loja TNP -Destino 'C:\cadastro-sia\cadastro-tnp.txt' -Limite 10
 ```
 
-Grava em `C:\cadastro-sia\cadastro-lisboa.txt`.
+O `-Limite 10` é a primeira execução real: dez produtos, conferidos no log antes
+de liberar o catálogo inteiro.
+
+Quando o `ROBO-SIA-AUTO.ps1` chama o download, ele já repassa a `-Loja` e o
+destino derivado dela — não é preciso repetir nada.
 
 O que ele faz antes de deixar o arquivo entrar:
 
-- baixa para `cadastro-lisboa.txt.baixando` e só troca o arquivo real depois de validar;
+- baixa para `<destino>.baixando` e só troca o arquivo real depois de validar;
 - exige que **toda** linha tenha exatamente **363** posições;
 - exige ASCII imprimível (o importador quebra a leitura com
   `' XXX' is not a valid integer value` se vier caractere estranho);
-- guarda o anterior em `cadastro-lisboa.txt.anterior`.
+- guarda o anterior em `<destino>.anterior`.
 
 **Se o download falhar, ele sai com código 1 e NÃO toca no arquivo que já
 existe.** Isso é de propósito: passar adiante faria o robô importar o catálogo
@@ -74,22 +100,15 @@ não existe desktop interativo, e ele falha ou clica no lugar errado.
 
 O passo 1 (baixar) não tem essa restrição — é só HTTP.
 
-## Encaixando o download no robô
+## O download já está dentro do robô
 
-`baixar-cadastro.ps1` é um passo separado e pode simplesmente rodar antes. Se
-preferir um só atalho, chame ele no começo do `ROBO-SIA-AUTO.ps1`, logo antes
-da verificação `if(-not (Test-Path $ARQUIVO))`:
+`ROBO-SIA-AUTO.ps1` chama o `baixar-cadastro.ps1` antes de abrir o importador,
+repassando a `-Loja`, e **só continua se ele terminar com código 0**. É essa
+checagem que impede uma falha de rede de virar reimportação do arquivo de
+ontem: sem arquivo novo, o robô sai sem abrir nada.
 
-```powershell
-& "$PSScriptRoot\baixar-cadastro.ps1"
-if ($LASTEXITCODE -ne 0) {
-    Write-Host 'download falhou - nao vou importar arquivo velho'
-    return
-}
-```
-
-O `if ($LASTEXITCODE -ne 0) { return }` é a parte que importa. Sem ele, uma
-falha de rede faria o robô seguir e reimportar o arquivo do dia anterior.
+Rodar o `baixar-cadastro.ps1` sozinho continua servindo para conferir o arquivo
+à mão, sem encostar no PDV.
 
 ## Logs
 
@@ -110,7 +129,10 @@ Os três arquivos do ciclo estão versionados nesta pasta:
 - `baixar-cadastro.ps1`: baixa e valida o arquivo;
 - `ROBO-SIA-AUTO.ps1`: chama o download e, somente se ele terminar bem, importa
   e aplica no cadastro;
-- `INSTALAR-AGENDAMENTO-SIA.bat`: registra a tarefa interativa das 22:30.
+- `INSTALAR-AGENDAMENTO-SIA.bat <LOJA>`: registra a tarefa interativa das
+  22:30 já com a loja (`INSTALAR-AGENDAMENTO-SIA.bat TNP`). A tarefa fica com o
+  nome "Robo Cadastro SIA - TNP", então dá para ver pelo nome qual loja aquela
+  máquina atende. Sem argumento assume `LI`.
 
 A versão trazida para o repositório é a cópia atual fornecida em 03/09/2026.
 Antes de substituir o arquivo da Lisboa, guarde uma cópia do que estiver rodando

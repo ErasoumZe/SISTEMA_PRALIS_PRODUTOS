@@ -4,16 +4,28 @@ REM  Agenda o Robo Cadastro SIA para rodar TODO DIA as 22:30, sozinho.
 REM  IMPORTANTE: automacao de tela precisa da sessao LOGADA e DESBLOQUEADA
 REM  no horario. Este PC (SERVIDOR) deve ficar ligado e logado as 22:30.
 REM  Rode este arquivo UMA VEZ, na pasta onde esta o ROBO-SIA-AUTO.ps1.
+REM
+REM  A LOJA E O PRIMEIRO ARGUMENTO e entra na tarefa agendada:
+REM      INSTALAR-AGENDAMENTO-SIA.bat TNP
+REM      INSTALAR-AGENDAMENTO-SIA.bat LI
+REM  Sem argumento assume LI, que era o comportamento antigo.
+REM
+REM  Isso nao e detalhe: o arquivo carrega o CODITEM do SIA daquela loja, e o
+REM  importador usa o CODITEM para decidir entre atualizar e inserir. Agendar
+REM  a loja errada grava por cima de produtos DIFERENTES no PDV.
 REM ===================================================================
 title Agendar Robo Cadastro SIA (22:30)
 setlocal
+set "LOJA=%~1"
+if "%LOJA%"=="" set "LOJA=LI"
 set "PASTA=%~dp0"
 if "%PASTA:~-1%"=="\" set "PASTA=%PASTA:~0,-1%"
 set "PS1=%PASTA%\ROBO-SIA-AUTO.ps1"
-set "TAREFA=Robo Cadastro SIA - Lisboa"
+set "TAREFA=Robo Cadastro SIA - %LOJA%"
 set "HORARIO=22:30"
 
 echo.
+echo  Loja:    %LOJA%
 echo  Robo:    "%PS1%"
 echo  Horario: %HORARIO% (todo dia)
 echo.
@@ -25,7 +37,7 @@ if not exist "%PS1%" (
 )
 
 REM /IT = roda na sessao interativa quando o usuario esta logado (necessario p/ a tela)
-schtasks /Create /TN "%TAREFA%" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File \"%PS1%\"" /SC DAILY /ST %HORARIO% /IT /RL HIGHEST /F
+schtasks /Create /TN "%TAREFA%" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File \"%PS1%\" -Loja %LOJA%" /SC DAILY /ST %HORARIO% /IT /RL HIGHEST /F
 
 echo.
 if %ERRORLEVEL%==0 (

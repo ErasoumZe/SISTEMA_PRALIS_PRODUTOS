@@ -3,13 +3,36 @@
 #  Fluxo: abre importador -> empresa -> arquivo -> "Importar arquivo"
 #         -> fecha avisos -> aba "Dados no arquivo" -> "Aplicar ao cadastro"
 #         -> fecha avisos. Reporta cada passo.
-#  RODE NA MAQUINA DA LISBOA.
+#
+#  RODE NA MAQUINA DA LOJA -- a loja vem por parametro.
+#
+#  A loja NAO pode ficar fixa no script. O arquivo carrega o CODITEM do SIA
+#  daquela loja, e o importador usa o CODITEM para decidir entre atualizar e
+#  inserir: aplicar na maquina errada grava por cima de produtos DIFERENTES,
+#  porque o mesmo numero e outro produto no outro cadastro.
+#
+#  Exemplos:
+#      .\ROBO-SIA-AUTO.ps1                 # usa o padrao abaixo
+#      .\ROBO-SIA-AUTO.ps1 -Loja TNP
+#      .\ROBO-SIA-AUTO.ps1 -Loja LI -Arquivo 'C:\cadastro-sia\cadastro-lisboa.txt'
 # =====================================================================
+param(
+    [ValidateSet('LI', 'TNP', 'HORA')]
+    [string]$Loja = 'LI',
+
+    # Vazio = deriva da loja, para cada maquina ter o seu arquivo e nunca
+    # existir duvida sobre de qual cadastro veio o que esta em disco.
+    [string]$Arquivo = ''
+)
 $ErrorActionPreference='SilentlyContinue'
 
 # Arquivo REAL gerado pela Metade A (Pralis). Enquanto ele nao existir, o robo
 # sai sem abrir nada (agendar agora e inofensivo ate a Metade A produzir o arquivo).
-$ARQUIVO = 'C:\cadastro-sia\cadastro-lisboa.txt'
+if ([string]::IsNullOrWhiteSpace($Arquivo)) {
+  $Arquivo = "C:\cadastro-sia\cadastro-$($Loja.ToLower()).txt"
+}
+$ARQUIVO = $Arquivo
+Write-Host "loja: $Loja | arquivo: $ARQUIVO"
 
 # --- log para rodar sozinho: guarda tudo que o robo fez ---
 $logdir = 'C:\cadastro-sia\logs'
@@ -24,7 +47,7 @@ if (-not (Test-Path -LiteralPath $downloadScript)) {
   Stop-Transcript | Out-Null
   exit 1
 }
-& $downloadScript -Loja LI -Destino $ARQUIVO -LogDir $logdir
+& $downloadScript -Loja $Loja -Destino $ARQUIVO -LogDir $logdir
 if ($LASTEXITCODE -ne 0) {
   Write-Host 'ERRO: download/validacao falhou; o importador nao sera aberto.'
   Stop-Transcript | Out-Null
