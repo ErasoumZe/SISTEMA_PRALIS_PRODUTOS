@@ -14,8 +14,13 @@
 import 'reflect-metadata';
 import 'dotenv/config';
 
-const ANTIGA = '1C0FsFMZelHN1Il3xmoI7E5EStgr_8MpgYz0aJ-X2y2w';
-const NOVA = '1iQGitC8CMl8OGgW05buMcfqr9xer0d9CexnT6U6Dwvw';
+/*
+ * A ORIGEM é fixa porque é histórica: é onde a tabela fiscal viva está hoje.
+ * O DESTINO sai do ambiente — em 16/09/2026 o cadastro oficial mudou de
+ * planilha outra vez, e um destino fixo aqui faria este script gravar numa
+ * planilha que já não é a de produção, sem ninguém perceber.
+ */
+const ANTIGA = '1iQGitC8CMl8OGgW05buMcfqr9xer0d9CexnT6U6Dwvw';
 const ABA = '(TNP) FISCAL - DE PARA PRODUTOS';
 
 /** Faixas que o TaxRuleService lê. Copiar o bloco que as cobre. */
@@ -28,7 +33,19 @@ async function main() {
   const { GoogleSheetsClient, a1 } = await import('@/modules/google-sheets/google-sheets.client');
   const c = new GoogleSheetsClient();
 
+  const NOVA = env.GOOGLE_SHEETS_SPREADSHEET_ID;
+  if (!NOVA) {
+    console.log('GOOGLE_SHEETS_SPREADSHEET_ID vazio — sem destino, nao gravo nada.');
+    process.exit(1);
+  }
+  if (NOVA === ANTIGA) {
+    console.log('destino igual a origem — nada a fazer.');
+    process.exit(1);
+  }
+
   console.log(gravar ? '=== GRAVANDO ===' : '=== CONFERENCIA (nada sera gravado) ===');
+  console.log(`  origem : ${ANTIGA}`);
+  console.log(`  destino: ${NOVA}`);
 
   // ---- ja existe na nova? ----
   env.GOOGLE_SHEETS_SPREADSHEET_ID = NOVA;

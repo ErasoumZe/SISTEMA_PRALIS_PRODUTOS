@@ -184,3 +184,61 @@ describe('ReenvioSheetsService — espelho nas abas de loja', () => {
     expect(r).toMatchObject({ tentados: 1, sincronizados: 1, falharam: 0 });
   });
 });
+
+/**
+ * Resgatar quem já desistiu.
+ *
+ * O teto de 8 tentativas pressupõe que, depois de tantas falhas, o problema é
+ * permanente. Em 16/09/2026 esse pressuposto errou: a planilha oficial ficou
+ * inacessível por permissão, depois por cota, depois por uma aba faltando —
+ * problema TEMPORÁRIO, mas que durou mais que as ~3 horas do orçamento de
+ * espera. 123 produtos desistiram de um erro que já tinha sido corrigido.
+ *
+ * O buraco não era desistir: era não haver volta. `aguardando()` filtra pelo
+ * teto, então os desistidos ficavam de fora do automático E do manual — nenhum
+ * caminho os levava de volta à planilha.
+ */
+describe('ReenvioSheetsService — resgate dos desistidos', () => {
+  it('reanimar zera as tentativas de quem estourou o teto', async () => {
+    await naFila(ID(8), 'failed', TETO_TENTATIVAS, 999);
+    const servico = new ReenvioSheetsService(sheetsFalso('synced', []));
+
+    const reanimados = await servico.reanimarDesistidos();
+
+    expect(reanimados).toBe(1);
+    expect(await servico.desistidos()).toBe(0);
+    expect(await servico.aguardando()).toEqual([ID(8)]);
+  });
+
+  /* Quem ainda tem tentativas não pode ter a espera zerada por tabela: isso
+   * devolveria à fila, agora, alguém que acabou de falhar. */
+  it('não mexe em quem ainda está dentro do teto', async () => {
+    await naFila(ID(9), 'failed', 3, 0);
+    const servico = new ReenvioSheetsService(sheetsFalso('synced', []));
+
+    expect(await servico.reanimarDesistidos()).toBe(0);
+    expect(await servico.aguardando()).toEqual([]);
+  });
+
+  it('reprocessar com resgate leva o desistido de volta à planilha', async () => {
+    await naFila(ID(8), 'failed', TETO_TENTATIVAS, 999);
+    const tentados: string[] = [];
+
+    const r = await new ReenvioSheetsService(sheetsFalso('synced', tentados))
+      .reprocessar(50, { incluirDesistidos: true });
+
+    expect(tentados).toEqual([ID(8)]);
+    expect(r).toMatchObject({ tentados: 1, sincronizados: 1, reanimados: 1 });
+  });
+
+  /* Sem pedir o resgate, o comportamento de antes continua valendo. */
+  it('sem pedir resgate, o desistido segue de fora', async () => {
+    await naFila(ID(8), 'failed', TETO_TENTATIVAS, 999);
+    const tentados: string[] = [];
+
+    const r = await new ReenvioSheetsService(sheetsFalso('synced', tentados)).reprocessar();
+
+    expect(tentados).toEqual([]);
+    expect(r).toMatchObject({ tentados: 0, reanimados: 0 });
+  });
+});

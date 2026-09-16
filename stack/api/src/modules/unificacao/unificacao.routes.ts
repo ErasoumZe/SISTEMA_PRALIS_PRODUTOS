@@ -26,7 +26,7 @@ const peneiraSchema = z.object({
    */
   somenteVendidos: z.coerce.boolean().optional(),
   q: z.string().optional(),
-  decisao: z.enum(['pendente', 'feita']).optional(),
+  decisao: z.enum(['pendente', 'feita', 'unificados', 'descartados']).optional(),
 });
 
 /**

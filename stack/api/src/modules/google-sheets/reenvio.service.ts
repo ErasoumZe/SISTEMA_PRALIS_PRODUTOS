@@ -38,6 +38,20 @@ export interface ResultadoReenvio {
   sincronizados: number;
   falharam: number;
   desistidos: number;
+  /** Quantos voltaram à fila por resgate explícito nesta rodada. */
+  reanimados: number;
+}
+
+export interface OpcoesReenvio {
+  /**
+   * Devolve à fila quem já estourou o teto de tentativas.
+   *
+   * Fica DESLIGADO por padrão e só o gatilho manual o liga: o teto existe para
+   * impedir que a rotina brigue para sempre com um erro que não cede. Ligar
+   * isto é dizer "a causa foi corrigida, pode insistir de novo" — e isso é uma
+   * afirmação humana, não algo que um temporizador deva concluir sozinho.
+   */
+  incluirDesistidos?: boolean;
 }
 
 @injectable()
@@ -96,7 +110,8 @@ export class ReenvioSheetsService {
    * Nunca lança: é rotina de fundo. Uma falha aqui vira contagem, não exceção
    * que derruba o processo.
    */
-  async reprocessar(limite = 50): Promise<ResultadoReenvio> {
+  async reprocessar(limite = 50, opcoes: OpcoesReenvio = {}): Promise<ResultadoReenvio> {
+    const reanimados = opcoes.incluirDesistidos ? await this.reanimarDesistidos() : 0;
     const fila = await this.aguardando(limite);
     let sincronizados = 0;
     let falharam = 0;
@@ -119,7 +134,32 @@ export class ReenvioSheetsService {
       sincronizados,
       falharam,
       desistidos: await this.desistidos(),
+      reanimados,
     };
+  }
+
+  /**
+   * Devolve à fila quem bateu no teto, zerando as tentativas.
+   *
+   * Zera `attempts` em vez de só mudar o status porque a espera é calculada a
+   * partir dele: deixar em 8 faria a linha voltar a esperar a hora inteira do
+   * topo da curva, e o pedido humano de "tenta agora" viraria "tenta daqui a
+   * uma hora". `updated_at` também recua, pela mesma razão.
+   *
+   * Mexe SÓ em quem já estourou o teto. Quem ainda tem tentativas está no meio
+   * da própria espera — zerar por tabela devolveria à fila, agora, alguém que
+   * acabou de falhar, que é justamente o que a curva evita.
+   */
+  async reanimarDesistidos(): Promise<number> {
+    const r = await db
+      .update(productSheetSync)
+      .set({ attempts: 0, status: 'pending', updatedAt: new Date(0) })
+      .where(and(
+        inArray(productSheetSync.status, ['pending', 'failed']),
+        sql`${productSheetSync.attempts} >= ${TETO_TENTATIVAS}`,
+      ))
+      .returning({ productId: productSheetSync.productId });
+    return r.length;
   }
 
   /**

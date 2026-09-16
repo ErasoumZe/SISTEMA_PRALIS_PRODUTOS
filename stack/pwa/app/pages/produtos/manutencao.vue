@@ -130,14 +130,21 @@ async function carregarFila() {
   }
 }
 
-async function reenviarAgora() {
+/**
+ * `resgatar` inclui quem já desistiu. Fica num botão SEPARADO de propósito: o
+ * reenvio comum é rotina, e insistir com quem estourou o teto é uma decisão —
+ * só faz sentido depois de a causa das falhas ter sido corrigida.
+ */
+async function reenviarAgora(resgatar = false) {
   reenviando.value = true;
   resultadoReenvio.value = '';
   try {
-    const r = await api.reenviarAgora();
+    const r = await api.reenviarAgora(50, resgatar);
+    const resgate = r.reanimados ? `${r.reanimados} desistido(s) voltaram à fila. ` : '';
     resultadoReenvio.value = r.tentados === 0
-      ? 'Nada esperando reenvio agora.'
-      : `${r.sincronizados} de ${r.tentados} foram para a planilha. ${r.falharam} continuam pendentes.`;
+      ? `${resgate}Nada esperando reenvio agora.`
+      : `${resgate}${r.sincronizados} de ${r.tentados} foram para a planilha. `
+        + `${r.falharam} continuam pendentes.`;
     await carregarFila();
   } catch (e) {
     resultadoReenvio.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui reenviar.';
@@ -272,11 +279,27 @@ onMounted(() => {
               prepend-icon="sync"
               :loading="reenviando"
               :disabled="!fila || fila.aguardando === 0"
-              @click="reenviarAgora"
+              @click="reenviarAgora(false)"
             >
               Reenviar agora
             </v-btn>
+            <v-btn
+              v-if="fila && fila.desistidos > 0"
+              variant="tonal"
+              color="error"
+              prepend-icon="restart_alt"
+              :loading="reenviando"
+              @click="reenviarAgora(true)"
+            >
+              Tentar de novo os {{ fila.desistidos }} desistido(s)
+            </v-btn>
           </div>
+          <p v-if="fila && fila.desistidos > 0" class="text-body-2 text-medium-emphasis mt-3 mb-0">
+            Desistir depois de 8 tentativas pressupõe problema permanente. Quando a causa
+            era passageira mas demorou mais que isso — planilha sem permissão, cota
+            estourada, aba faltando — os produtos ficam presos aqui. Só clique depois de
+            a causa estar corrigida; insistir contra um erro que não cede queima cota à toa.
+          </p>
           <p v-if="resultadoReenvio" class="text-medium-emphasis mt-3 mb-0">{{ resultadoReenvio }}</p>
         </v-card-text>
       </v-card>

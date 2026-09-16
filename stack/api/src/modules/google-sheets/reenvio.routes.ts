@@ -29,7 +29,7 @@ export async function reenvioRoutes(app: FastifyInstance) {
 
   const resultado = apiResponseSchema(z.object({
     tentados: z.number(), sincronizados: z.number(),
-    falharam: z.number(), desistidos: z.number(),
+    falharam: z.number(), desistidos: z.number(), reanimados: z.number(),
   }));
 
   /** Quem está na fila agora, sem tentar nada. */
@@ -57,7 +57,15 @@ export async function reenvioRoutes(app: FastifyInstance) {
     '/admin/produtos/reenvio',
     {
       schema: {
-        body: z.object({ limite: z.number().int().min(1).max(200).optional() }),
+        body: z.object({
+          limite: z.number().int().min(1).max(200).optional(),
+          /**
+           * Resgatar quem já desistiu. Só o gatilho MANUAL pode pedir isto: é
+           * a pessoa afirmando que a causa das falhas foi corrigida. O
+           * temporizador nunca liga sozinho, senão o teto não teria sentido.
+           */
+          incluirDesistidos: z.boolean().optional(),
+        }),
         response: { 200: resultado },
         summary: 'Reenviar agora o que falhou (admin)',
         tags: ['ADMIN', 'PRODUTOS'],
@@ -65,10 +73,15 @@ export async function reenvioRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       exigirAdmin(request);
-      const r = await servico.reprocessar(request.body.limite ?? 50);
+      const r = await servico.reprocessar(
+        request.body.limite ?? 50,
+        { incluirDesistidos: request.body.incluirDesistidos },
+      );
       return reply.status(200).send(buildResponse(
         r,
-        `${r.sincronizados} de ${r.tentados} reenviado(s) com sucesso`,
+        r.reanimados
+          ? `${r.reanimados} desistido(s) voltaram à fila; ${r.sincronizados} de ${r.tentados} reenviado(s) com sucesso`
+          : `${r.sincronizados} de ${r.tentados} reenviado(s) com sucesso`,
       ));
     },
   );

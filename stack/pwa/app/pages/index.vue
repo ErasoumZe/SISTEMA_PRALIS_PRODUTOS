@@ -40,6 +40,33 @@ const abas = [
 ] as const;
 const aba = ref<'BASE' | 'TNP' | 'LI' | 'HORA'>('BASE');
 
+/**
+ * Card ou lista. A lista mostra mais produtos por tela e é a leitura de quem
+ * procura um item específico; o card é a leitura de quem está conferindo
+ * cadastro. Nenhum dos dois serve para as duas coisas, então ficam os dois.
+ *
+ * A escolha vive no `localStorage` porque é conveniência de quem olha, não
+ * dado do negócio: não precisa viajar até o servidor, e se o navegador recusar
+ * (janela anônima, site data bloqueado) a tela só volta ao padrão.
+ */
+type Modo = 'card' | 'lista';
+const CHAVE_MODO = 'pralis:produtos:modo';
+const modo = ref<Modo>('card');
+
+onMounted(() => {
+  try {
+    const salvo = localStorage.getItem(CHAVE_MODO);
+    if (salvo === 'card' || salvo === 'lista') modo.value = salvo;
+  } catch { /* sem localStorage a tela abre no padrão, e está tudo bem */ }
+});
+
+watch(modo, (novo) => {
+  try { localStorage.setItem(CHAVE_MODO, novo); } catch { /* idem */ }
+});
+
+/** Inicial para o produto sem foto: mantém o alinhamento das linhas da lista. */
+const inicial = (nome: string): string => nome.trim().charAt(0).toUpperCase() || '?';
+
 // filtros (sem "Todos" — nada selecionado = sem filtro; pílulas alternam/limpam)
 const statusFiltro = ref<'ativo' | 'inativo' | null>(null);
 const statusOpcoes = [
@@ -282,6 +309,10 @@ function preco(p: Product): string | null {
         <v-chip v-if="numFiltros" size="x-small" color="primary" class="ml-2 font-weight-bold">{{ numFiltros }}</v-chip>
         <v-icon end size="18">{{ mostrarFiltros ? 'expand_less' : 'expand_more' }}</v-icon>
       </v-btn>
+      <v-btn-toggle v-model="modo" mandatory density="compact" variant="outlined" divided>
+        <v-btn value="card" aria-label="Ver em cards"><v-icon>grid_view</v-icon></v-btn>
+        <v-btn value="lista" aria-label="Ver em lista"><v-icon>view_list</v-icon></v-btn>
+      </v-btn-toggle>
       <v-btn v-if="!isAdmin" variant="tonal" color="primary" prepend-icon="download" to="/importar">Importar da base</v-btn>
       <!-- só o admin cadastra produto novo (sempre na base geral) -->
       <v-btn v-if="isAdmin" color="primary" prepend-icon="add" to="/produtos/novo">Novo</v-btn>
@@ -341,7 +372,51 @@ function preco(p: Product): string | null {
 
     <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-4" />
 
-    <v-row v-if="paginados.length">
+    <!--
+      LISTA: foto, nome, preço, código interno e status — o que o José pediu.
+      Uma linha por produto, para caber mais gente na tela que os cards.
+    -->
+    <v-card v-if="paginados.length && modo === 'lista'" flat border rounded="lg" class="mb-2">
+      <v-list lines="two" density="comfortable">
+        <template v-for="(p, i) in paginados" :key="p.id">
+          <v-divider v-if="i > 0" />
+          <v-list-item :to="`/produtos/${p.id}`" class="py-2">
+            <template #prepend>
+              <v-avatar size="44" rounded="lg" :color="p.fotoUrl ? undefined : 'bege'">
+                <v-img v-if="p.fotoUrl" :src="p.fotoUrl" cover />
+                <span v-else class="text-subtitle-1 font-weight-bold text-primary">{{ inicial(p.nome) }}</span>
+              </v-avatar>
+            </template>
+
+            <v-list-item-title class="font-weight-bold">{{ p.nome }}</v-list-item-title>
+            <v-list-item-subtitle>
+              {{ p.codigoInterno || 'sem código interno' }}
+              <span v-if="preco(p)"> · <strong>R$ {{ preco(p) }}</strong></span>
+            </v-list-item-subtitle>
+
+            <template #append>
+              <div class="d-flex align-center ga-2">
+                <v-chip :color="p.status === 'ativo' ? 'success' : 'grey'" variant="tonal" size="small">
+                  {{ p.status === 'ativo' ? 'Ativo' : 'Inativo' }}
+                </v-chip>
+                <!-- `.prevent` para o clique de excluir não navegar para a edição -->
+                <v-btn
+                  v-if="isAdmin"
+                  icon="delete"
+                  size="small"
+                  variant="text"
+                  color="error"
+                  aria-label="Excluir produto"
+                  @click.prevent.stop="remover(p)"
+                />
+              </div>
+            </template>
+          </v-list-item>
+        </template>
+      </v-list>
+    </v-card>
+
+    <v-row v-if="paginados.length && modo === 'card'">
       <v-col v-for="p in paginados" :key="p.id" cols="12" sm="6" md="4">
         <v-card border flat rounded="lg" class="h-100 product-card">
           <v-card-item>

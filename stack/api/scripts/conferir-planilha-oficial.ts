@@ -50,11 +50,30 @@ async function main() {
     abas = await sheets.getSheets(id);
   } catch (e: unknown) {
     const erro = e as { code?: number; message?: string };
-    falha(`sem acesso à planilha (${erro?.code ?? '?'}): ${erro?.message ?? String(e)}`);
+    const codigo = erro?.code ?? 0;
+    falha(`não consegui ler a planilha (${codigo || '?'}): ${erro?.message ?? String(e)}`);
     console.log('');
-    console.log('  Compartilhe a planilha como EDITOR com a conta de serviço acima');
-    console.log('  e rode este script de novo. Enquanto isto falhar, a escrita do');
-    console.log('  cadastro não funciona — e o Pralis recusa em vez de fingir.');
+    /*
+     * 403 e 429 são problemas DIFERENTES e o conselho errado custa tempo:
+     * em 16/09/2026 o script mandou "compartilhe a planilha" para um 429, logo
+     * depois de a planilha já ter sido compartilhada. 429 significa que a
+     * chamada PASSOU da autorização — o acesso está certo, o que faltou foi
+     * cota. Tratar os dois como a mesma coisa esconde justamente o progresso.
+     */
+    if (codigo === 429) {
+      console.log('  Isto NÃO é falta de permissão: a chamada passou da autorização e');
+      console.log('  esbarrou na cota de leituras por minuto. Quem consome essa cota é a');
+      console.log('  API em produção — a carga da unificação lê a planilha inteira.');
+      console.log('  Espere um minuto e rode de novo. Se repetir sempre, veja quantas');
+      console.log('  cargas estão sendo disparadas em paralelo.');
+    } else if (codigo === 403 || codigo === 404) {
+      console.log('  Compartilhe a planilha como EDITOR com a conta de serviço acima');
+      console.log('  e rode este script de novo. Enquanto isto falhar, a escrita do');
+      console.log('  cadastro não funciona — e o Pralis recusa em vez de fingir.');
+    } else {
+      console.log('  Falha inesperada. Confira as credenciais da conta de serviço e a');
+      console.log('  conectividade antes de mexer no compartilhamento.');
+    }
     process.exitCode = 1;
     return;
   }
@@ -72,9 +91,36 @@ async function main() {
   };
   let tudoCerto = true;
   const temBase = exigir('cadastro', env.GOOGLE_SHEETS_BASE_TAB);
-  tudoCerto = exigir('fiscal  ', env.GOOGLE_SHEETS_FISCAL_TAB) && tudoCerto;
-  tudoCerto = exigir('grupos  ', env.GOOGLE_SHEETS_GRUPOS_TAB) && tudoCerto;
-  tudoCerto = temBase && tudoCerto;
+  const temFiscal = exigir('fiscal  ', env.GOOGLE_SHEETS_FISCAL_TAB);
+  const temGrupos = exigir('grupos  ', env.GOOGLE_SHEETS_GRUPOS_TAB);
+  tudoCerto = temBase && temFiscal && temGrupos;
+  console.log('');
+
+  /*
+   * Aba existir não é aba servir.
+   *
+   * Em 16/09/2026 este script deu OK para a aba de grupos porque ela existia —
+   * e ela estava INTEIRAMENTE vazia, sem as margens por grupo. Conferir só o
+   * nome transforma "a planilha nova veio sem o conteúdo" num OK verde, que é
+   * pior do que não ter conferido: dá confiança onde não havia.
+   */
+  console.log('CONTEUDO DAS ABAS DE APOIO');
+  const contar = async (aba: string, faixa: string, rotulo: string, minimo: number) => {
+    const [r] = await sheets.batchGetValues(id, [a1(aba, faixa)], 'FORMATTED_VALUE');
+    const linhas = (r ?? []).filter((l) => String((l ?? [])[0] ?? '').trim() !== '').length;
+    if (linhas >= minimo) { ok(`${rotulo}: ${linhas} linhas`); return true; }
+    falha(`${rotulo}: ${linhas} linhas — esperava ao menos ${minimo}. A aba existe e está vazia.`);
+    return false;
+  };
+  if (temFiscal) {
+    // as quatro faixas que o TaxRuleService lê; sem a de grupos ele lança 503
+    tudoCerto = await contar(env.GOOGLE_SHEETS_FISCAL_TAB, 'AB4:AG79', 'regras por grupo ', 1) && tudoCerto;
+    tudoCerto = await contar(env.GOOGLE_SHEETS_FISCAL_TAB, 'A4:E2000', 'regras por produto', 1) && tudoCerto;
+  }
+  if (temGrupos) {
+    // margem padrão por grupo: alimenta o preenchimento automático do formulário
+    tudoCerto = await contar(env.GOOGLE_SHEETS_GRUPOS_TAB, 'M5:N130', 'margens por grupo ', 1) && tudoCerto;
+  }
   console.log('');
   console.log('  Todas as abas do arquivo:');
   for (const a of abas) console.log(`    - "${a.title}" (${a.rowCount}x${a.columnCount})`);

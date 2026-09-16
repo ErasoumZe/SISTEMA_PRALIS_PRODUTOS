@@ -38,6 +38,17 @@ export const FONTE_VENDIDOS = 'vendas_pdv_12m';
  */
 export const MOTIVOS_EXATOS = ['mesmo_cod_barras', 'mesmo_cod_interno'] as const;
 
+/**
+ * As duas naturezas de decisão, que NÃO se somam.
+ *
+ * `unificado` e `criado` põem produto no catálogo. `nao_e_o_mesmo` e `ignorado`
+ * tiram o grupo da fila sem criar nada. Contar os quatro como "concluídos" faz
+ * a tela prometer cadastro que ninguém mandou criar — foi o que aconteceu em
+ * 16/09/2026, com 1.633 "concluídos" e algumas centenas de produtos na base.
+ */
+export const MOTIVOS_QUE_CRIAM = ['unificado', 'criado'] as const;
+export const MOTIVOS_QUE_DESCARTAM = ['nao_e_o_mesmo', 'ignorado'] as const;
+
 export interface FiltrosGrupos {
   /** `exatos` = os dois códigos de uma vez; os demais olham um motivo só. */
   filtro?: 'exatos' | 'mesmo_cod_barras' | 'mesmo_cod_interno' | 'nome_parecido' | 'unico';
@@ -52,7 +63,8 @@ export interface FiltrosGrupos {
   /** Só os grupos com ao menos um item vindo da fonte dos vendidos da TNP. */
   somenteVendidos?: boolean;
   q?: string;
-  decisao?: 'pendente' | 'feita';
+  /** `feita` = qualquer decisão; `unificados`/`descartados` separam a natureza. */
+  decisao?: 'pendente' | 'feita' | 'unificados' | 'descartados';
   pagina?: number;
   tamanho?: number;
 }
@@ -68,6 +80,10 @@ export interface TotaisUnificacao {
   barrasConflitante: number;
   pendentes: number;
   decididos: number;
+  /** Decisões que PÕEM produto no catálogo. */
+  unificados: number;
+  /** Decisões que tiram o grupo da fila sem criar nada. */
+  descartados: number;
 }
 
 const numero = (v: string | null): number | null => (v == null ? null : Number(v));
@@ -105,6 +121,8 @@ export function condicoesDeGrupos(f: FiltrosGrupos): SQL[] {
   }
   if (f.decisao === 'pendente') onde.push(sql`${unifGrupo.decisao} IS NULL`);
   if (f.decisao === 'feita') onde.push(sql`${unifGrupo.decisao} IS NOT NULL`);
+  if (f.decisao === 'unificados') onde.push(inArray(unifGrupo.decisao, [...MOTIVOS_QUE_CRIAM]));
+  if (f.decisao === 'descartados') onde.push(inArray(unifGrupo.decisao, [...MOTIVOS_QUE_DESCARTAM]));
   if (f.q?.trim()) {
     const termo = `%${f.q.trim()}%`;
     onde.push(or(
@@ -450,6 +468,8 @@ export class UnificacaoGruposService {
         barrasConflitante: sql<number>`count(*) FILTER (WHERE ${unifGrupo.flagBarrasConflitante})::int`,
         pendentes: sql<number>`count(*) FILTER (WHERE ${unifGrupo.decisao} IS NULL)::int`,
         decididos: sql<number>`count(*) FILTER (WHERE ${unifGrupo.decisao} IS NOT NULL)::int`,
+        unificados: sql<number>`count(*) FILTER (WHERE ${unifGrupo.decisao} IN ${MOTIVOS_QUE_CRIAM})::int`,
+        descartados: sql<number>`count(*) FILTER (WHERE ${unifGrupo.decisao} IN ${MOTIVOS_QUE_DESCARTAM})::int`,
       })
       .from(unifGrupo)
       .where(filtro);
@@ -471,6 +491,8 @@ export class UnificacaoGruposService {
       barrasConflitante: r?.barrasConflitante ?? 0,
       pendentes: r?.pendentes ?? 0,
       decididos: r?.decididos ?? 0,
+      unificados: r?.unificados ?? 0,
+      descartados: r?.descartados ?? 0,
     };
   }
 }
