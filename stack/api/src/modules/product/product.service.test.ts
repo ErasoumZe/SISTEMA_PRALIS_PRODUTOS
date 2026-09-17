@@ -129,12 +129,13 @@ describe('ProductService.delete — espelhamento da exclusão', () => {
  */
 function fakesUpdate(opts: { syncOutcome?: string; loja?: string; syncThrows?: Error } = {}) {
   const chamadas: string[] = [];
+  const update = vi.fn(async () => {
+    chamadas.push('banco:update');
+    return produto({ loja: (opts.loja ?? 'BASE') as Product['loja'], nome: 'NOME NOVO' });
+  });
   const repo = {
     async findById() { return produto({ loja: (opts.loja ?? 'BASE') as Product['loja'] }); },
-    async update() {
-      chamadas.push('banco:update');
-      return produto({ loja: (opts.loja ?? 'BASE') as Product['loja'], nome: 'NOME NOVO' });
-    },
+    update,
     async listByBaseProductId() { return []; }, // sem cópias de loja neste cenário
   } as unknown as ProductRepository;
 
@@ -147,7 +148,11 @@ function fakesUpdate(opts: { syncOutcome?: string; loja?: string; syncThrows?: E
     },
   } as unknown as ProductSheetService;
 
-  return { service: new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService, creareDriveParado()), chamadas };
+  return {
+    service: new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService, creareDriveParado()),
+    chamadas,
+    update,
+  };
 }
 
 describe('ProductService.update — o resultado do espelho não pode sumir', () => {
@@ -158,6 +163,16 @@ describe('ProductService.update — o resultado do espelho não pode sumir', () 
 
     expect(r.sheetSync).toBe('synced');
     expect(r.nome).toBe('NOME NOVO');
+  });
+
+  it('entrega o antes e o autor ao repositório para gravar o histórico junto da edição', async () => {
+    const { service, update } = fakesUpdate();
+
+    await service.update(admin, ID, { nome: 'NOME NOVO' });
+
+    expect(update).toHaveBeenCalledWith(ID, { nome: 'NOME NOVO' }, expect.objectContaining({
+      nomeAnterior: 'PAO FRANCES', alteradoPorUserId: admin.id, alteradoPorNome: admin.name,
+    }));
   });
 
   it('falha no Google NÃO derruba a edição, mas aparece como failed', async () => {

@@ -3,7 +3,7 @@ import { and, eq, ilike, inArray, or, desc, isNotNull, sql, ne } from 'drizzle-o
 import { db, Tx } from '@/db/databases';
 import { barcodeCandidates } from '@/modules/apoio/tax-rule.service';
 import { ProductSchemas, ProductRequests } from '@pralis/shared';
-import { products, productTransformacao, productFiscal, promocoes } from './product.table';
+import { products, productTransformacao, productFiscal, promocoes, productNameHistory } from './product.table';
 
 type ProductEntity = ProductSchemas.ProductEntity;
 type Promocao = ProductSchemas.Promocao;
@@ -23,6 +23,27 @@ export interface CreateContext {
    * não pode ganhar número novo).
    */
   codigoInterno?: string | null;
+}
+
+export interface NameHistoryContext {
+  nomeAnterior: string;
+  loja: string;
+  codigo: string;
+  codigoInterno: string | null;
+  alteradoPorUserId: string | null;
+  alteradoPorNome: string | null;
+}
+
+export interface ProductNameHistoryEntry {
+  id: string;
+  productId: string;
+  loja: string;
+  codigo: string;
+  codigoInterno: string | null;
+  nomeAnterior: string;
+  nomeNovo: string;
+  alteradoPorNome: string | null;
+  alteradoEm: string;
 }
 
 /**
@@ -158,7 +179,7 @@ export class ProductRepository {
     });
   }
 
-  async update(id: string, payload: ProductRequests.UpdateProductRequest): Promise<ProductEntity | null> {
+  async update(id: string, payload: ProductRequests.UpdateProductRequest, nameHistory?: NameHistoryContext): Promise<ProductEntity | null> {
     return db.transaction(async (tx) => {
       const exists = await tx.select({ id: products.id }).from(products).where(eq(products.id, id)).limit(1);
       if (exists.length === 0) return null;
@@ -170,8 +191,37 @@ export class ProductRepository {
         await tx.update(products).set(colunas as Partial<typeof products.$inferInsert>).where(eq(products.id, id));
       }
       await this.replaceRelations(id, payload, tx);
-      return this.findById(id, tx);
+      const updated = await this.findById(id, tx);
+      if (updated && nameHistory && updated.nome !== nameHistory.nomeAnterior) {
+        await tx.insert(productNameHistory).values({
+          productId: id,
+          loja: nameHistory.loja,
+          codigo: nameHistory.codigo,
+          codigoInterno: nameHistory.codigoInterno,
+          nomeAnterior: nameHistory.nomeAnterior,
+          nomeNovo: updated.nome,
+          alteradoPorUserId: nameHistory.alteradoPorUserId,
+          alteradoPorNome: nameHistory.alteradoPorNome,
+        });
+      }
+      return updated;
     });
+  }
+
+  async listNameHistory(limit = 100): Promise<ProductNameHistoryEntry[]> {
+    const rows = await db.select().from(productNameHistory)
+      .orderBy(desc(productNameHistory.alteradoEm)).limit(limit);
+    return rows.map((row) => ({
+      id: row.id,
+      productId: row.productId,
+      loja: row.loja,
+      codigo: row.codigo,
+      codigoInterno: row.codigoInterno,
+      nomeAnterior: row.nomeAnterior,
+      nomeNovo: row.nomeNovo,
+      alteradoPorNome: row.alteradoPorNome,
+      alteradoEm: row.alteradoEm.toISOString(),
+    }));
   }
 
   async delete(id: string): Promise<boolean> {

@@ -338,7 +338,14 @@ export class UnificacaoAplicarService {
     const temCompilart = grupo.fontes.includes('compilart_tnp');
     const barras = this.barrasReal(itens) ?? base.codigoBarras;
 
-    await this.repo.update(base.id, this.patchCadastro(base, candidato, temCompilart));
+    await this.repo.update(base.id, this.patchCadastro(base, candidato, temCompilart), {
+      nomeAnterior: base.nome,
+      loja: base.loja,
+      codigo: base.codigo,
+      codigoInterno: base.codigoInterno,
+      alteradoPorUserId: user.id,
+      alteradoPorNome: user.name,
+    });
     // reenfileira: sem isto a atualização não chega ao Sheets nem ao Criare
     await this.sheets.registerPending(base.id);
 

@@ -422,7 +422,14 @@ export class ProductService {
       const { fiscal: _fiscalInalterado, ...semFiscalInalterado } = payload;
       payloadFinal = semFiscalInalterado;
     }
-    const updated = await this.repo.update(id, payloadFinal);
+    const updated = await this.repo.update(id, payloadFinal, {
+      nomeAnterior: p.nome,
+      loja: p.loja,
+      codigo: p.codigo,
+      codigoInterno: p.codigoInterno,
+      alteradoPorUserId: user.id,
+      alteradoPorNome: user.name,
+    });
     if (!updated) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
 
     // A edição JÁ valeu no Postgres e uma falha do Google não pode desfazê-la.
@@ -465,6 +472,13 @@ export class ProductService {
     }
     const creareDrive = await this.publicarNoDrive(updated.loja);
     return { ...updated, sheetSync, lojasAtualizadas, espelhoLoja, creareDrive };
+  }
+
+  async listNameHistory(user: CurrentUser) {
+    if (user.role !== 'admin') {
+      throw new AppError('Acesso restrito a administradores.', 403, 'FORBIDDEN');
+    }
+    return this.repo.listNameHistory();
   }
 
   /**
