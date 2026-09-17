@@ -35,13 +35,19 @@ export class AdminRepository {
       .from(products)
       .groupBy(products.loja);
 
+    // Parte de usuários, não de produtos: assim todo usuário aparece no painel,
+    // inclusive quem ainda não cadastrou nada. O vínculo por ID evita que nomes
+    // iguais misturem produtividades e inclui o catálogo Base na contagem.
     const produtividade = await db
-      .select({ nome: products.createdByName, total: count() })
-      .from(products)
-      .where(and(ne(products.loja, 'BASE'), isNotNull(products.createdByName)))
-      .groupBy(products.createdByName)
-      .orderBy(desc(count()))
-      .limit(10);
+      .select({
+        id: users.id,
+        nome: users.name,
+        total: sql<number>`count(${products.id})::int`,
+      })
+      .from(users)
+      .leftJoin(products, eq(products.createdByUserId, users.id))
+      .groupBy(users.id, users.name)
+      .orderBy(desc(sql`count(${products.id})`), users.name);
 
     const dia = sql<string>`to_char(date_trunc('day', ${products.createdAt}), 'YYYY-MM-DD')`;
     const porDiaRows = await db
@@ -56,6 +62,7 @@ export class AdminRepository {
         id: products.id, // o dashboard usa como atalho para o produto
         nome: products.nome,
         loja: products.loja,
+        createdByUserId: products.createdByUserId,
         createdByName: products.createdByName,
         createdAt: products.createdAt,
       })
@@ -79,12 +86,13 @@ export class AdminRepository {
         transformacao: Number(tot?.transformacao ?? 0),
       },
       porLoja: porLojaRows.map((r) => ({ loja: r.loja as Catalogo, total: Number(r.total) })),
-      produtividade: produtividade.map((r) => ({ nome: r.nome ?? '—', total: Number(r.total) })),
+      produtividade: produtividade.map((r) => ({ id: r.id, nome: r.nome, total: Number(r.total) })),
       porDia: porDiaRows.map((r) => ({ dia: r.dia, total: Number(r.total) })),
       recentes: recentes.map((r) => ({
         id: r.id,
         nome: r.nome,
         loja: r.loja as Catalogo,
+        createdByUserId: r.createdByUserId,
         createdByName: r.createdByName,
         createdAt: r.createdAt.toISOString(),
       })),
