@@ -13,18 +13,27 @@ import {
 import { AppError } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
 import { TaxRuleService, type FiscalClassification, type ResultadoFiscal } from '@/modules/apoio/tax-rule.service';
+import { CreareDriveService, type ResultadoPublicacao } from '@/modules/creare/creare-drive.service';
+import type { CreareStore } from '@/modules/creare/creare.config';
 
 const rand4 = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', 4);
 const genCodigo = () => `PR-${rand4()}-${rand4()}`;
 
+/** Como ficou o TXT do Criare na pasta do Drive de cada loja, por loja. */
+export type PublicacaoCreare = Partial<Record<CreareStore, ResultadoPublicacao>>;
+
 /** Produto criado + como ficou o espelhamento na planilha (nunca bloqueia o cadastro). */
-export type CreatedProduct = ProductSchemas.ProductEntity & { sheetSync: SheetSyncOutcome };
+export type CreatedProduct = ProductSchemas.ProductEntity & {
+  sheetSync: SheetSyncOutcome;
+  creareDrive: PublicacaoCreare;
+};
 
 /** Produto editado + espelho na planilha + quantas lojas herdaram a mudança. */
 export type UpdatedProduct = ProductSchemas.ProductEntity & {
   sheetSync: SheetSyncOutcome;
   lojasAtualizadas: number;
   espelhoLoja: EspelhoLojaResultado;
+  creareDrive: PublicacaoCreare;
 };
 
 /**
@@ -124,7 +133,21 @@ export class ProductService {
     @inject(ProductSheetService) private sheets: ProductSheetService,
     @inject(ProductSheetLojaService) private sheetsLoja: ProductSheetLojaService,
     @inject(TaxRuleService) private taxRules: TaxRuleService,
+    @inject(CreareDriveService) private creareDrive: CreareDriveService,
   ) {}
+
+  /**
+   * Publica o TXT do cadastro na pasta do Drive da loja, DEPOIS de o produto
+   * estar salvo.
+   *
+   * Engolir a falha aqui é a regra, não descuido: o produto já está no banco, e
+   * derrubar o salvamento porque o Google não respondeu faria a pessoa
+   * cadastrar de novo. O estado volta na resposta para a tela poder dizer que
+   * ficou pendente.
+   */
+  private async publicarNoDrive(loja: string): Promise<PublicacaoCreare> {
+    return this.creareDrive.publicarAposSalvar(loja).catch(() => ({}));
+  }
 
   /**
    * Aplica o resultado da classificação ao payload — inclusive quando ela NÃO
@@ -281,7 +304,8 @@ export class ProductService {
     if (sync.outcome === 'synced' && sync.rowNumber !== null) {
       await this.espelharNasAbasDeLoja([{ produto: created, linha: sync.rowNumber }]);
     }
-    return { ...created, sheetSync: sync.outcome };
+    const creareDrive = await this.publicarNoDrive(created.loja);
+    return { ...created, sheetSync: sync.outcome, creareDrive };
   }
 
   async list(user: CurrentUser, filter: ProductRequests.ListProductQuery) {
@@ -439,7 +463,8 @@ export class ProductService {
     } else {
       espelhoLoja = await this.espelharNaAbaDaLoja([updated]);
     }
-    return { ...updated, sheetSync, lojasAtualizadas, espelhoLoja };
+    const creareDrive = await this.publicarNoDrive(updated.loja);
+    return { ...updated, sheetSync, lojasAtualizadas, espelhoLoja, creareDrive };
   }
 
   /**
@@ -548,14 +573,19 @@ export class ProductService {
         espelhoLoja = 'falhou';
       }
     }
-    return { espelhoLoja };
+    // O catálogo encolheu: o TXT precisa refletir isso, senão o PDV continua
+    // recebendo o produto excluído em toda importação.
+    const creareDrive = await this.publicarNoDrive(p.loja);
+    return { espelhoLoja, creareDrive };
   }
 
   /** Importa produtos da BASE para a loja do usuário (pula os já importados/duplicados). */
   async importFromBase(
     user: CurrentUser,
     baseIds: string[],
-  ): Promise<{ imported: number; skipped: number; espelhoLoja: EspelhoLojaResultado }> {
+  ): Promise<{
+    imported: number; skipped: number; espelhoLoja: EspelhoLojaResultado; creareDrive: PublicacaoCreare;
+  }> {
     // importação é da BASE para a loja do usuário; admin (sem loja) não usa este fluxo
     const loja = user.loja;
     if (!loja) throw new AppError('Apenas usuários de loja podem importar da base', 400, 'NO_LOJA');
@@ -596,7 +626,8 @@ export class ProductService {
           }),
         )
         : await this.espelharNaAbaDaLoja(criados);
-    return { imported, skipped, espelhoLoja };
+    const creareDrive = await this.publicarNoDrive(loja);
+    return { imported, skipped, espelhoLoja, creareDrive };
   }
 
   /**

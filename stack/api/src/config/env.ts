@@ -140,6 +140,24 @@ export const env = {
    * deixa o download por máquina desabilitado, e só sessão de admin exporta.
    */
   CREARE_EXPORT_TOKEN: envVar('CREARE_EXPORT_TOKEN', ''),
+  /**
+   * Publicar o TXT do cadastro numa pasta do Google Drive a cada salvamento.
+   *
+   * Existe porque a máquina da loja vê a pasta do Drive montada (`H:\...`) e a
+   * API não: ela roda em container, e `H:` só existe lá. Publicando no Drive, o
+   * Drive para Desktop entrega o arquivo na loja sem nada agendado.
+   */
+  CREARE_DRIVE_ENABLED: envBool('CREARE_DRIVE_ENABLED', false),
+  /**
+   * `{"TNP":"<id da pasta>"}`. Sem fallback de propósito: publicar na pasta
+   * errada entrega o cadastro de uma loja para outra, e o `coditem` do arquivo
+   * grava por cima de produtos diferentes no PDV.
+   *
+   * A pasta precisa estar num **Drive compartilhado**. Conta de serviço não tem
+   * cota de armazenamento: dentro de "Meu Drive" de alguém, mesmo compartilhado
+   * como Editor, a criação falha com `storageQuotaExceeded`.
+   */
+  CREARE_DRIVE_FOLDERS_JSON: envVar('CREARE_DRIVE_FOLDERS_JSON', ''),
 
   /**
    * Pasta com os CSVs das fontes da unificação. Vazio cai em `../../docs`

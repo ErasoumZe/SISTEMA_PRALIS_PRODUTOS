@@ -138,6 +138,64 @@ existe** (importar o catálogo de ontem é pior que não importar).
 do domínio do site (`APP_URL`) — são dois serviços no
 `docker-compose.coolify.yaml`.
 
+## 6. O TXT na pasta do Drive, a cada salvamento
+
+A máquina da loja enxerga a pasta do Drive montada (`H:...`); a API não — ela
+roda em container e `H:` só existe lá. Então a API **publica no Drive** e o
+Drive para Desktop entrega na loja, sem nada agendado e sem ninguém logado.
+
+Acontece a cada **salvar produto**, e o arquivo é o **catálogo inteiro** da
+loja. Publicar só o produto recém-salvo seria menor, mas salvar dois antes de
+importar faria o segundo apagar o primeiro — e o primeiro nunca chegaria ao PDV.
+
+### O arquivo tem de ser criado UMA VEZ por uma pessoa
+
+Este é o ponto que costuma travar. **Conta de serviço não tem cota de
+armazenamento no Google.** Criar arquivo dentro do "Meu Drive" de alguém falha
+com `storageQuotaExceeded`, mesmo compartilhado como Editor. O que resolveria
+seria um **Drive compartilhado** — e ele só existe no Workspace, não em conta
+Gmail comum.
+
+A pasta da loja é exatamente esse caso: `ARQUIVO_SISTEMA_TNP` está em
+"Compartilhados comigo" de uma conta `@gmail.com` (o que **não** é um Drive
+compartilhado). Então:
+
+1. uma pessoa cria o arquivo vazio `cadastro-tnp.txt` dentro da pasta;
+2. a pasta é compartilhada como **Editor** com
+   `pralis-google-sheets@pralis-sheets-integracao.iam.gserviceaccount.com`;
+3. daí em diante a API só **atualiza** esse arquivo — e atualizar arquivo alheio
+   funciona, porque a cota continua sendo do dono.
+
+Enquanto o passo 1 não acontecer, a tela diz, ao salvar: *"O arquivo do Criare
+da TNP ainda nao existe na pasta do Drive"*.
+
+### Variáveis no Coolify
+
+| Variável | Valor |
+|---|---|
+| `CREARE_DRIVE_ENABLED` | `true` |
+| `CREARE_DRIVE_FOLDERS_JSON` | `{"TNP":"<id da pasta>"}` |
+
+O id da pasta é o que aparece na URL dela no Drive, e também no caminho do
+Windows: `H:.shortcut-targets-by-id<id>ARQUIVO_SISTEMA_TNP`.
+
+Também é preciso `CREARE_EXPORT_ENABLED=true` e o `CREARE_STORE_CONFIG_JSON`
+com a chave da loja: quem gera o arquivo é a mesma exportação do passo 4.
+
+### O que a tela diz quando não dá certo
+
+Salvar produto **nunca falha** por causa do Drive — o produto já está no banco.
+A mensagem é que muda, e cada estado pede uma ação diferente:
+
+| Mensagem | O que fazer |
+|---|---|
+| (nada) | publicou, ou a publicação está desligada |
+| "o arquivo ainda nao existe na pasta" | criar o `cadastro-<loja>.txt` na pasta, uma vez |
+| "falta importar o de-para do SIA dessa loja" | rodar `creare:depara` daquela loja |
+| "nenhum produto casou com o cadastro do SIA" | ver `GET /admin/creare/health` |
+| "nao tem pasta do Drive configurada" | preencher `CREARE_DRIVE_FOLDERS_JSON` |
+| "nao chegou na pasta do Drive" | falha do Google; a próxima edição tenta de novo |
+
 ## O que a exportação recusa, e por quê
 
 | Situação | O que acontece |

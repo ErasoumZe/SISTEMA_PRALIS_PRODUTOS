@@ -8,6 +8,7 @@ import type { ProductSheetService } from '@/modules/google-sheets/product-sheet.
 import type { ProductSheetLojaService } from '@/modules/google-sheets/product-sheet-loja.service';
 import type { TaxRuleService } from '@/modules/apoio/tax-rule.service';
 import type { CurrentUser } from '@/types/fastify-jwt';
+import { creareDriveParado } from '@/modules/creare/creare-drive.fake';
 
 type Product = ProductSchemas.ProductEntity;
 
@@ -61,7 +62,7 @@ function fakes(opts: {
     async syncProduct() { ordem.push('planilha:sync'); return { outcome: 'synced' }; },
   } as unknown as ProductSheetService;
 
-  const service = new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService);
+  const service = new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService, creareDriveParado());
   return { service, ordem };
 }
 
@@ -146,7 +147,7 @@ function fakesUpdate(opts: { syncOutcome?: string; loja?: string; syncThrows?: E
     },
   } as unknown as ProductSheetService;
 
-  return { service: new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService), chamadas };
+  return { service: new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService, creareDriveParado()), chamadas };
 }
 
 describe('ProductService.update — o resultado do espelho não pode sumir', () => {
@@ -201,7 +202,7 @@ describe('ProductService.update — o resultado do espelho não pode sumir', () 
       async espelharVarios() { chamadas.push('planilha:legado'); return 'espelhado' as const; },
       async espelharNasAbasDeLoja() { chamadas.push('planilha:alinhada'); return 'espelhado' as const; },
     } as unknown as ProductSheetLojaService;
-    const service = new ProductService(repo, sheets, legado, {} as TaxRuleService);
+    const service = new ProductService(repo, sheets, legado, {} as TaxRuleService, creareDriveParado());
 
     const r = await service.update(admin, ID, { nome: 'NOME NOVO' });
 
@@ -236,7 +237,7 @@ describe('ProductService.importFromBase — faixa da loja na aba geral', () => {
       async espelharVarios() { chamadas.push('planilha:legado'); return 'espelhado' as const; },
       async espelharNasAbasDeLoja() { chamadas.push('planilha:alinhada'); return 'espelhado' as const; },
     } as unknown as ProductSheetLojaService;
-    const service = new ProductService(repo, sheets, legado, {} as TaxRuleService);
+    const service = new ProductService(repo, sheets, legado, {} as TaxRuleService, creareDriveParado());
     const usuarioLi: CurrentUser = { ...admin, role: 'user', loja: 'LI' };
 
     const r = await service.importFromBase(usuarioLi, [ID]);
@@ -262,7 +263,7 @@ describe('ProductService.importFromBase — faixa da loja na aba geral', () => {
     const legado = {
       async espelharVarios() { chamadas.push('planilha:legado'); return 'espelhado' as const; },
     } as unknown as ProductSheetLojaService;
-    const service = new ProductService(repo, sheets, legado, {} as TaxRuleService);
+    const service = new ProductService(repo, sheets, legado, {} as TaxRuleService, creareDriveParado());
     const usuarioTnp: CurrentUser = { ...admin, role: 'user', loja: 'TNP' };
 
     const r = await service.importFromBase(usuarioTnp, [ID]);
@@ -297,7 +298,7 @@ function fakesPropagacao(antes: Partial<Product>, depois: Partial<Product>, copi
     async syncProduct() { return { outcome: 'synced', rowNumber: 12, message: 'ok' }; },
   } as unknown as ProductSheetService;
 
-  return { service: new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService), patches };
+  return { service: new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService, creareDriveParado()), patches };
 }
 
 describe('ProductService.update — herança BASE -> lojas', () => {
@@ -419,7 +420,7 @@ function fakesFiscal(fiscalAtual: Product['fiscal']) {
     },
   } as unknown as TaxRuleService;
 
-  return new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
+  return new ProductService(repo, sheets, espelhoLojaFalso, taxRules, creareDriveParado());
 }
 
 describe('ProductService.update — bloco fiscal é do admin', () => {
@@ -478,7 +479,7 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
     const taxRules = {
       async classify() { classificacoes++; throw new Error('não deveria classificar'); },
     } as unknown as TaxRuleService;
-    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
+    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules, creareDriveParado());
 
     await service.update(admin, ID, {
       grupo: 'MER PADARIA', codigoBarras: null, fiscal: atual, vVendaPontual: 12,
@@ -501,7 +502,7 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
     const taxRules = {
       async classify() { classificacoes++; throw new Error('não deveria classificar'); },
     } as unknown as TaxRuleService;
-    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
+    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules, creareDriveParado());
 
     await service.update(admin, ID, { grupo: null, fiscal: null, vVendaPontual: 9 });
 
@@ -536,7 +537,7 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
         return { estado: 'parcial', motivo: 'sem cadastro de ECF', classificacao: daRegra, conflitos: [] };
       },
     } as unknown as TaxRuleService;
-    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
+    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules, creareDriveParado());
 
     await service.update(colaboradorTnp, ID, { grupo: 'NOVO GRUPO', fiscal: fiscalMalicioso });
 
@@ -567,7 +568,7 @@ function fakesGuardaFiscal(p: Product) {
     async registerPending() {},
     async syncProduct() { return { outcome: 'synced' as const, rowNumber: 12 }; },
   } as unknown as ProductSheetService;
-  return new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService);
+  return new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService, creareDriveParado());
 }
 
 const daLoja: CurrentUser = { ...admin, role: 'user', loja: 'LI' };
@@ -674,7 +675,7 @@ function fakesCargaFiscal(p: Product, classifyEspiao: string[] = []) {
       return { estado: 'completo', motivo: 'Fiscal completo.', classificacao: regraComEcf, conflitos: [] };
     },
   } as unknown as TaxRuleService;
-  return new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
+  return new ProductService(repo, sheets, espelhoLojaFalso, taxRules, creareDriveParado());
 }
 
 /** Bloco fiscal como fica um produto criado pela Central: quase tudo vazio. */
@@ -756,7 +757,7 @@ describe('ProductService.update — completa a carga fiscal que faltava', () => 
         };
       },
     } as unknown as TaxRuleService;
-    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules);
+    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules, creareDriveParado());
 
     const r = await service.update(admin, ID, { nome: 'NOME NOVO' });
 
@@ -792,7 +793,7 @@ describe('ProductService — estado fiscal é do servidor', () => {
       async registerPending() {},
       async syncProduct() { return { outcome: 'synced' as const, rowNumber: 12 }; },
     } as unknown as ProductSheetService;
-    const service = new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService);
+    const service = new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService, creareDriveParado());
 
     // é o que a tela manda: bloco fiscal completo, com estado NULO
     await service.update(admin, ID, {
@@ -843,7 +844,7 @@ describe('ProductService — planilha lenta não pendura a tela', () => {
     vi.useFakeTimers();
     try {
       const service = new ProductService(
-        repoSimples, sheetsQueTrava, espelhoLojaFalso, {} as TaxRuleService,
+        repoSimples, sheetsQueTrava, espelhoLojaFalso, {} as TaxRuleService, creareDriveParado(),
       );
 
       const emCurso = service.update(admin, ID, { nome: 'NOME NOVO' });

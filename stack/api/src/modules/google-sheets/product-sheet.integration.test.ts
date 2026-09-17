@@ -12,6 +12,7 @@ import type { ProductSheetService } from './product-sheet.service';
 import type { ProductSheetLojaService } from '@/modules/google-sheets/product-sheet-loja.service';
 import { FakeSheetsGateway } from './fake-sheets.gateway';
 import type { TaxRuleService } from '@/modules/apoio/tax-rule.service';
+import { creareDriveParado } from '@/modules/creare/creare-drive.fake';
 
 /**
  * Postgres REAL (Testcontainers) + Google MOCKADO. Nenhum teste escreve na
@@ -112,7 +113,7 @@ beforeAll(async () => {
   const espelhoLoja = {
     async espelharVarios() { return 'desligado' as const; },
   } as unknown as ProductSheetLojaService;
-  service = new ProductService(repo, sheetService, espelhoLoja, taxRules);
+  service = new ProductService(repo, sheetService, espelhoLoja, taxRules, creareDriveParado());
 
   await db.insert(users).values([
     { id: adminId, name: 'Rodrigo', email: 'admin@test.com', passwordHash: 'x', loja: null, role: 'admin' },
