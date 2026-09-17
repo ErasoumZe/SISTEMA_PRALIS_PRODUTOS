@@ -31,8 +31,10 @@ const DECISAO: Record<string, string> = {
 };
 const CRIAM_CADASTRO = ['unificado', 'criado'];
 
-type Visao = 'pendentes' | 'exatos' | 'revisar' | 'unificados' | 'descartados';
-const visao = ref<Visao>('pendentes');
+type Escopo = 'todos' | 'vendidos';
+type Visao = 'todos' | 'pendentes' | 'exatos' | 'revisar' | 'unificados' | 'descartados';
+const escopo = ref<Escopo>('todos');
+const visao = ref<Visao>('todos');
 const busca = ref('');
 const loja = ref<string>();
 const pagina = ref(1);
@@ -61,12 +63,14 @@ function filtros(): FiltrosUnificacao {
   const base: FiltrosUnificacao = {
     pagina: pagina.value,
     tamanho: 30,
-    somenteVendidos: true,
+    somenteVendidos: escopo.value === 'vendidos' ? true : undefined,
     loja: loja.value,
     q: busca.value.trim() || undefined,
     decisao: visao.value === 'unificados' ? 'unificados'
       : visao.value === 'descartados' ? 'descartados'
-        : 'pendente',
+        : visao.value === 'pendentes' || visao.value === 'exatos' || visao.value === 'revisar'
+          ? 'pendente'
+          : undefined,
   };
   // "exatos" no servidor cobre os DOIS códigos: barras e interno. Mandar
   // `mesmo_cod_barras` aqui esconderia quem casa só pelo código interno.
@@ -80,7 +84,7 @@ async function carregar() {
   try {
     const [lista, health] = await Promise.all([
       api.unificacaoGrupos(filtros()),
-      api.unificacaoHealth({ somenteVendidos: true }),
+      api.unificacaoHealth({ somenteVendidos: escopo.value === 'vendidos' ? true : undefined }),
     ]);
     dados.value = lista;
     totais.value = health.totais;
@@ -141,7 +145,7 @@ function classificacao(grupo: GrupoUnificacao) {
   if (grupo.flagNomesDivergentes || grupo.motivo === 'nome_parecido') {
     return { texto: 'Revisar nomes', cor: 'warning', icone: 'rule' };
   }
-  if (grupo.motivo === 'mesmo_cod_barras' || grupo.motivo === 'mesmo_cod_interno') {
+  if (grupo.motivo === 'mesmo_id_sistema' || grupo.motivo === 'mesmo_cod_barras' || grupo.motivo === 'mesmo_cod_interno') {
     return { texto: 'Correspondência exata', cor: 'success', icone: 'link' };
   }
   return { texto: 'Sem correspondência', cor: 'grey', icone: 'help' };
@@ -185,7 +189,7 @@ watch(busca, () => {
   clearTimeout(debounce);
   debounce = setTimeout(() => { pagina.value = 1; void carregar(); }, 350);
 });
-watch([visao, loja], () => { pagina.value = 1; void carregar(); });
+watch([escopo, visao, loja], () => { pagina.value = 1; void carregar(); });
 watch(pagina, () => void carregar());
 onMounted(() => void carregar());
 </script>
@@ -196,7 +200,7 @@ onMounted(() => void carregar());
       <div>
         <h1 class="text-h4 font-weight-bold">Central de Produtos</h1>
         <p class="text-body-2 text-medium-emphasis mt-1 mb-0">
-          Produtos que passaram pelos PDVs nos últimos 12 meses, comparados aos cadastros existentes.
+          Todas as fontes históricas, a Base do sistema e a planilha oficial em uma única lista.
         </p>
       </div>
       <v-btn color="primary" variant="tonal" prepend-icon="sync" :loading="atualizandoFontes" @click="atualizarFontes">
@@ -204,7 +208,7 @@ onMounted(() => void carregar());
       </v-btn>
     </div>
 
-    <v-alert v-if="vendasCarregadas === 0" type="warning" variant="tonal" class="mb-4" icon="report">
+    <v-alert v-if="escopo === 'vendidos' && vendasCarregadas === 0" type="warning" variant="tonal" class="mb-4" icon="report">
       <div class="font-weight-bold">Nenhuma venda dos últimos 12 meses no banco.</div>
       <div class="text-body-2">
         O universo desta tela são os produtos que passaram pelos PDVs. Sem venda registrada,
@@ -215,15 +219,15 @@ onMounted(() => void carregar());
 
     <v-row v-if="totais" dense class="mb-4">
       <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
-        <div class="text-caption text-medium-emphasis">Produtos vendidos</div>
+        <div class="text-caption text-medium-emphasis">{{ escopo === 'vendidos' ? 'Vendidos únicos (12 meses)' : 'Produtos únicos de todas as fontes' }}</div>
         <div class="text-h5 font-weight-bold">{{ totais.grupos.toLocaleString('pt-BR') }}</div>
       </v-card></v-col>
       <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
-        <div class="text-caption text-medium-emphasis">Já no Pralis</div>
+        <div class="text-caption text-medium-emphasis">Já na Base</div>
         <div class="text-h5 font-weight-bold text-success">{{ totais.jaNoPralis.toLocaleString('pt-BR') }}</div>
       </v-card></v-col>
       <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
-        <div class="text-caption text-medium-emphasis">Viraram cadastro</div>
+        <div class="text-caption text-medium-emphasis">Vinculados à Base</div>
         <div class="text-h5 font-weight-bold text-success">{{ totais.unificados.toLocaleString('pt-BR') }}</div>
       </v-card></v-col>
       <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
@@ -234,12 +238,26 @@ onMounted(() => void carregar());
       </v-card></v-col>
     </v-row>
 
+    <v-card v-if="staging" flat border rounded="lg" class="pa-3 mb-4">
+      <div class="text-caption text-medium-emphasis mb-2">Fontes incluídas na última atualização</div>
+      <div class="d-flex flex-wrap ga-2">
+        <v-chip v-for="fonte in staging.fontes" :key="fonte.fonte" size="small" variant="tonal">
+          {{ FONTES[fonte.fonte] || fonte.fonte }} · {{ fonte.linhas.toLocaleString('pt-BR') }}
+        </v-chip>
+      </div>
+    </v-card>
+
     <v-card flat border rounded="lg" class="pa-3 mb-4">
+      <v-btn-toggle v-model="escopo" mandatory color="primary" variant="outlined" density="comfortable" class="mb-3 flex-wrap">
+        <v-btn value="todos">Todos os cadastros</v-btn>
+        <v-btn value="vendidos">Já vendidos · 12 meses</v-btn>
+      </v-btn-toggle>
       <div class="d-flex flex-wrap ga-3 align-center">
         <v-text-field v-model="busca" prepend-inner-icon="search" label="Buscar produto ou código" hide-details clearable density="compact" class="busca" />
         <v-select v-model="loja" :items="[{ title: 'TNP', value: 'TNP' }, { title: 'Lisboa', value: 'LI' }]" label="Loja" hide-details clearable density="compact" class="loja" />
       </div>
       <div class="d-flex flex-wrap ga-2 mt-3">
+        <v-chip :variant="visao === 'todos' ? 'flat' : 'tonal'" color="primary" @click="visao = 'todos'">Todos</v-chip>
         <v-chip :variant="visao === 'pendentes' ? 'flat' : 'tonal'" color="primary" @click="visao = 'pendentes'">Pendentes</v-chip>
         <v-chip :variant="visao === 'exatos' ? 'flat' : 'tonal'" color="success" @click="visao = 'exatos'">Correspondência exata</v-chip>
         <v-chip :variant="visao === 'revisar' ? 'flat' : 'tonal'" color="warning" @click="visao = 'revisar'">Precisa analisar</v-chip>
@@ -278,7 +296,7 @@ onMounted(() => void carregar());
 
       <div v-if="!grupo.decisao" class="d-flex flex-wrap ga-2">
         <v-btn color="primary" :loading="agindo === grupo.id" :disabled="!nomesEscolhidos[grupo.id]" @click="unificar(grupo)">
-          {{ grupo.flagJaNoPralis ? 'Unificar com cadastro existente' : 'Adicionar ao cadastro unificado' }}
+          {{ grupo.flagJaNoPralis ? 'Vincular e atualizar na Base' : 'Adicionar à Base Geral' }}
         </v-btn>
         <v-btn variant="text" :disabled="!!agindo" @click="marcar(grupo, 'nao_e_o_mesmo')">Não é o mesmo produto</v-btn>
         <v-btn variant="text" color="grey" :disabled="!!agindo" @click="marcar(grupo, 'ignorado')">Ignorar</v-btn>

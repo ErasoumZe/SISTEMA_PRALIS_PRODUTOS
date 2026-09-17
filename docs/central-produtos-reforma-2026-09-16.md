@@ -6,8 +6,16 @@ teste*, o que depende de *acesso externo* e o que é *operação no servidor*.
 
 ## 1. O que a Central é agora
 
-O universo da tela passou a ser **o que vendeu nos PDVs nos últimos 12 meses**,
-numa janela móvel calculada no banco a cada carga — não mais um CSV estático.
+> **Atualizado em 16/09/2026, segunda rodada.** A primeira versão desta reforma
+> deixava a tela *presa* ao recorte dos vendidos e fazia a Central criar cadastro
+> em TNP e LI sozinha. As duas coisas mudaram — o que está escrito abaixo é o
+> comportamento atual.
+
+O universo da tela é **tudo que já foi cadastrado um dia**: as seis fontes
+históricas, a Base do sistema e a planilha oficial, no mesmo confronto.
+**"Já vendidos · 12 meses"** é um *filtro opcional* sobre esse conjunto, que
+reduz a lista aos produtos únicos que passaram pelos PDVs na janela móvel dos
+últimos 12 meses — não é mais o universo da tela.
 
 Fluxo, na ordem em que acontece:
 
@@ -15,21 +23,65 @@ Fluxo, na ordem em que acontece:
    planilha antiga TNP, fiscal TNP, cadastro vivo do Pralis, planilha oficial).
 2. As vendas dos últimos 12 meses entram como a fonte `vendas_pdv_12m`, com uma
    linha por produto distinto que passou pelo PDV.
-3. O motor agrupa tudo por código de barras, código interno e nome normalizado.
-4. A tela mostra **só os grupos que contêm uma venda** — esse é o recorte.
+3. O motor agrupa tudo por **quatro** chaves, da mais forte para a mais fraca:
+
+   | Chave | O que ela liga | Alcance |
+   |---|---|---|
+   | ID do sistema | a linha da planilha ao produto da Base que a gerou | o mais forte: foi o próprio sistema que gravou |
+   | Código de barras / código do Creare | o mesmo produto visto por lojas diferentes | cruza lojas |
+   | Código interno | dois registros do mesmo catálogo | **só dentro da mesma loja** |
+   | Nome normalizado | sugestão | chave fraca: sugere, nunca decide |
+
+4. A tela mostra **tudo**. O botão "Já vendidos · 12 meses" filtra para o recorte
+   das vendas quando você quiser olhar só por ele.
 5. Você decide grupo a grupo, escolhendo o nome **entre os que já existem** nas
    fontes daquele produto. Nome inventado é recusado pela API (422).
+6. Unificar grava **somente o produto da Base Geral**. TNP e LI continuam
+   independentes e recebem o produto quando *você* importar da Base — e é a
+   importação que preenche a faixa da loja na planilha.
 
-As quatro visões substituem os filtros técnicos que existiam antes:
+As visões substituem os filtros técnicos que existiam antes:
 
 | Visão | O que mostra |
 |---|---|
-| Pendentes | tudo que vendeu e ainda não foi decidido |
-| Correspondência exata | casou por código de barras **ou** por código interno |
+| Todos | o conjunto inteiro, decidido ou não |
+| Pendentes | o que ainda não foi decidido |
+| Correspondência exata | casou por ID do sistema, código de barras **ou** código interno |
 | Precisa analisar | nomes divergentes, código conflitante, sem fiscal, sem grupo |
 | Concluídos | o que você já decidiu |
 
 As ações em massa saíram da tela. A decisão voltou a ser uma por clique humano.
+
+### O que mudou no significado dos números
+
+"Viraram cadastro" contava **decisão**, não produto: um grupo continuava
+concluído mesmo depois de o produto ser apagado — foi assim que a tela chegou a
+1.631 "concluídos" com algumas centenas de produtos na Base. Agora o cartão se
+chama **"Vinculados à Base"** e a reconciliação confere, a cada recálculo, se o
+produto que aquela decisão criou **ainda existe** na tabela `products`. Se não
+existe, o grupo volta para pendente em vez de seguir escondido.
+
+Descarte ("não é o mesmo produto", "ignorar") não cria cadastro e por isso não é
+conferido: continua valendo como decisão humana.
+
+### O nome: quem ganha de quem
+
+Só o nome **escolhido na tela** sobrescreve o que já está no Pralis. O nome que o
+motor deduziu sozinho serve apenas para preencher cadastro sem nome — o lote
+automático e o "criar todos os que faltam" unificam sem nome escolhido, e sem
+essa distinção eles apagariam em massa a curadoria feita à mão.
+
+### Consequência: o fiscal da loja mudou de dono
+
+A Central copiava o fiscal por loja no mesmo clique em que criava as cópias: NCM
+e redução do SIA para a LI, NCM e ICMS da contabilidade para a TNP. Sem as
+cópias automáticas, **esse caminho deixou de existir**. Quem classifica o produto
+da loja agora é o **backfill fiscal** (`BackfillFiscalService`), que já pega
+justamente quem está sem linha fiscal nenhuma e lê a tabela fiscal oficial.
+
+Na prática: depois de importar da Base para a loja, rode o backfill fiscal para
+aquela loja. O produto importado nasce sem carga fiscal de propósito — nulo é
+"não sei", e a Central não inventa.
 
 ### Por que a tela pode aparecer vazia
 
@@ -136,6 +188,13 @@ máquina da loja.
 
 ## 4. Pendências conhecidas
 
+- **A chave mais forte está dormente.** O casamento por ID do sistema depende da
+  coluna `ID` da planilha, que só chega quando a planilha é lida ONLINE — e isso
+  exige `GOOGLE_SHEETS_ENABLED=true`. Com a variável desligada, a Central cai no
+  CSV `docs/fonte_planilha_nova.csv`, que tem 1.186 linhas e **nenhuma coluna
+  ID**: nesse modo o motivo `mesmo_id_sistema` não casa nada e a planilha só
+  encontra a Base por código de barras ou nome. Ligar o Sheets é o que acende
+  essa chave.
 - **Acesso da conta de serviço à planilha oficial** — bloqueia a escrita.
 - **Leiaute da planilha oficial não conferido** — impossível de provar enquanto
   o acesso não existir; o script do item 2.2 fecha isso em um comando.

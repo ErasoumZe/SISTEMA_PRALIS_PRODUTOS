@@ -60,15 +60,25 @@ beforeAll(async () => {
   const { UnificacaoGruposService } = await import('./unificacao.grupos.service');
   const { ProductRepository } = await import('@/modules/product/product.repository');
   const { ProductSheetService } = await import('@/modules/google-sheets/product-sheet.service');
-  const { container: di } = await import('tsyringe');
-  await import('@/modules/google-sheets/google-sheets.di');
+  const { ProductSheetRepository } = await import('@/modules/google-sheets/product-sheet.repository');
+  const { FakeSheetsGateway } = await import('@/modules/google-sheets/fake-sheets.gateway');
+
+  /*
+   * O gateway e um DUBLE, nunca o cliente real.
+   *
+   * Este arquivo resolvia o `ProductSheetService` pelo container de injecao, e
+   * o container entrega o `GoogleSheetsClient` DE VERDADE. Com
+   * `GOOGLE_SHEETS_ENABLED=true` no .env da maquina, cada `unificar()` daqui
+   * gravou uma linha real na planilha oficial: em 16/09/2026 foram 123 linhas
+   * de fixture no cadastro de producao. O cliente real agora recusa rodar sob
+   * teste, e este arquivo passa o duble explicitamente.
+   */
+  const repositorio = new ProductRepository();
+  const sheets = new FakeSheetsGateway().comCabecalhos().comLinhaModelo(12);
+  const espelho = new ProductSheetService(repositorio, new ProductSheetRepository(), sheets);
 
   grupos = new UnificacaoGruposService();
-  aplicar = new UnificacaoAplicarService(
-    new ProductRepository(),
-    di.resolve(ProductSheetService),
-    grupos,
-  );
+  aplicar = new UnificacaoAplicarService(repositorio, espelho, grupos);
 }, 300_000);
 
 afterAll(async () => {
@@ -99,52 +109,65 @@ const cenarioCompleto = async () => {
 };
 
 describe('unificar — grava no catalogo mestre', () => {
-  it('cria o BASE e as copias das lojas presentes', async () => {
+  /*
+   * A REGRA do Jose: a Central para na Base Geral. Da Base ele importa para
+   * cada loja quando quiser, e e a importacao que preenche a faixa da loja na
+   * planilha. Antes a Central criava LI e TNP sozinha, no mesmo clique — e por
+   * isso a loja recebia cadastro que ninguem mandou importar.
+   */
+  it('cria SOMENTE o BASE — nenhuma copia de loja', async () => {
     const g = await cenarioCompleto();
 
     const r = await aplicar.unificar(admin, g.id);
 
-    expect(r.lojasCriadas.sort()).toEqual(['LI', 'TNP']);
+    expect(r.modo).toBe('criado');
     const linhas = await db.execute(sqlTag`
       SELECT loja, nome, grupo, codigo_interno, base_product_id FROM products ORDER BY loja`);
-    expect(linhas.rows).toHaveLength(3);
-    expect(linhas.rows.map((x) => x.loja)).toEqual(['BASE', 'LI', 'TNP']);
+    expect(linhas.rows).toHaveLength(1);
+    expect(linhas.rows.map((x) => x.loja)).toEqual(['BASE']);
   });
 
-  it('o codigo interno e o MESMO nas tres linhas', async () => {
+  it('o BASE nasce com codigo interno proprio, que a loja herda ao importar', async () => {
     const g = await cenarioCompleto();
     await aplicar.unificar(admin, g.id);
 
     const r = await db.execute(sqlTag`SELECT DISTINCT codigo_interno FROM products`);
     expect(r.rows).toHaveLength(1);
+    expect(r.rows[0]!.codigo_interno).toBeTruthy();
   });
 
   /*
-   * O ponto mais sensivel: fiscal e POR LOJA e copiado da fonte. A LI leva o do
-   * SIA, a TNP o da contabilidade, e nenhum herda do outro nem do grupo.
+   * Fiscal continua sendo DA LOJA — e a Central nao tem mais loja para gravar.
+   *
+   * Antes ela copiava NCM/reducao do SIA para a LI e o ICMS da contabilidade
+   * para a TNP, no mesmo clique em que criava as copias. Sem as copias, esse
+   * caminho deixou de existir: quem classifica o produto da loja e o backfill
+   * fiscal (`BackfillFiscalService`), que pega justamente quem esta sem linha
+   * fiscal nenhuma e le a tabela fiscal oficial. Este teste trava que a Central
+   * nao inventa fiscal em lugar nenhum — nem no BASE.
    */
-  it('grava o fiscal de cada loja da fonte certa', async () => {
+  it('a Central nao grava fiscal: o BASE nasce sem carga fiscal', async () => {
     const g = await cenarioCompleto();
     await aplicar.unificar(admin, g.id);
 
     const r = await db.execute(sqlTag`
       SELECT p.loja, f.ncm, f.reducao_icms, f.icms
       FROM products p LEFT JOIN product_fiscal f ON f.product_id = p.id ORDER BY p.loja`);
-    const [base, li, tnp] = r.rows as any[];
+    const [base] = r.rows as any[];
 
+    expect(r.rows).toHaveLength(1);
     expect(base.loja).toBe('BASE');
-    expect(base.ncm).toBeNull(); // BASE nao tem fiscal: fiscal e da loja
-    expect(li).toMatchObject({ loja: 'LI', ncm: null });
-    expect(Number(li.reducao_icms)).toBe(53.33); // do SIA
-    expect(tnp).toMatchObject({ loja: 'TNP', ncm: '08043000' }); // da contabilidade
-    expect(Number(tnp.icms)).toBe(3.69);
+    expect(base.ncm).toBeNull();
+    expect(base.reducao_icms).toBeNull();
+    expect(base.icms).toBeNull();
   });
 
   /*
-   * A exportacao do SIA passou a trazer NCM (4.186 linhas, 8 digitos). Este
-   * teste trava o caminho: o NCM da LI vem do SIA, com o zero a esquerda.
+   * O NCM do SIA e a reducao da LI continuam existindo nas FONTES e aparecem na
+   * tela do grupo. O que este teste trava e que eles nao viram cadastro por
+   * conta propria: nenhuma linha fiscal nasce da unificacao.
    */
-  it('o NCM do SIA chega na LI, com o zero a esquerda', async () => {
+  it('o fiscal das fontes NAO vira linha fiscal sozinho', async () => {
     await fonte({ id: 's2', fonte: 'sia_li', barras: '00000000020000', interno: '20000',
       nome: 'ABACATE KG', grupo: 'MAT. PRIMA (FARINHA)', ncm: '08043000', reducao: 0 });
     await fonte({ id: 'c2', fonte: 'compilart_tnp', barras: '00000000020000', interno: '77',
@@ -154,24 +177,8 @@ describe('unificar — grava no catalogo mestre', () => {
 
     await aplicar.unificar(admin, g.id);
 
-    const r = await db.execute(sqlTag`
-      SELECT f.ncm FROM products p JOIN product_fiscal f ON f.product_id = p.id
-      WHERE p.loja = 'LI'`);
-    expect(r.rows[0]!.ncm).toBe('08043000');
-  });
-
-  it('NAO copia o fiscal de uma loja para a outra', async () => {
-    const g = await cenarioCompleto();
-    await aplicar.unificar(admin, g.id);
-
-    const r = await db.execute(sqlTag`
-      SELECT p.loja, f.ncm, f.reducao_icms FROM products p
-      JOIN product_fiscal f ON f.product_id = p.id WHERE p.loja IN ('LI','TNP')`);
-    const li = (r.rows as any[]).find((x) => x.loja === 'LI');
-    const tnp = (r.rows as any[]).find((x) => x.loja === 'TNP');
-
-    expect(li.ncm).toBeNull(); // o NCM e da contabilidade (TNP), nao vaza para a LI
-    expect(tnp.reducao_icms).toBeNull(); // a reducao e do SIA (LI), nao vaza para a TNP
+    const r = await db.execute(sqlTag`SELECT count(*)::int c FROM product_fiscal`);
+    expect(r.rows[0]!.c).toBe(0);
   });
 
   it('nada de cstPisCofins inventado — o classify() nao roda aqui', async () => {
@@ -240,7 +247,7 @@ describe('unificar — o que ele recusa', () => {
                             habilitar_ajuda, auto, codigo_barras)
       VALUES ('ja', 'BASE', 'PR-JA', 'ABACAXI UNID', 'UN', 'revenda', 'ativo', 1, 1, false, false, '00000000010000')`);
 
-    await expect(aplicar.unificar(admin, g.id, true)).resolves.toMatchObject({ lojasCriadas: expect.any(Array) });
+    await expect(aplicar.unificar(admin, g.id, true)).resolves.toMatchObject({ modo: 'criado' });
   });
 
   it('recusa o segundo clique — dois cliques nao geram dois cadastros', async () => {
@@ -360,31 +367,32 @@ describe('modo atualizacao — grupo que ja esta no Pralis', () => {
               'ABACAXI UNID', true, ${JSON.stringify({ id: 'base1', loja: 'BASE' })}::jsonb)`);
   };
 
-  it('atualiza o fiscal do espelho existente com o da fonte da loja', async () => {
+  /*
+   * O catalogo da loja e da loja. A Central atualiza o BASE e para ai — mesmo
+   * quando o espelho da loja ja existe e a fonte tem fiscal para ele. Quem
+   * mexe no cadastro da LI e a propria LI, importando da Base.
+   */
+  it('NAO encosta no espelho da loja que ja existe', async () => {
     await jaNoPralis({ comEspelhoLi: true });
     const g = await cenarioCompleto();
 
     const r = await aplicar.unificar(admin, g.id);
 
     expect(r.modo).toBe('atualizado');
-    expect(r.lojasAtualizadas).toContain('LI');
     const li = await db.execute(sqlTag`
       SELECT f.reducao_icms, f.cst_pis_cofins FROM product_fiscal f WHERE f.product_id = 'li1'`);
-    expect(Number(li.rows[0]!.reducao_icms)).toBe(53.33); // veio do SIA
-    expect(li.rows[0]!.cst_pis_cofins).toBe('06'); // o que ja existia NAO foi jogado fora
+    expect(li.rows[0]!.reducao_icms).toBeNull(); // o SIA nao entrou por aqui
+    expect(li.rows[0]!.cst_pis_cofins).toBe('06'); // e o que existia continua intacto
   });
 
-  it('cria o espelho que FALTA em vez de recriar o BASE', async () => {
+  it('NAO cria o espelho que falta — isso e a importacao da loja', async () => {
     await jaNoPralis({ comEspelhoLi: true });
     const g = await cenarioCompleto();
 
-    const r = await aplicar.unificar(admin, g.id);
+    await aplicar.unificar(admin, g.id);
 
-    expect(r.lojasCriadas).toContain('TNP'); // nao existia
-    expect(r.lojasAtualizadas).toContain('LI'); // existia
-    const tnp = await db.execute(sqlTag`
-      SELECT f.ncm FROM products p JOIN product_fiscal f ON f.product_id = p.id WHERE p.loja = 'TNP'`);
-    expect(tnp.rows[0]!.ncm).toBe('08043000'); // da contabilidade
+    const lojas = await db.execute(sqlTag`SELECT loja FROM products ORDER BY loja`);
+    expect(lojas.rows.map((x) => x.loja)).toEqual(['BASE', 'LI']); // TNP nao apareceu
   });
 
   /* Decisao do dono: o Compilart e o catalogo vivo e manda no preco. */
@@ -399,6 +407,11 @@ describe('modo atualizacao — grupo que ja esta no Pralis', () => {
     expect(Number(r.rows[0]!.v_venda_pontual)).toBe(6.9); // era 199
   });
 
+  /*
+   * Sem nome escolhido — o caso do lote automatico e do "criar todos os que
+   * faltam" — o nome que o motor deduziu NAO pode passar por cima do que o
+   * Jose curou no Pralis. Seria apagar curadoria em massa sem clique humano.
+   */
   it('NAO sobrescreve nome nem grupo que o Jose curou', async () => {
     await jaNoPralis({ nomeCurado: 'ABACAXI PEROLA CURADO' });
     await fonte({ id: 's1', fonte: 'sia_li', barras: '00000000010000', interno: '10000',
@@ -410,6 +423,24 @@ describe('modo atualizacao — grupo que ja esta no Pralis', () => {
 
     const r = await db.execute(sqlTag`SELECT nome, grupo FROM products WHERE id = 'base1'`);
     expect(r.rows[0]).toMatchObject({ nome: 'ABACAXI PEROLA CURADO', grupo: 'GRUPO CURADO' });
+  });
+
+  /*
+   * O outro lado da mesma regra: quando o Jose ESCOLHE o nome na tela, a
+   * escolha dele manda — e por isso que a Central mostra os nomes das fontes.
+   * O grupo curado continua intocado: so o nome foi escolhido.
+   */
+  it('o nome ESCOLHIDO na tela sobrescreve o que estava no Pralis', async () => {
+    await jaNoPralis({ nomeCurado: 'ABACAXI PEROLA CURADO' });
+    await fonte({ id: 's1', fonte: 'sia_li', barras: '00000000010000', interno: '10000',
+      nome: 'ABACAXI UNID', grupo: 'MAT. PRIMA (FARINHA)', reducao: 53.33 });
+    await grupos.recalcular();
+    const g = (await grupos.listar({ q: 'ABACAXI' })).grupos[0]!;
+
+    await aplicar.unificar(admin, g.id, false, 'ABACAXI UNID');
+
+    const r = await db.execute(sqlTag`SELECT nome, grupo FROM products WHERE id = 'base1'`);
+    expect(r.rows[0]).toMatchObject({ nome: 'ABACAXI UNID', grupo: 'GRUPO CURADO' });
   });
 
   it('reenfileira o espelho da planilha para a atualizacao chegar no Sheets', async () => {

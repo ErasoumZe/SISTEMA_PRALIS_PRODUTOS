@@ -1,10 +1,12 @@
 import { injectable } from 'tsyringe';
-import { and, asc, count, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, ilike, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '@/db/databases';
 import { AppError } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
+import { products } from '@/modules/product/product.table';
 import { unifFonteProduto } from './unificacao.table';
 import { unifGrupo, unifGrupoItem } from './unificacao.grupo.table';
+import { unifDecisao } from './unificacao.decisao.table';
 import { agrupar, type GrupoReconciliado, type ItemFonte, type LojaFonte } from './unificacao.motor';
 import { normalizarNome } from './unificacao.fontes';
 
@@ -36,7 +38,7 @@ export const FONTE_VENDIDOS = 'vendas_pdv_12m';
  * cada um listar o seu, um produto aparece como exato num lugar e como
  * "revisar" no outro.
  */
-export const MOTIVOS_EXATOS = ['mesmo_cod_barras', 'mesmo_cod_interno'] as const;
+export const MOTIVOS_EXATOS = ['mesmo_id_sistema', 'mesmo_cod_barras', 'mesmo_cod_interno'] as const;
 
 /**
  * As duas naturezas de decisão, que NÃO se somam.
@@ -51,7 +53,7 @@ export const MOTIVOS_QUE_DESCARTAM = ['nao_e_o_mesmo', 'ignorado'] as const;
 
 export interface FiltrosGrupos {
   /** `exatos` = os dois códigos de uma vez; os demais olham um motivo só. */
-  filtro?: 'exatos' | 'mesmo_cod_barras' | 'mesmo_cod_interno' | 'nome_parecido' | 'unico';
+  filtro?: 'exatos' | 'mesmo_id_sistema' | 'mesmo_cod_barras' | 'mesmo_cod_interno' | 'nome_parecido' | 'unico';
   loja?: LojaFonte;
   status?: 'ativo' | 'inativo';
   /** Só os que pedem olho humano (nome divergente, sem fiscal TNP, sem grupo). */
@@ -141,6 +143,7 @@ export class UnificacaoGruposService {
     const linhas = await db.select().from(unifFonteProduto);
     return linhas.map((l) => ({
       id: l.id,
+      idSistema: String((l.raw as Record<string, string> | null)?.id ?? '').trim() || undefined,
       fonte: l.fonte,
       loja: LOJA_DA_FONTE[l.fonte]
         ?? (((l.raw as Record<string, string>)?.loja as LojaFonte) || 'BASE'),
@@ -191,6 +194,38 @@ export class UnificacaoGruposService {
     const itens = await this.itens();
     const grupos = agrupar({ itens, barrasConflitantes: this.conflitos(itens) });
 
+    /*
+     * Quais produtos BASE existem AGORA — lido da tabela `products`, não do
+     * staging.
+     *
+     * O staging é um retrato tirado no último "Atualizar fontes", e
+     * `/recalcular` existe justamente para reagrupar SEM recarregá-lo. Conferir
+     * a decisão contra o retrato velho apagaria a decisão de todo produto
+     * criado depois daquela carga — que é exatamente o caso de quem acabou de
+     * unificar. Só leitura: nada aqui escreve em `products`.
+     *
+     * `status = 'unificado'` é o cadastro aposentado pela própria unificação:
+     * continua no banco para o desfazer, mas não é mais um produto.
+     */
+    const basesVivas = await db
+      .select({ id: products.id })
+      .from(products)
+      .where(and(eq(products.loja, 'BASE'), ne(products.status, 'unificado')));
+    const idsBaseAtuais = new Set(basesVivas.map((linha) => linha.id));
+
+    // A decisão da tabela de grupos é um retrato; a auditoria guarda qual
+    // produto ela realmente criou/vinculou. Se esse produto deixou de existir,
+    // a decisão não pode continuar escondendo o grupo nem inflar o cabeçalho.
+    const auditoria = await db
+      .select({
+        grupoChave: unifDecisao.grupoChave,
+        productId: unifDecisao.productId,
+        criadoEm: unifDecisao.criadoEm,
+      })
+      .from(unifDecisao)
+      .orderBy(asc(unifDecisao.criadoEm));
+    const ultimaDecisao = new Map(auditoria.map((item) => [item.grupoChave, item]));
+
     const decisoes = await db
       .select({
         chave: unifGrupo.chave,
@@ -203,7 +238,27 @@ export class UnificacaoGruposService {
       })
       .from(unifGrupo)
       .where(sql`${unifGrupo.decisao} IS NOT NULL OR ${unifGrupo.grupoManual} IS NOT NULL`);
-    const anteriores = new Map(decisoes.map((d) => [d.chave, d]));
+    const anteriores = new Map(decisoes.map((d) => {
+      const auditada = ultimaDecisao.get(d.chave);
+      const criaCadastro = !!d.decisao && (MOTIVOS_QUE_CRIAM as readonly string[]).includes(d.decisao);
+      /*
+       * Só desfaz o que dá para PROVAR que sumiu: existe auditoria, ela aponta
+       * um produto, e esse produto não está mais lá. Decisão sem auditoria não
+       * prova nada, e apagá-la seria jogar fora trabalho humano por falta de
+       * registro — o oposto do que esta reconciliação existe para fazer.
+       */
+      const produtoSumiu = criaCadastro
+        && !!auditada?.productId
+        && !idsBaseAtuais.has(auditada.productId);
+      return [d.chave, {
+        ...d,
+        // Descartes continuam sendo decisões humanas válidas. Criações só
+        // continuam concluídas enquanto o produto BASE apontado existir.
+        decisao: produtoSumiu ? null : d.decisao,
+        decididoPor: produtoSumiu ? null : d.decididoPor,
+        decididoEm: produtoSumiu ? null : d.decididoEm,
+      } as typeof d];
+    }));
 
     await db.transaction(async (tx) => {
       await tx.execute(sql`DELETE FROM unif_grupo_item`);
