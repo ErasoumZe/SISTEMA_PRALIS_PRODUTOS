@@ -7,6 +7,7 @@ const data = ref<AdminSchemas.Dashboard | null>(null);
 const loading = ref(true);
 const erro = ref('');
 const atualizadoEm = ref<Date | null>(null);
+const usuarioSelecionado = ref<string | null>(null);
 
 async function load() {
   loading.value = true;
@@ -70,7 +71,8 @@ const donut = computed(() => ({
 }));
 
 const produtividade = computed(() => {
-  const p = data.value?.produtividade ?? [];
+  const todos = data.value?.produtividade ?? [];
+  const p = usuarioSelecionado.value ? todos.filter((item) => item.id === usuarioSelecionado.value) : todos;
   return {
     series: [{ name: 'Produtos cadastrados', data: p.map((x) => x.total) }],
     options: {
@@ -101,7 +103,13 @@ const porDia = computed(() => {
 });
 
 const porLoja = computed(() => (data.value?.porLoja ?? []).filter((l) => l.loja !== 'BASE'));
-const temProdutividade = computed(() => (data.value?.produtividade.length ?? 0) > 0);
+const usuariosDashboard = computed(() => data.value?.produtividade ?? []);
+const usuarioEmFoco = computed(() => usuariosDashboard.value.find((item) => item.id === usuarioSelecionado.value) ?? null);
+const temProdutividade = computed(() => produtividade.value.series[0].data.some((total) => total > 0));
+const atividadesRecentes = computed(() => {
+  if (!usuarioSelecionado.value) return data.value?.recentes ?? [];
+  return (data.value?.recentes ?? []).filter((item) => item.createdByUserId === usuarioSelecionado.value);
+});
 const temDias = computed(() => (data.value?.porDia.length ?? 0) > 0);
 
 function quando(iso: string) {
@@ -166,15 +174,37 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
         <v-col cols="12" md="8">
           <v-card flat rounded="xl" class="dashboard-panel pa-5 h-100">
             <div class="panel-heading">
-              <div><div class="panel-title">Produtividade por usuário</div><div class="panel-subtitle">Produtos cadastrados nas lojas, sem o catálogo Base</div></div>
+              <div><div class="panel-title">Produtividade por usuário</div><div class="panel-subtitle">Todos os cadastros atribuídos, inclusive o catálogo Base</div></div>
               <v-avatar class="panel-icon" size="38"><v-icon size="20">bar_chart</v-icon></v-avatar>
             </div>
+            <div class="user-filter mt-4 mb-2">
+              <v-select
+                v-model="usuarioSelecionado"
+                :items="usuariosDashboard"
+                item-title="nome"
+                item-value="id"
+                label="Todos os usuários"
+                prepend-inner-icon="person_search"
+                clearable
+                hide-details
+                density="compact"
+                variant="solo-filled"
+                flat
+              >
+                <template #item="{ props, item }">
+                  <v-list-item v-bind="props" :title="item.raw.nome" :subtitle="`${nf(item.raw.total)} produtos cadastrados`" />
+                </template>
+              </v-select>
+              <div v-if="usuarioEmFoco" class="user-focus-count">
+                {{ usuarioEmFoco.nome }}: <strong>{{ nf(usuarioEmFoco.total) }}</strong> produtos cadastrados
+              </div>
+            </div>
             <client-only>
-              <apexchart v-if="temProdutividade" type="bar" height="320" :options="produtividade.options" :series="produtividade.series" />
+              <apexchart v-if="temProdutividade" type="bar" :height="Math.max(260, produtividade.series[0].data.length * 54)" :options="produtividade.options" :series="produtividade.series" />
             </client-only>
             <div v-if="!temProdutividade" class="text-center text-medium-emphasis py-10">
               <v-icon size="40" class="mb-2">bar_chart</v-icon>
-              <div>Ainda não há produtos cadastrados nas lojas.</div>
+              <div>{{ usuarioEmFoco ? `${usuarioEmFoco.nome} ainda não tem produtos atribuídos.` : 'Ainda não há produtos atribuídos a usuários.' }}</div>
             </div>
           </v-card>
         </v-col>
@@ -220,15 +250,15 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
           </v-card>
 
           <v-card flat rounded="xl" class="dashboard-panel pa-5">
-            <div class="panel-heading mb-3"><div><div class="panel-title">Atividades recentes</div><div class="panel-subtitle">Últimos produtos registrados</div></div><v-avatar class="panel-icon" size="38"><v-icon size="20">schedule</v-icon></v-avatar></div>
-            <NuxtLink v-for="(r, i) in data.recentes" :key="i" :to="`/produtos/${r.id}`" class="activity-row d-flex align-center ga-3 mb-2">
+            <div class="panel-heading mb-3"><div><div class="panel-title">Atividades recentes</div><div class="panel-subtitle">{{ usuarioEmFoco ? `Últimos produtos de ${usuarioEmFoco.nome}` : 'Últimos produtos registrados' }}</div></div><v-avatar class="panel-icon" size="38"><v-icon size="20">schedule</v-icon></v-avatar></div>
+            <NuxtLink v-for="(r, i) in atividadesRecentes" :key="i" :to="`/produtos/${r.id}`" class="activity-row d-flex align-center ga-3 mb-2">
               <v-avatar class="activity-icon" size="36" rounded="lg"><v-icon size="18">inventory_2</v-icon></v-avatar>
               <div style="min-width: 0">
                 <div class="text-body-2 font-weight-medium text-truncate">{{ r.nome }}</div>
                 <div class="text-caption text-medium-emphasis">{{ r.createdByName || '—' }} · {{ r.loja }} · {{ quando(r.createdAt) }}</div>
               </div>
             </NuxtLink>
-            <div v-if="!data.recentes.length" class="text-caption text-medium-emphasis">Nenhuma atividade recente.</div>
+            <div v-if="!atividadesRecentes.length" class="text-caption text-medium-emphasis">Nenhuma atividade recente para este usuário.</div>
           </v-card>
         </v-col>
       </v-row>
@@ -261,8 +291,12 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
 .panel-title { color: #25283a; font-size: 16px; font-weight: 750; letter-spacing: -.2px; }
 .panel-subtitle { margin-top: 2px; color: #7b8495; font-size: 12px; }
 .panel-icon, .activity-icon { color: #5d21d2; background: #f0eaff !important; }
+.user-filter { display: flex; align-items: center; gap: 12px; }
+.user-filter :deep(.v-field) { border-radius: 13px; background: #f5f3fa; }
+.user-focus-count { flex: 1 0 auto; color: #606a7d; font-size: 12px; }
 .atalho-loja, .activity-row { color: inherit; text-decoration: none; border-radius: 12px; transition: background .18s ease, transform .18s ease; }
 .atalho-loja:hover, .activity-row:hover { background: #f7f5ff; transform: translateX(2px); }
 .activity-row { padding: 5px; margin-left: -5px; margin-right: -5px; }
 @media (max-width: 600px) { .dashboard-hero { padding: 24px; border-radius: 24px; } .hero-refresh { width: 100%; } .metric-hint { max-width: 210px; } }
+@media (max-width: 760px) { .user-filter { align-items: stretch; flex-direction: column; } }
 </style>

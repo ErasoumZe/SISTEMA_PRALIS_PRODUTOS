@@ -17,13 +17,14 @@ export const dashboardSchema = z.object({
     transformacao: z.number().int(),
   }),
   porLoja: z.array(z.object({ loja: catalogo, total: z.number().int() })),
-  produtividade: z.array(z.object({ nome: z.string(), total: z.number().int() })),
+  produtividade: z.array(z.object({ id: z.string(), nome: z.string(), total: z.number().int() })),
   porDia: z.array(z.object({ dia: z.string(), total: z.number().int() })),
   recentes: z.array(
     z.object({
       id: z.string(),
       nome: z.string(),
       loja: catalogo,
+      createdByUserId: z.string().nullable(),
       createdByName: z.string().nullable(),
       createdAt: z.string(),
     }),
