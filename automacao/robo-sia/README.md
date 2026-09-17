@@ -50,6 +50,33 @@ Pegue o valor de `API_URL` no painel do Coolify.
 
 O token nunca aparece em log: o script registra a URL, jamais o `Authorization`.
 
+## Passo 0 — o de-para daquela loja (uma vez, antes de tudo)
+
+Sem ele a API recusa a exportação (`CREARE_DEPARA_MISSING`), e é assim que tem
+de ser: o importador decide entre ATUALIZAR e INSERIR pelo `CODITEM`, e sem o
+de-para todo produto entra como NOVO e duplica o catálogo.
+
+`exportar-depara-sia.cjs` lê o banco do SIA da loja e gera o CSV já com os nomes
+de coluna que o importador do Pralis espera. Copie-o para a pasta do robô de
+vendas — a mesma do `index.js`, que é onde o `mysql2` está instalado — e rode:
+
+```
+node exportar-depara-sia.cjs --loja TNP
+```
+
+A senha é perguntada na hora e não vai para arquivo nem log; ela está no
+`sia.ini` (`dbusername` / `password`). O script é **somente leitura**.
+
+Depois, no Pralis:
+
+```
+npm run creare:depara -- "<caminho>/depara-tnp.csv" --loja TNP
+npm run creare:depara -- "<caminho>/depara-tnp.csv" --loja TNP --apply
+```
+
+O primeiro só confere; o segundo grava. Confira em `GET /admin/creare/health`
+antes de exportar qualquer coisa.
+
 ## Passo 1 — baixar
 
 ```powershell

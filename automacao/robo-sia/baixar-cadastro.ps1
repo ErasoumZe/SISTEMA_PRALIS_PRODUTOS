@@ -84,10 +84,17 @@ if ($Limite -gt 0) { $url = "$url&limite=$Limite" }
 Escrever-Log "origem: $url"
 
 # --- baixa para um temporario ao lado do destino (mesmo volume, move atomico) ---
+#
+# Daqui para baixo o acesso a disco e por [System.IO], nao pelos cmdlets.
+# Test-Path/Remove-Item/Copy-Item/Move-Item interpretam o caminho, e `~`
+# derruba todos eles -- inclusive com -LiteralPath. E `~` aparece sozinho
+# em nome curto do Windows: C:\Users\JOS~1\..., PROGRA~1. Medido: falhou
+# com "Nao existe um objeto no caminho especificado C:\Users\JOS~1" depois
+# de o arquivo ja ter sido baixado e validado -- ou seja, na pior hora.
 $pastaDestino = Split-Path -Parent $Destino
-if (-not (Test-Path -LiteralPath $pastaDestino)) { New-Item -ItemType Directory -Path $pastaDestino -Force | Out-Null }
+[System.IO.Directory]::CreateDirectory($pastaDestino) | Out-Null
 $temporario = "$Destino.baixando"
-if (Test-Path -LiteralPath $temporario) { Remove-Item -LiteralPath $temporario -Force }
+[System.IO.File]::Delete($temporario)
 
 try {
     # Windows PowerShell 5.1 ainda negocia TLS 1.0 por padrao em algumas maquinas
@@ -107,13 +114,13 @@ catch {
     Falhar ("nao consegui baixar: {0}" -f $_.Exception.Message)
 }
 
-if (-not (Test-Path -LiteralPath $temporario)) { Falhar 'o download terminou mas nao gerou arquivo.' }
+if (-not [System.IO.File]::Exists($temporario)) { Falhar 'o download terminou mas nao gerou arquivo.' }
 
 # --- validacao antes de deixar isso chegar perto do importador ---
-$linhas = @(Get-Content -LiteralPath $temporario -Encoding Ascii | Where-Object { $_.Trim().Length -gt 0 })
+$linhas = @([System.IO.File]::ReadAllLines($temporario) | Where-Object { $_.Trim().Length -gt 0 })
 
 if ($linhas.Count -eq 0) {
-    Remove-Item -LiteralPath $temporario -Force
+    [System.IO.File]::Delete($temporario)
     Falhar 'o arquivo baixado esta vazio.'
 }
 
@@ -121,7 +128,7 @@ $forasDoTamanho = @($linhas | Where-Object { $_.Length -ne $TAMANHO_REGISTRO })
 if ($forasDoTamanho.Count -gt 0) {
     $exemplo = $forasDoTamanho[0]
     $amostra = $exemplo.Substring(0, [Math]::Min(60, $exemplo.Length))
-    Remove-Item -LiteralPath $temporario -Force
+    [System.IO.File]::Delete($temporario)
     Falhar ("{0} linha(s) nao tem {1} posicoes (a primeira tem {2}). Comeco: '{3}'. Provavelmente veio pagina de erro em vez do arquivo." -f `
         $forasDoTamanho.Count, $TAMANHO_REGISTRO, $exemplo.Length, $amostra)
 }
@@ -129,17 +136,18 @@ if ($forasDoTamanho.Count -gt 0) {
 # o importador quebra na leitura se vier caractere fora de ASCII imprimivel
 $naoAscii = @($linhas | Where-Object { $_ -match '[^\x20-\x7e]' })
 if ($naoAscii.Count -gt 0) {
-    Remove-Item -LiteralPath $temporario -Force
+    [System.IO.File]::Delete($temporario)
     Falhar ("{0} linha(s) tem caractere fora de ASCII imprimivel." -f $naoAscii.Count)
 }
 
 # --- guarda o anterior e troca ---
-if (Test-Path -LiteralPath $Destino) {
+if ([System.IO.File]::Exists($Destino)) {
     $backup = "$Destino.anterior"
-    Copy-Item -LiteralPath $Destino -Destination $backup -Force
+    [System.IO.File]::Copy($Destino, $backup, $true)
     Escrever-Log "copia do anterior em: $backup"
+    [System.IO.File]::Delete($Destino)
 }
-Move-Item -LiteralPath $temporario -Destination $Destino -Force
+[System.IO.File]::Move($temporario, $Destino)
 
 Escrever-Log ("OK: {0} registro(s) de {1} posicoes gravados em {2}" -f $linhas.Count, $TAMANHO_REGISTRO, $Destino)
 if ($Limite -gt 0) {
