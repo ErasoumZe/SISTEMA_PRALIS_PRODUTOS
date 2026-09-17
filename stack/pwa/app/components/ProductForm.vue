@@ -2,6 +2,7 @@
 import { ProductRules, ProductRequests as Requests } from '@pralis/shared';
 import type { ProductRequests } from '@pralis/shared';
 import type { FiscalClassification, GroupTaxRule } from '~/composables/useApi';
+import { aplicarFundoPralisComIa } from '~/composables/useProductPhotoAi';
 
 const props = defineProps<{ productId?: string }>();
 const api = useApi();
@@ -273,19 +274,26 @@ const DIAS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB', 'DOM'];
 
 const saving = ref(false);
 const uploadingFoto = ref(false);
+const fotoComFundoPralis = ref(false);
+const progressoFotoIa = ref(0);
 const erro = ref('');
 
 async function onFoto(files: File | File[] | null) {
   const file = Array.isArray(files) ? files[0] : files;
   if (!file) return;
   uploadingFoto.value = true;
+  progressoFotoIa.value = 0;
   erro.value = '';
   try {
-    form.fotoUrl = await api.uploadFoto(file);
+    const arquivoParaEnviar = fotoComFundoPralis.value
+      ? await aplicarFundoPralisComIa(file, (percentual) => (progressoFotoIa.value = percentual))
+      : file;
+    form.fotoUrl = await api.uploadFoto(arquivoParaEnviar);
   } catch (e: unknown) {
-    erro.value = (e as { data?: { message?: string } })?.data?.message || 'Falha no upload da foto.';
+    erro.value = e instanceof Error ? e.message : (e as { data?: { message?: string } })?.data?.message || 'Falha no upload da foto.';
   } finally {
     uploadingFoto.value = false;
+    progressoFotoIa.value = 0;
   }
 }
 
@@ -762,13 +770,15 @@ onMounted(async () => {
                 </div>
               </template>
               <template v-else>
-                <v-progress-circular v-if="uploadingFoto" indeterminate color="primary" class="mb-2" />
+                <v-progress-circular v-if="uploadingFoto" :model-value="fotoComFundoPralis ? progressoFotoIa : undefined" :indeterminate="!fotoComFundoPralis" color="primary" class="mb-2" />
                 <v-icon v-else size="38" color="primary" class="mb-2">cloud_upload</v-icon>
                 <div class="text-body-2 font-weight-medium">Selecione ou arraste a foto</div>
                 <div class="text-caption text-medium-emphasis mb-2">PNG, JPG aceitos</div>
                 <v-btn size="small" color="primary" variant="flat" rounded="lg" :loading="uploadingFoto">Selecionar</v-btn>
               </template>
             </div>
+            <v-switch v-model="fotoComFundoPralis" color="primary" density="compact" hide-details :disabled="uploadingFoto" label="Padronizar fundo com a IA Cicluz" class="mt-2" @click.stop />
+            <div class="text-caption text-medium-emphasis">Remove o fundo e aplica o laranja Pralis antes do upload.</div>
           </v-col>
           <!-- código de barras abaixo da foto (UX-03) -->
           <v-col cols="12" sm="6">

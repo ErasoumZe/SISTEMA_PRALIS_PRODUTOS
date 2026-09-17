@@ -6,7 +6,30 @@ const emit = defineEmits<{ scanned: [code: string] }>();
 
 const video = ref<HTMLVideoElement | null>(null);
 const erro = ref('');
+const flashDisponivel = ref(false);
+const flashAtivo = ref(false);
 let controls: { stop: () => void } | null = null;
+
+function trilhaDaCamera() {
+  return (video.value?.srcObject as MediaStream | null)?.getVideoTracks()[0] ?? null;
+}
+
+function atualizarFlash() {
+  const trilha = trilhaDaCamera();
+  const capacidades = trilha?.getCapabilities?.() as { torch?: boolean } | undefined;
+  flashDisponivel.value = Boolean(capacidades?.torch);
+}
+
+async function alternarFlash() {
+  const trilha = trilhaDaCamera();
+  if (!trilha || !flashDisponivel.value) return;
+  try {
+    await trilha.applyConstraints({ advanced: [{ torch: !flashAtivo.value }] } as MediaTrackConstraints);
+    flashAtivo.value = !flashAtivo.value;
+  } catch {
+    erro.value = 'Este aparelho nao permitiu controlar o flash da camera.';
+  }
+}
 
 async function start() {
   erro.value = '';
@@ -24,14 +47,20 @@ async function start() {
         }
       },
     );
+    atualizarFlash();
+    video.value?.addEventListener('loadedmetadata', atualizarFlash, { once: true });
   } catch {
     erro.value = 'Não foi possível acessar a câmera. Permita o acesso à câmera e tente de novo.';
   }
 }
 
 function parar() {
+  const trilha = trilhaDaCamera();
+  if (trilha && flashAtivo.value) void trilha.applyConstraints({ advanced: [{ torch: false }] } as MediaTrackConstraints);
   controls?.stop();
   controls = null;
+  flashAtivo.value = false;
+  flashDisponivel.value = false;
 }
 function fechar() {
   parar();
@@ -56,6 +85,18 @@ onBeforeUnmount(parar);
         <div class="scan-box">
           <video ref="video" class="scan-video" muted autoplay playsinline></video>
           <div class="scan-frame"></div>
+        </div>
+        <div class="d-flex justify-center mt-3">
+          <v-btn
+            v-if="flashDisponivel"
+            size="small"
+            :color="flashAtivo ? 'amber-darken-2' : 'primary'"
+            variant="tonal"
+            :prepend-icon="flashAtivo ? 'flash_on' : 'flash_off'"
+            @click="alternarFlash"
+          >
+            {{ flashAtivo ? 'Desligar flash' : 'Ligar flash' }}
+          </v-btn>
         </div>
         <div class="text-caption text-medium-emphasis text-center mt-2">
           Aponte a câmera para o código de barras do produto.
