@@ -208,9 +208,10 @@ export class ProductRepository {
     });
   }
 
-  async listNameHistory(limit = 100): Promise<ProductNameHistoryEntry[]> {
+  /** Histórico administrativo completo, sempre ordenado da alteração mais recente. */
+  async listNameHistory(): Promise<ProductNameHistoryEntry[]> {
     const rows = await db.select().from(productNameHistory)
-      .orderBy(desc(productNameHistory.alteradoEm)).limit(limit);
+      .orderBy(desc(productNameHistory.alteradoEm));
     return rows.map((row) => ({
       id: row.id,
       productId: row.productId,

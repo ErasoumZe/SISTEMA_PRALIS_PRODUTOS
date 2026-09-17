@@ -36,7 +36,11 @@ const nav = computed<NavItem[]>(() => {
   // Vendas está temporariamente fora da navegação para todos os perfis.
   // As rotas e a ingestão permanecem intactas: a Central ainda depende da
   // fonte de produtos vendidos nos últimos 12 meses.
-  if (isAdmin.value) items.push({ title: 'Central de Produtos', icon: 'merge_type', to: '/produtos/central', section: 'Administração' });
+  if (isAdmin.value) {
+    items.push({ title: 'Dashboard', icon: 'dashboard', to: '/dashboard', section: 'Administração' });
+    items.push({ title: 'Central de Produtos', icon: 'merge_type', to: '/produtos/central', section: 'Administração' });
+    items.push({ title: 'Histórico', icon: 'history', to: '/produtos/historico-nomes', section: 'Administração' });
+  }
   // "Duplicados" não existe mais: a Central de Produtos faz o que ela fazia e
   // mais, sobre a base inteira em vez de só o catálogo vivo.
   /*
@@ -61,6 +65,7 @@ const titulo = computed(() => {
     '/vendas/produtos': 'Produtos vendidos no período',
     '/vendas/painel': 'Painel de setores',
     '/produtos/central': 'Central de Produtos',
+    '/produtos/historico-nomes': 'Histórico de alterações',
     '/produtos/reconciliacao': 'Conferir planilha',
     '/produtos/manutencao': 'Manutenção do catálogo',
     '/usuarios': 'Usuários',
@@ -76,6 +81,7 @@ const subtitulo = computed(() => {
     '/usuarios': 'Gerencie os usuários do sistema',
     '/produtos/reconciliacao': 'O que o banco e a planilha discordam',
     '/produtos/manutencao': 'Ações que não têm volta',
+    '/produtos/historico-nomes': 'Alterações de nome em tempo real',
   };
   return map[route.path] ?? '';
 });
