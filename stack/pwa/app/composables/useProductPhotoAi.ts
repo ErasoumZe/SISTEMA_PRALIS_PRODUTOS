@@ -1,8 +1,8 @@
-const FUNDO_PRALIS = "#EE7A1E";
+const FUNDO_PRODUTO = "#FFFFFF";
 
 type ProgressoFoto = (percentual: number) => void;
 
-/** Remove o fundo localmente e compõe o produto sobre o laranja institucional. */
+/** Remove o fundo localmente e compõe o produto sobre um fundo branco padronizado. */
 export async function aplicarFundoPralisComIa(
   arquivo: File,
   onProgress?: ProgressoFoto,
@@ -31,7 +31,7 @@ export async function aplicarFundoPralisComIa(
     const contexto = canvas.getContext("2d");
     if (!contexto)
       throw new Error("Seu navegador nao conseguiu preparar a foto.");
-    contexto.fillStyle = FUNDO_PRALIS;
+    contexto.fillStyle = FUNDO_PRODUTO;
     contexto.fillRect(0, 0, largura, altura);
     contexto.drawImage(bitmap, 0, 0, largura, altura);
     const png = await new Promise<Blob>((resolve, reject) => {

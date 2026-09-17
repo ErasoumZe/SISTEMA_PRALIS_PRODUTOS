@@ -778,7 +778,7 @@ onMounted(async () => {
               </template>
             </div>
             <v-switch v-model="fotoComFundoPralis" color="primary" density="compact" hide-details :disabled="uploadingFoto" label="Padronizar fundo com a IA Cicluz" class="mt-2" @click.stop />
-            <div class="text-caption text-medium-emphasis">Remove o fundo e aplica o laranja Pralis antes do upload.</div>
+            <div class="text-caption text-medium-emphasis">Remove o fundo e aplica o fundo branco antes do upload.</div>
           </v-col>
           <!-- código de barras abaixo da foto (UX-03) -->
           <v-col cols="12" sm="6">
