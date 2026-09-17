@@ -40,7 +40,7 @@ describe('PUT /products/:id — o resultado do espelho de loja não pode sumir',
     const { reply, lido } = respostaDe();
     const c = controller({
       id: 'p-1', nome: 'ARROZ', loja: 'TNP',
-      sheetSync: 'skipped', lojasAtualizadas: 0, espelhoLoja: 'espelhado',
+      sheetSync: 'skipped', lojasAtualizadas: 0, espelhoLoja: 'espelhado', creareDrive: {},
     });
 
     await c.update(pedido() as never, reply);
@@ -53,7 +53,7 @@ describe('PUT /products/:id — o resultado do espelho de loja não pode sumir',
     const { reply, lido } = respostaDe();
     const c = controller({
       id: 'p-1', nome: 'ARROZ', loja: 'TNP',
-      sheetSync: 'skipped', lojasAtualizadas: 0, espelhoLoja: 'falhou',
+      sheetSync: 'skipped', lojasAtualizadas: 0, espelhoLoja: 'falhou', creareDrive: {},
     });
 
     await c.update(pedido() as never, reply);
@@ -68,7 +68,7 @@ describe('PUT /products/:id — o resultado do espelho de loja não pode sumir',
     const { reply, lido } = respostaDe();
     const c = controller({
       id: 'p-1', nome: 'ARROZ', loja: 'TNP',
-      sheetSync: 'skipped', lojasAtualizadas: 0, espelhoLoja: 'desligado',
+      sheetSync: 'skipped', lojasAtualizadas: 0, espelhoLoja: 'desligado', creareDrive: {},
     });
 
     await c.update(pedido() as never, reply);
@@ -80,7 +80,7 @@ describe('PUT /products/:id — o resultado do espelho de loja não pode sumir',
     const { reply, lido } = respostaDe();
     const c = controller({
       id: 'p-1', nome: 'ARROZ', loja: 'BASE',
-      sheetSync: 'synced', lojasAtualizadas: 2, espelhoLoja: 'sem-aba',
+      sheetSync: 'synced', lojasAtualizadas: 2, espelhoLoja: 'sem-aba', creareDrive: {},
     });
 
     await c.update(pedido() as never, reply);

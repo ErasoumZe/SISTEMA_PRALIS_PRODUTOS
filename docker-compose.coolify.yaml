@@ -79,6 +79,14 @@ services:
       # Token do robô da loja para GET /creare/produtos.txt (mínimo 32 caracteres).
       # Ausente ou curto desabilita o download por máquina; só sessão de admin exporta.
       CREARE_EXPORT_TOKEN: ${CREARE_EXPORT_TOKEN}
+      # Publica o TXT do cadastro numa pasta do Drive a cada salvamento, para o
+      # Drive para Desktop entregar na maquina da loja. A pasta precisa estar num
+      # DRIVE COMPARTILHADO: conta de servico nao tem cota e nao cria arquivo
+      # dentro do "Meu Drive" de ninguem, nem compartilhada como Editor.
+      CREARE_DRIVE_ENABLED: ${CREARE_DRIVE_ENABLED}
+      # {"TNP":"<id da pasta>"} - sem fallback: pasta errada entrega o cadastro
+      # de uma loja para outra, e o coditem grava por cima de produto diferente.
+      CREARE_DRIVE_FOLDERS_JSON: ${CREARE_DRIVE_FOLDERS_JSON}
     depends_on:
       postgres:
         condition: service_healthy

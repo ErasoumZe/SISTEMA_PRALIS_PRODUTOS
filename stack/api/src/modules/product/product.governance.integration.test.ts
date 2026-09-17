@@ -9,6 +9,7 @@ import type { ProductService } from './product.service';
 import type { ProductRequests } from '@pralis/shared';
 import type { TaxRuleService } from '@/modules/apoio/tax-rule.service';
 import type { ProductSheetLojaService } from '@/modules/google-sheets/product-sheet-loja.service';
+import { creareDriveParado } from '@/modules/creare/creare-drive.fake';
 
 let container: StartedPostgreSqlContainer;
 let repo: ProductRepository;
@@ -74,7 +75,7 @@ beforeAll(async () => {
   const espelhoLoja = {
     async espelharVarios() { return 'desligado' as const; },
   } as unknown as ProductSheetLojaService;
-  service = new ProductService(repo, sheetService, espelhoLoja, taxRules);
+  service = new ProductService(repo, sheetService, espelhoLoja, taxRules, creareDriveParado());
   backfill = (await import('@/db/backfill-codigo-interno')).backfillCodigoInterno as typeof backfill;
 
   // cria os usuários referenciados pelos produtos (createdByUserId é FK)

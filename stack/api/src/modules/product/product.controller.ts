@@ -1,6 +1,6 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { inject, injectable } from 'tsyringe';
-import { ProductService } from './product.service';
+import { ProductService, type PublicacaoCreare } from './product.service';
 import { ProductRequests } from '@pralis/shared';
 import { buildResponse, AppError } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
@@ -17,7 +17,7 @@ export class ProductController {
   constructor(@inject(ProductService) private service: ProductService) {}
 
   async create(request: FastifyRequest<{ Body: ProductRequests.CreateProductRequest }>, reply: FastifyReply) {
-    const { sheetSync, ...product } = await this.service.create(requireUser(request), request.body);
+    const { sheetSync, creareDrive, ...product } = await this.service.create(requireUser(request), request.body);
     // O produto está salvo nos três casos; a mensagem só informa o estado do espelho.
     // `misconfigured` conta como pendente: a sincronização não aconteceu e
     // precisa acontecer depois — não é uma escolha, é configuração faltando.
@@ -29,7 +29,9 @@ export class ProductController {
           : sheetSync === 'failed' || sheetSync === 'misconfigured'
             ? 'Produto salvo no banco. Sincronização com a planilha pendente'
             : 'Produto criado com sucesso';
-    return reply.status(201).send(buildResponse(product, message, { sheetSync }));
+    return reply
+      .status(201)
+      .send(buildResponse(product, message + this.recadoDoCreare(creareDrive), { sheetSync, creareDrive }));
   }
 
   async list(request: FastifyRequest<{ Querystring: ProductRequests.ListProductQuery }>, reply: FastifyReply) {
@@ -47,8 +49,36 @@ export class ProductController {
     return reply.status(200).send(buildResponse(product, 'Detalhe do produto'));
   }
 
+  /**
+   * O recado do TXT do Criare, quando ele NAO deu certo.
+   *
+   * `publicado` e `desligado` ficam calados de proposito: o primeiro e o
+   * esperado e o segundo e escolha de quem configurou. O que precisa aparecer e
+   * o que pede acao -- e cada estado pede uma acao diferente, entao cada um tem
+   * a sua frase em vez de um "falhou" generico.
+   */
+  private recadoDoCreare(publicacao: PublicacaoCreare): string {
+    const frases: string[] = [];
+    for (const [loja, estado] of Object.entries(publicacao)) {
+      if (estado === 'publicado' || estado === 'desligado') continue;
+      if (estado === 'sem_arquivo') {
+        frases.push(`O arquivo do Criare da ${loja} ainda nao existe na pasta do Drive; crie `
+          + `"cadastro-${loja.toLowerCase()}.txt" la uma vez.`);
+      } else if (estado === 'sem_depara') {
+        frases.push(`O arquivo do Criare da ${loja} nao foi gerado: falta importar o de-para do SIA dessa loja.`);
+      } else if (estado === 'sem_produtos') {
+        frases.push(`O arquivo do Criare da ${loja} ficaria vazio: nenhum produto casou com o cadastro do SIA.`);
+      } else if (estado === 'sem_pasta') {
+        frases.push(`A ${loja} nao tem pasta do Drive configurada para o arquivo do Criare.`);
+      } else {
+        frases.push(`O arquivo do Criare da ${loja} nao chegou na pasta do Drive; a proxima edicao tenta de novo.`);
+      }
+    }
+    return frases.length ? ` ${frases.join(' ')}` : '';
+  }
+
   async update(request: FastifyRequest<{ Params: IdParams; Body: ProductRequests.UpdateProductRequest }>, reply: FastifyReply) {
-    const { sheetSync, lojasAtualizadas, espelhoLoja, ...product } = await this.service.update(requireUser(request), request.params.id, request.body);
+    const { sheetSync, lojasAtualizadas, espelhoLoja, creareDrive, ...product } = await this.service.update(requireUser(request), request.params.id, request.body);
     // Mesma regra do create: a edição valeu nos três casos, a mensagem só diz
     // como ficou o espelho. Nunca pedir para editar de novo.
     const message =
@@ -69,7 +99,9 @@ export class ProductController {
       : '';
     return reply
       .status(200)
-      .send(buildResponse(product, message + herdaram + aba, { sheetSync, lojasAtualizadas, espelhoLoja }));
+      .send(buildResponse(product, message + herdaram + aba + this.recadoDoCreare(creareDrive), {
+        sheetSync, lojasAtualizadas, espelhoLoja, creareDrive,
+      }));
   }
 
   async delete(request: FastifyRequest<{ Params: IdParams }>, reply: FastifyReply) {
