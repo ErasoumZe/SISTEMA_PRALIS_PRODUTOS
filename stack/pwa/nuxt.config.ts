@@ -28,6 +28,8 @@ export default defineNuxtConfig({
           href: 'https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..600,0..1,-25..0&display=block',
         },
         { rel: 'icon', type: 'image/png', href: '/cicluz/cicluz-favicon.png' },
+        { rel: 'manifest', href: '/manifest.webmanifest?v=4' },
+        { rel: 'apple-touch-icon', href: '/cicluz/cicluz-gestao-v4-180.png?v=4', sizes: '180x180' },
       ],
       title: 'Cicluz Gestão Profissional — Produtos',
     },
