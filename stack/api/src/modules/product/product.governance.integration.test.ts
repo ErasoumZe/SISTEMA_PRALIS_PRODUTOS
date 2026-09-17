@@ -139,7 +139,12 @@ describe('Governança (autorização) — quem pode criar/editar/excluir', () =>
     // A exclusão devolve como terminou a limpeza das abas de loja, igual à
     // edição devolve `espelhoLoja`. Aqui a planilha está desligada por env: não
     // há linha liberada na aba combinada, logo não há linha a limpar nas cópias.
-    await expect(service.delete(admin, copiaTNP.id)).resolves.toEqual({ espelhoLoja: 'sem-aba' });
+    await expect(service.delete(admin, copiaTNP.id)).resolves.toEqual({
+      espelhoLoja: 'sem-aba',
+      // O Drive estÃ¡ desligado no dublÃª deste teste; o resultado continua
+      // explÃ­cito para a tela nÃ£o interpretar ausÃªncia como falha.
+      creareDrive: {},
+    });
     expect(await repo.findById(copiaTNP.id)).toBeNull();
   });
 });
