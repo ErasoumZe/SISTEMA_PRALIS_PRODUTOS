@@ -33,13 +33,9 @@ const nav = computed<NavItem[]>(() => {
    * perguntas que nenhuma outra tela responde.
    */
   items.push({ title: 'Produtos', icon: 'inventory_2', to: '/', section: 'Geral' });
-  // Relatório de vendas cobre só TNP e LI. Esconder o item de quem não pode
-  // entrar evita mandar a pessoa numa tela que responde 403. O servidor
-  // continua recusando o acesso direto — o menu não é controle de permissão.
-  const lojaComVendas = user.value?.loja === 'TNP' || user.value?.loja === 'LI';
-  if (isAdmin.value || lojaComVendas) {
-    items.push({ title: 'Vendas', icon: 'payments', to: '/vendas', section: 'Geral' });
-  }
+  // Vendas está temporariamente fora da navegação para todos os perfis.
+  // As rotas e a ingestão permanecem intactas: a Central ainda depende da
+  // fonte de produtos vendidos nos últimos 12 meses.
   if (isAdmin.value) items.push({ title: 'Central de Produtos', icon: 'merge_type', to: '/produtos/central', section: 'Administração' });
   // "Duplicados" não existe mais: a Central de Produtos faz o que ela fazia e
   // mais, sobre a base inteira em vez de só o catálogo vivo.
@@ -50,12 +46,8 @@ const nav = computed<NavItem[]>(() => {
    * o que se usa toda hora. Menu curto é menu que se lê.
    */
   if (isAdmin.value) items.push({ title: 'Usuários', icon: 'group', to: '/usuarios', section: 'Administração' });
-  /*
-   * Manutenção fica por ÚLTIMO e sozinha no fim da lista: é onde mora o "zerar
-   * catálogo". Perto de "Produtos" ou "Importar" seria vizinhança de clique
-   * apressado, e ali um erro custa o catálogo inteiro.
-   */
-  if (isAdmin.value) items.push({ title: 'Manutenção', icon: 'build', to: '/produtos/manutencao', section: 'Administração' });
+  // Manutenção também está temporariamente fora da navegação, inclusive para
+  // administradores. A rota não foi removida para não descartar a ferramenta.
   return items;
 });
 const sections = computed(() => [...new Set(nav.value.map((n) => n.section))]);
