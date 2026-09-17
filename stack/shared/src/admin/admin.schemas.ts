@@ -10,6 +10,7 @@ export const dashboardSchema = z.object({
     usuarios: z.number().int(),
     lojas: z.number().int(),
     base: z.number().int(), // produtos no catálogo Geral (BASE)
+    cadastradosHoje: z.number().int(),
   }),
   porTipo: z.object({
     revenda: z.number().int(),

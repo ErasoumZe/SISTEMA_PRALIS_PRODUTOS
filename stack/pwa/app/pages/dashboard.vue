@@ -6,19 +6,28 @@ const api = useApi();
 const data = ref<AdminSchemas.Dashboard | null>(null);
 const loading = ref(true);
 const erro = ref('');
+const atualizadoEm = ref<Date | null>(null);
 
 async function load() {
   loading.value = true;
   erro.value = '';
   try {
     data.value = await api.dashboard();
+    atualizadoEm.value = new Date();
   } catch {
     erro.value = 'Não foi possível carregar o painel.';
   } finally {
     loading.value = false;
   }
 }
-onMounted(load);
+let atualizacaoAutomatica: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  void load();
+  atualizacaoAutomatica = setInterval(() => void load(), 30_000);
+});
+onBeforeUnmount(() => {
+  if (atualizacaoAutomatica) clearInterval(atualizacaoAutomatica);
+});
 
 const nf = (n: number) => n.toLocaleString('pt-BR');
 const pct = (part: number, total: number) => (total ? Math.round((part / total) * 1000) / 10 : 0);
@@ -29,6 +38,7 @@ const cards = computed(() => {
   // `atalho:` leva à tela que detalha o número do card. Card sem atalho não
   // vira link — melhor não clicável do que clicável sem destino útil.
   return [
+    { label: 'Cadastrados hoje', value: t.cadastradosHoje, icon: 'today', color: '#F59E0B', hint: 'Desde 00:00 (horário de Brasília)' },
     { label: 'Usuários', value: t.usuarios, icon: 'group', color: '#6515DD', atalho: '/usuarios' },
     { label: 'Lojas ativas', value: t.lojas, icon: 'storefront', color: '#35128C' },
     { label: 'Produtos (total)', value: t.produtos, icon: 'inventory_2', color: '#3B82F6', hint: `${nf(t.base)} no catálogo Base`, atalho: '/' },
@@ -95,7 +105,10 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
 <template>
   <div>
     <div class="d-flex align-center mb-5">
-      <div class="text-body-2 text-medium-emphasis">Métricas calculadas em tempo real a partir dos cadastros.</div>
+      <div class="text-body-2 text-medium-emphasis">
+        Métricas calculadas em tempo real a partir dos cadastros.
+        <span v-if="atualizadoEm">Atualizado às {{ atualizadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }}.</span>
+      </div>
       <v-spacer />
       <v-btn variant="tonal" color="primary" prepend-icon="refresh" :loading="loading" @click="load">Atualizar</v-btn>
     </div>
