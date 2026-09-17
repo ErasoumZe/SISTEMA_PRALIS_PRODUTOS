@@ -9,7 +9,7 @@ import { z } from 'zod/v4';
  */
 
 export const abcProdutosQuerySchema = z.object({
-  loja: z.enum(['TNP', 'LI']).optional(),
+  loja: z.enum(['BASE', 'TNP', 'LI']).optional(),
   inicio: z.iso.date(),
   fim: z.iso.date(),
   classe: z.enum(['A', 'B', 'C']).optional(),
@@ -51,7 +51,7 @@ export const produtoAbcSchema = z.object({
 });
 
 export const abcProdutosSchema = z.object({
-  loja: z.enum(['TNP', 'LI']),
+  loja: z.enum(['BASE', 'TNP', 'LI']),
   periodo: z.object({ inicio: z.string(), fim: z.string(), dias: z.number() }),
   faturamentoTotal: z.number(),
   itens: z.array(produtoAbcSchema),

@@ -80,6 +80,47 @@ const tipoOpcoes = [
 ] as const;
 const setorFiltro = ref<string | null>(null);
 const grupoFiltro = ref<string | null>(null);
+type ClasseAbc = 'A' | 'B' | 'C';
+const curvaAbcFiltro = ref<ClasseAbc | null>(null);
+const curvaAbcOpcoes = [
+  { value: 'A', label: 'A · maior impacto' },
+  { value: 'B', label: 'B · impacto intermediário' },
+  { value: 'C', label: 'C · menor impacto' },
+] as const;
+const classesAbcPorProduto = ref(new Map<string, ClasseAbc>());
+const carregandoAbc = ref(false);
+const erroAbc = ref('');
+
+function dataIso(data: Date) { return data.toISOString().slice(0, 10); }
+async function carregarCurvaAbc() {
+  if (!curvaAbcFiltro.value) {
+    classesAbcPorProduto.value = new Map();
+    erroAbc.value = '';
+    return;
+  }
+  carregandoAbc.value = true;
+  erroAbc.value = '';
+  try {
+    const fim = new Date();
+    const inicio = new Date(fim);
+    inicio.setUTCFullYear(inicio.getUTCFullYear() - 1);
+    const resposta = await api.vendasCurvaAbc({
+      loja: aba.value,
+      inicio: dataIso(inicio),
+      fim: dataIso(fim),
+    });
+    classesAbcPorProduto.value = new Map(
+      resposta.itens
+        .filter((item) => !!item.productId)
+        .map((item) => [item.productId!, item.classe]),
+    );
+  } catch {
+    erroAbc.value = 'Não foi possível calcular a Curva ABC agora.';
+    classesAbcPorProduto.value = new Map();
+  } finally {
+    carregandoAbc.value = false;
+  }
+}
 
 /**
  * Filtro vindo por URL — é assim que os atalhos do dashboard abrem a lista já
@@ -113,7 +154,7 @@ const ordenarOpcoes = [
 const mostrarFiltros = ref(false);
 const numFiltros = computed(
   () =>
-    [statusFiltro.value, tipoFiltro.value, setorFiltro.value, grupoFiltro.value].filter(Boolean).length +
+    [statusFiltro.value, tipoFiltro.value, setorFiltro.value, grupoFiltro.value, curvaAbcFiltro.value].filter(Boolean).length +
     (ordenar.value !== 'recentes' ? 1 : 0),
 );
 const temFiltro = computed(() => numFiltros.value > 0 || !!search.value);
@@ -122,6 +163,7 @@ function limparFiltros() {
   tipoFiltro.value = null;
   setorFiltro.value = null;
   grupoFiltro.value = null;
+  curvaAbcFiltro.value = null;
   ordenar.value = 'recentes';
   search.value = '';
 }
@@ -135,6 +177,7 @@ const filtrados = computed(() =>
     if (tipoFiltro.value && p.tipo !== tipoFiltro.value) return false;
     if (setorFiltro.value && p.setorEstoque !== setorFiltro.value) return false;
     if (grupoFiltro.value && p.grupo !== grupoFiltro.value) return false;
+    if (curvaAbcFiltro.value && classesAbcPorProduto.value.get(p.id) !== curvaAbcFiltro.value) return false;
     return true;
   }),
 );
@@ -154,7 +197,7 @@ const totalPaginas = computed(() => Math.max(1, Math.ceil(ordenados.value.length
 const paginados = computed(() => ordenados.value.slice((page.value - 1) * PER_PAGE, page.value * PER_PAGE));
 
 // volta pra página 1 ao trocar filtro/ordem/busca/aba; mantém a página válida quando a lista muda
-watch([statusFiltro, tipoFiltro, setorFiltro, grupoFiltro, ordenar, search, aba], () => { page.value = 1; });
+watch([statusFiltro, tipoFiltro, setorFiltro, grupoFiltro, curvaAbcFiltro, ordenar, search, aba], () => { page.value = 1; });
 watch(totalPaginas, (n) => { if (page.value > n) page.value = n; });
 
 /** Substitui a lista só se ela mudou; no polling, ignora resposta idêntica. */
@@ -196,6 +239,7 @@ async function load(silent = false) {
 }
 
 watch(aba, () => load());
+watch([aba, curvaAbcFiltro], () => void carregarCurvaAbc());
 
 async function remover(p: Product) {
   if (!confirm(`Excluir "${p.nome}"?`)) return;
@@ -356,6 +400,22 @@ function preco(p: Product): string | null {
             </v-btn>
           </div>
           <v-divider vertical class="mx-1 d-none d-sm-flex" style="height: 24px; align-self: center" />
+          <!-- Curva ABC: mesma regra do módulo de Vendas, sobre os últimos 12 meses. -->
+          <v-select
+            v-model="curvaAbcFiltro"
+            :items="curvaAbcOpcoes"
+            item-title="label"
+            item-value="value"
+            label="Curva ABC (12 meses)"
+            density="compact"
+            variant="outlined"
+            hide-details
+            clearable
+            rounded="lg"
+            prepend-inner-icon="donut_large"
+            :loading="carregandoAbc"
+            class="filtro-select filtro-item"
+          />
           <v-select v-model="setorFiltro" :items="setores" label="Setor" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="warehouse" class="filtro-select filtro-item" />
           <v-select v-model="grupoFiltro" :items="grupos" label="Grupo" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="sell" class="filtro-select filtro-item" />
           <v-select v-model="ordenar" :items="ordenarOpcoes" item-title="label" item-value="value" label="Ordenar" density="compact" variant="outlined" hide-details rounded="lg" prepend-inner-icon="swap_vert" class="filtro-select filtro-item" />
@@ -371,6 +431,10 @@ function preco(p: Product): string | null {
     </v-tabs>
 
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
+    <v-alert v-if="erroAbc" type="warning" variant="tonal" class="mb-4">{{ erroAbc }}</v-alert>
+    <v-alert v-if="curvaAbcFiltro && !carregandoAbc && !erroAbc && !classesAbcPorProduto.size" type="info" variant="tonal" class="mb-4">
+      Não há produtos vinculados à Curva {{ curvaAbcFiltro }} nos últimos 12 meses para esta aba.
+    </v-alert>
 
     <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-4" />
 

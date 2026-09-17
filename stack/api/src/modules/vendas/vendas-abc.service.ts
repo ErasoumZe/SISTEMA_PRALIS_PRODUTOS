@@ -5,7 +5,7 @@ import { VendasReportRepository } from './vendas-report.repository';
 import { indexarPorCodigo, resolverProduto } from './vendas-margem';
 import { classificarAbc, diasDeMaximo } from './vendas-abc';
 
-type Loja = 'TNP' | 'LI';
+type Loja = 'BASE' | 'TNP' | 'LI';
 
 /**
  * A lista de produtos da curva ABC, com o cadastro ao lado.
@@ -33,9 +33,11 @@ export class VendasAbcService {
     const dias = vao + 1;
 
     const [vendas, cadastro, dePara] = await Promise.all([
-      this.repository.produtos(loja, inicio, fim),
+      loja === 'BASE'
+        ? this.repository.produtosDaBase(inicio, fim)
+        : this.repository.produtos(loja, inicio, fim),
       this.repository.produtosDaLoja(loja),
-      this.repository.deParaDaLoja(loja),
+      loja === 'BASE' ? Promise.resolve(new Map()) : this.repository.deParaDaLoja(loja),
     ]);
     const indice = indexarPorCodigo(cadastro);
 

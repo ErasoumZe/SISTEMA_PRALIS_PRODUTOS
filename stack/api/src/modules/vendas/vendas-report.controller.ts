@@ -85,7 +85,14 @@ export class VendasAbcController {
     request: FastifyRequest<{ Querystring: VendasAbc.AbcProdutosQuery }>,
     reply: FastifyReply,
   ) {
-    const store = reportStore(request, request.query.loja);
+    const store = request.query.loja === 'BASE'
+      ? (() => {
+        if (request.currentUser?.role !== 'admin') {
+          throw new AppError('Catálogo Base disponível apenas para administradores.', 403, 'FORBIDDEN');
+        }
+        return 'BASE' as const;
+      })()
+      : reportStore(request, request.query.loja);
     const data = await this.service.produtos(
       store, request.query.inicio, request.query.fim, request.query.classe,
     );
