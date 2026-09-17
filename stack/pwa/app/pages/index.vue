@@ -277,6 +277,8 @@ function preco(p: Product): string | null {
       </template>
     </v-snackbar>
 
+    <PwaInstallCard />
+
     <div class="d-flex align-center mb-4 ga-3 flex-wrap">
       <v-text-field
         v-model="search"
