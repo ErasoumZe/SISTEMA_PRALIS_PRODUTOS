@@ -6,22 +6,40 @@ const api = useApi();
 const data = ref<AdminSchemas.Dashboard | null>(null);
 const loading = ref(true);
 const erro = ref('');
+const atualizadoEm = ref<Date | null>(null);
 
 async function load() {
   loading.value = true;
   erro.value = '';
   try {
     data.value = await api.dashboard();
+    atualizadoEm.value = new Date();
   } catch {
     erro.value = 'Não foi possível carregar o painel.';
   } finally {
     loading.value = false;
   }
 }
-onMounted(load);
+let atualizacaoAutomatica: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  void load();
+  atualizacaoAutomatica = setInterval(() => void load(), 30_000);
+});
+onBeforeUnmount(() => {
+  if (atualizacaoAutomatica) clearInterval(atualizacaoAutomatica);
+});
 
 const nf = (n: number) => n.toLocaleString('pt-BR');
 const pct = (part: number, total: number) => (total ? Math.round((part / total) * 1000) / 10 : 0);
+const saudacao = computed(() => {
+  const hora = new Date().getHours();
+  if (hora < 12) return 'Bom dia';
+  if (hora < 18) return 'Boa tarde';
+  return 'Boa noite';
+});
+const hoje = computed(() => new Intl.DateTimeFormat('pt-BR', {
+  weekday: 'long', day: 'numeric', month: 'long',
+}).format(new Date()));
 
 const cards = computed(() => {
   const t = data.value?.totais;
@@ -29,6 +47,7 @@ const cards = computed(() => {
   // `atalho:` leva à tela que detalha o número do card. Card sem atalho não
   // vira link — melhor não clicável do que clicável sem destino útil.
   return [
+    { label: 'Cadastrados hoje', value: t.cadastradosHoje, icon: 'today', color: '#F59E0B', hint: 'Desde 00:00 (horário de Brasília)' },
     { label: 'Usuários', value: t.usuarios, icon: 'group', color: '#6515DD', atalho: '/usuarios' },
     { label: 'Lojas ativas', value: t.lojas, icon: 'storefront', color: '#35128C' },
     { label: 'Produtos (total)', value: t.produtos, icon: 'inventory_2', color: '#3B82F6', hint: `${nf(t.base)} no catálogo Base`, atalho: '/' },
@@ -93,39 +112,50 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
 </script>
 
 <template>
-  <div>
-    <div class="d-flex align-center mb-5">
-      <div class="text-body-2 text-medium-emphasis">Métricas calculadas em tempo real a partir dos cadastros.</div>
-      <v-spacer />
-      <v-btn variant="tonal" color="primary" prepend-icon="refresh" :loading="loading" @click="load">Atualizar</v-btn>
-    </div>
+  <div class="dashboard-shell">
+    <section class="dashboard-hero mb-6">
+      <div class="hero-orb hero-orb--one" />
+      <div class="hero-orb hero-orb--two" />
+      <div class="position-relative d-flex flex-wrap align-center justify-space-between ga-5">
+        <div>
+          <div class="hero-kicker"><v-icon size="15">auto_awesome</v-icon> VISÃO ADMINISTRATIVA</div>
+          <h1 class="hero-title">{{ saudacao }}.</h1>
+          <p class="hero-subtitle">Acompanhe o ritmo dos cadastros em um só lugar.</p>
+          <div class="hero-status">
+            <span class="status-dot" />
+            {{ hoje }}
+            <template v-if="atualizadoEm"> · atualizado às {{ atualizadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }}</template>
+          </div>
+        </div>
+        <v-btn class="hero-refresh" variant="flat" prepend-icon="refresh" :loading="loading" @click="load">Atualizar</v-btn>
+      </div>
+    </section>
 
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
     <v-progress-linear v-if="loading && !data" indeterminate color="primary" class="mb-4" />
 
     <template v-if="data">
-      <!-- cards de resumo -->
-      <v-row class="mb-1">
-        <v-col v-for="c in cards" :key="c.label" cols="12" sm="6" md="auto" class="flex-grow-1">
+      <v-row class="metric-grid mb-3">
+        <v-col v-for="c in cards" :key="c.label" cols="12" sm="6" lg="4">
           <v-card
             flat
-            border
-            rounded="lg"
-            class="pa-4 h-100"
+            rounded="xl"
+            class="metric-card pa-4 h-100"
+            :style="{ '--metric-color': c.color }"
             :to="c.atalho"
             :hover="!!c.atalho"
             :ripple="!!c.atalho"
           >
-            <div class="d-flex align-center ga-3">
-              <v-avatar :color="c.color" size="46" rounded="lg" variant="flat">
-                <v-icon color="white">{{ c.icon }}</v-icon>
+            <div class="d-flex align-start ga-3">
+              <v-avatar class="metric-icon" size="46" rounded="lg" variant="flat">
+                <v-icon>{{ c.icon }}</v-icon>
               </v-avatar>
               <div style="min-width: 0">
-                <div class="text-caption text-medium-emphasis text-uppercase">{{ c.label }}</div>
-                <div class="text-h5 font-weight-bold">{{ nf(c.value) }}</div>
-                <div v-if="c.hint" class="text-caption text-medium-emphasis">{{ c.hint }}</div>
+                <div class="metric-label">{{ c.label }}</div>
+                <div class="metric-value">{{ nf(c.value) }}</div>
+                <div v-if="c.hint" class="metric-hint">{{ c.hint }}</div>
               </div>
-              <v-icon v-if="c.atalho" class="ms-auto text-medium-emphasis" size="18">chevron_right</v-icon>
+              <v-icon v-if="c.atalho" class="ms-auto metric-arrow" size="18">arrow_outward</v-icon>
             </div>
           </v-card>
         </v-col>
@@ -134,9 +164,11 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
       <v-row>
         <!-- produtividade -->
         <v-col cols="12" md="8">
-          <v-card flat border rounded="lg" class="pa-4 h-100">
-            <div class="text-subtitle-1 font-weight-bold mb-1">Produtividade por usuário</div>
-            <div class="text-caption text-medium-emphasis mb-2">Produtos cadastrados nas lojas (exclui o catálogo Base)</div>
+          <v-card flat rounded="xl" class="dashboard-panel pa-5 h-100">
+            <div class="panel-heading">
+              <div><div class="panel-title">Produtividade por usuário</div><div class="panel-subtitle">Produtos cadastrados nas lojas, sem o catálogo Base</div></div>
+              <v-avatar class="panel-icon" size="38"><v-icon size="20">bar_chart</v-icon></v-avatar>
+            </div>
             <client-only>
               <apexchart v-if="temProdutividade" type="bar" height="320" :options="produtividade.options" :series="produtividade.series" />
             </client-only>
@@ -149,9 +181,8 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
 
         <!-- donut ativos/inativos -->
         <v-col cols="12" md="4">
-          <v-card flat border rounded="lg" class="pa-4 h-100">
-            <div class="text-subtitle-1 font-weight-bold mb-1">Resumo de cadastros</div>
-            <div class="text-caption text-medium-emphasis mb-2">Ativos x Inativos</div>
+          <v-card flat rounded="xl" class="dashboard-panel pa-5 h-100">
+            <div class="panel-heading"><div><div class="panel-title">Resumo de cadastros</div><div class="panel-subtitle">Ativos x inativos</div></div><v-avatar class="panel-icon" size="38"><v-icon size="20">donut_large</v-icon></v-avatar></div>
             <client-only>
               <apexchart type="donut" height="280" :options="donut.options" :series="donut.series" />
             </client-only>
@@ -160,9 +191,8 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
 
         <!-- cadastros por dia -->
         <v-col cols="12" md="8">
-          <v-card flat border rounded="lg" class="pa-4 h-100">
-            <div class="text-subtitle-1 font-weight-bold mb-1">Cadastros por dia</div>
-            <div class="text-caption text-medium-emphasis mb-2">Últimos 30 dias (lojas)</div>
+          <v-card flat rounded="xl" class="dashboard-panel pa-5 h-100">
+            <div class="panel-heading"><div><div class="panel-title">Cadastros por dia</div><div class="panel-subtitle">Últimos 30 dias nas lojas</div></div><v-avatar class="panel-icon" size="38"><v-icon size="20">monitoring</v-icon></v-avatar></div>
             <client-only>
               <apexchart v-if="temDias" type="area" height="280" :options="porDia.options" :series="porDia.series" />
             </client-only>
@@ -175,8 +205,8 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
 
         <!-- por loja + recentes -->
         <v-col cols="12" md="4">
-          <v-card flat border rounded="lg" class="pa-4 mb-4">
-            <div class="text-subtitle-1 font-weight-bold mb-3">Produtos por loja</div>
+          <v-card flat rounded="xl" class="dashboard-panel pa-5 mb-4">
+            <div class="panel-heading mb-3"><div class="panel-title">Produtos por loja</div><v-avatar class="panel-icon" size="38"><v-icon size="20">storefront</v-icon></v-avatar></div>
             <NuxtLink
               v-for="l in porLoja"
               :key="l.loja"
@@ -189,10 +219,10 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
             <div v-if="!porLoja.length" class="text-caption text-medium-emphasis">Nenhuma loja com produtos ainda.</div>
           </v-card>
 
-          <v-card flat border rounded="lg" class="pa-4">
-            <div class="text-subtitle-1 font-weight-bold mb-3">Atividades recentes</div>
-            <NuxtLink v-for="(r, i) in data.recentes" :key="i" :to="`/produtos/${r.id}`" class="d-flex align-center ga-3 mb-3 atalho-loja">
-              <v-avatar color="bege" size="34" rounded="lg"><v-icon size="18" color="primary">inventory_2</v-icon></v-avatar>
+          <v-card flat rounded="xl" class="dashboard-panel pa-5">
+            <div class="panel-heading mb-3"><div><div class="panel-title">Atividades recentes</div><div class="panel-subtitle">Últimos produtos registrados</div></div><v-avatar class="panel-icon" size="38"><v-icon size="20">schedule</v-icon></v-avatar></div>
+            <NuxtLink v-for="(r, i) in data.recentes" :key="i" :to="`/produtos/${r.id}`" class="activity-row d-flex align-center ga-3 mb-2">
+              <v-avatar class="activity-icon" size="36" rounded="lg"><v-icon size="18">inventory_2</v-icon></v-avatar>
               <div style="min-width: 0">
                 <div class="text-body-2 font-weight-medium text-truncate">{{ r.nome }}</div>
                 <div class="text-caption text-medium-emphasis">{{ r.createdByName || '—' }} · {{ r.loja }} · {{ quando(r.createdAt) }}</div>
@@ -207,7 +237,32 @@ const lojaColor: Record<string, string> = { TNP: 'primary', LI: 'teal', HORA: 's
 </template>
 
 <style scoped>
-/* atalhos do dashboard: clicáveis, sem cara de link cru */
-.atalho-loja { color: inherit; text-decoration: none; }
-.atalho-loja:hover { opacity: 0.7; }
+.dashboard-shell { position: relative; }
+.dashboard-hero { position: relative; overflow: hidden; isolation: isolate; padding: 30px; border-radius: 30px; color: #fff; background: linear-gradient(125deg, #16042f 0%, #40118c 43%, #7657e8 100%); box-shadow: 0 22px 46px rgba(54, 17, 131, .23); }
+.hero-orb { position: absolute; z-index: -1; border-radius: 50%; filter: blur(2px); opacity: .54; }
+.hero-orb--one { width: 310px; height: 310px; background: #c4b5fd; top: -205px; right: -42px; }
+.hero-orb--two { width: 190px; height: 190px; background: #60a5fa; bottom: -115px; right: 27%; opacity: .28; }
+.hero-kicker { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 800; letter-spacing: 1.3px; color: rgba(255,255,255,.74); }
+.hero-title { margin: 9px 0 2px; font-size: clamp(31px, 4vw, 42px); font-weight: 750; letter-spacing: -1.5px; line-height: 1.08; }
+.hero-subtitle { margin: 0; color: rgba(255,255,255,.8); font-size: 15px; }
+.hero-status { display: flex; align-items: center; gap: 7px; margin-top: 20px; color: rgba(255,255,255,.72); font-size: 12px; text-transform: capitalize; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: #86efac; box-shadow: 0 0 0 4px rgba(134,239,172,.16); }
+.hero-refresh { color: #30106e !important; background: rgba(255,255,255,.92) !important; box-shadow: 0 8px 22px rgba(20,4,57,.2); }
+.metric-card, .dashboard-panel { border: 1px solid rgba(117, 109, 151, .13); background: rgba(255,255,255,.82); box-shadow: 0 10px 28px rgba(44, 31, 81, .06); backdrop-filter: blur(16px); }
+.metric-card { position: relative; overflow: hidden; transition: transform .2s ease, box-shadow .2s ease; }
+.metric-card::after { content: ''; position: absolute; inset: auto -32px -52px auto; width: 106px; height: 106px; border-radius: 50%; background: var(--metric-color); opacity: .1; }
+.metric-card:hover { transform: translateY(-3px); box-shadow: 0 16px 34px rgba(44, 31, 81, .12); }
+.metric-icon { color: var(--metric-color); background: color-mix(in srgb, var(--metric-color) 13%, white) !important; }
+.metric-label { color: #697386; font-size: 11px; font-weight: 750; letter-spacing: .55px; text-transform: uppercase; }
+.metric-value { color: #1d2030; font-size: 27px; font-weight: 760; line-height: 1.22; letter-spacing: -.8px; }
+.metric-hint { color: #7d8798; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 185px; }
+.metric-arrow { color: #81899a; }
+.panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.panel-title { color: #25283a; font-size: 16px; font-weight: 750; letter-spacing: -.2px; }
+.panel-subtitle { margin-top: 2px; color: #7b8495; font-size: 12px; }
+.panel-icon, .activity-icon { color: #5d21d2; background: #f0eaff !important; }
+.atalho-loja, .activity-row { color: inherit; text-decoration: none; border-radius: 12px; transition: background .18s ease, transform .18s ease; }
+.atalho-loja:hover, .activity-row:hover { background: #f7f5ff; transform: translateX(2px); }
+.activity-row { padding: 5px; margin-left: -5px; margin-right: -5px; }
+@media (max-width: 600px) { .dashboard-hero { padding: 24px; border-radius: 24px; } .hero-refresh { width: 100%; } .metric-hint { max-width: 210px; } }
 </style>

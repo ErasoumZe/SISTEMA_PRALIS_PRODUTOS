@@ -17,6 +17,11 @@ export class AdminRepository {
         ativos: sql<number>`count(*) filter (where ${products.status} = 'ativo')::int`,
         inativos: sql<number>`count(*) filter (where ${products.status} = 'inativo')::int`,
         base: sql<number>`count(*) filter (where ${products.loja} = 'BASE')::int`,
+        cadastradosHoje: sql<number>`count(*) filter (
+          where ${products.createdAt} >= (
+            date_trunc('day', now() at time zone 'America/Sao_Paulo') at time zone 'America/Sao_Paulo'
+          )
+        )::int`,
         revenda: sql<number>`count(*) filter (where ${products.tipo} = 'revenda')::int`,
         transformacao: sql<number>`count(*) filter (where ${products.tipo} = 'transformacao')::int`,
       })
@@ -67,6 +72,7 @@ export class AdminRepository {
         usuarios: Number(u?.usuarios ?? 0),
         lojas: Number(lj?.lojas ?? 0),
         base: Number(tot?.base ?? 0),
+        cadastradosHoje: Number(tot?.cadastradosHoje ?? 0),
       },
       porTipo: {
         revenda: Number(tot?.revenda ?? 0),
