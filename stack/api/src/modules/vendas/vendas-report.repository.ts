@@ -54,6 +54,23 @@ export class VendasReportRepository {
     }));
   }
 
+  /** Vendas das duas lojas juntas, usadas apenas para classificar o catálogo Base. */
+  async produtosDaBase(inicio: string, fim: string): Promise<ProdutoRanking[]> {
+    const result = await db.execute(sql`
+      SELECT produto_codigo, produto, SUM(quantidade) AS quantidade, SUM(total) AS faturamento
+      FROM venda_produto_dia
+      WHERE loja IN ('TNP', 'LI') AND data BETWEEN ${inicio}::date AND ${fim}::date
+      GROUP BY produto_codigo, produto
+      ORDER BY SUM(total) DESC, produto
+    `);
+    return result.rows.map((row) => ({
+      produtoCodigo: String(row.produto_codigo ?? ''),
+      produto: String(row.produto ?? ''),
+      quantidade: n(row.quantidade),
+      faturamento: n(row.faturamento),
+    }));
+  }
+
   async pagamentos(loja: Loja, inicio: string, fim: string): Promise<PagamentoDia[]> {
     const result = await db.execute(sql`
       SELECT data::text AS data,
@@ -82,7 +99,7 @@ export class VendasReportRepository {
    * proposito: `ProductRepository.list()` carrega promoções, fiscal e
    * transformação por produto, o que aqui seria N+1 sem serventia.
    */
-  async produtosDaLoja(loja: Loja): Promise<ProdutoCadastro[]> {
+  async produtosDaLoja(loja: Loja | 'BASE'): Promise<ProdutoCadastro[]> {
     const result = await db.execute(sql`
       SELECT id, nome, codigo_barras, custo, qt_cad, quantidade, medida_base,
              grupo, setor_estoque, setor_venda_1, estoque_min, estoque_max
