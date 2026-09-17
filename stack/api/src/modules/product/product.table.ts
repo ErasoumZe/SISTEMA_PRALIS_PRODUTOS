@@ -200,3 +200,21 @@ export const productMergeRecusa = pgTable(
   },
   (t) => [uniqueIndex('uq_product_merge_recusa_par').on(t.produtoAId, t.produtoBId)],
 );
+
+/** Histórico imutável das trocas de nome feitas no cadastro. */
+export const productNameHistory = pgTable(
+  'product_name_history',
+  {
+    id: text('id').primaryKey().$defaultFn(() => uuidv7()),
+    productId: text('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+    loja: text('loja').notNull(),
+    codigo: text('codigo').notNull(),
+    codigoInterno: text('codigo_interno'),
+    nomeAnterior: text('nome_anterior').notNull(),
+    nomeNovo: text('nome_novo').notNull(),
+    alteradoPorUserId: text('alterado_por_user_id').references(() => users.id, { onDelete: 'set null' }),
+    alteradoPorNome: text('alterado_por_nome'),
+    alteradoEm: timestamp('alterado_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('idx_product_name_history_alterado_em').on(t.alteradoEm), index('idx_product_name_history_product').on(t.productId)],
+);

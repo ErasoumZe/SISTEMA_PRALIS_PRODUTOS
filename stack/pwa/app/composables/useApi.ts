@@ -83,6 +83,18 @@ export interface FiltrosUnificacao {
   somenteVendidos?: boolean;
   pagina?: number; tamanho?: number;
 }
+
+export interface HistoricoNomeProduto {
+  id: string;
+  productId: string;
+  loja: string;
+  codigo: string;
+  codigoInterno: string | null;
+  nomeAnterior: string;
+  nomeNovo: string;
+  alteradoPorNome: string | null;
+  alteradoEm: string;
+}
 /** O que um lote de "criar todos os que faltam" devolve. */
 export interface LoteFaltantes {
   selecionados: number;
@@ -178,6 +190,9 @@ export function useApi() {
 
     importBase: (baseIds: string[]) =>
       unwrap($fetch<{ data: { imported: number; skipped: number; espelhoLoja: string } }>('/products/import', { ...base, method: 'POST', body: { baseIds } })),
+
+    historicoNomes: () =>
+      unwrap($fetch<{ data: HistoricoNomeProduto[] }>('/admin/produtos/historico-nomes', { ...base })),
 
     getProduct: (id: string) =>
       unwrap($fetch<{ data: Product }>(`/products/${id}`, { ...base })),

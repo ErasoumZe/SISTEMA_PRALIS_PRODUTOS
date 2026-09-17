@@ -203,9 +203,14 @@ onMounted(() => void carregar());
           Todas as fontes históricas, a Base do sistema e a planilha oficial em uma única lista.
         </p>
       </div>
-      <v-btn color="primary" variant="tonal" prepend-icon="sync" :loading="atualizandoFontes" @click="atualizarFontes">
-        Atualizar fontes
-      </v-btn>
+      <div class="d-flex flex-wrap ga-2">
+        <v-btn variant="tonal" prepend-icon="history" to="/produtos/historico-nomes">
+          Histórico de nomes
+        </v-btn>
+        <v-btn color="primary" variant="tonal" prepend-icon="sync" :loading="atualizandoFontes" @click="atualizarFontes">
+          Atualizar fontes
+        </v-btn>
+      </div>
     </div>
 
     <v-alert v-if="escopo === 'vendidos' && vendasCarregadas === 0" type="warning" variant="tonal" class="mb-4" icon="report">

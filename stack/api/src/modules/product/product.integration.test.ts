@@ -40,6 +40,26 @@ const payload = {
 };
 
 describe('ProductRepository multi-loja (Postgres real via Testcontainers)', () => {
+  it('guarda a troca de nome e ignora salvamento sem mudança', async () => {
+    const created = await repo.create(
+      { ...payload, nome: 'NOME ANTERIOR' },
+      { loja: 'BASE', codigo: 'PR-HIST-01', createdByUserId: null, createdByName: null },
+    );
+    const contexto = {
+      nomeAnterior: 'NOME ANTERIOR', loja: 'BASE', codigo: 'PR-HIST-01',
+      codigoInterno: created.codigoInterno, alteradoPorUserId: null, alteradoPorNome: 'Teste',
+    };
+
+    await repo.update(created.id, { nome: 'NOME NOVO' }, contexto);
+    await repo.update(created.id, { nome: 'NOME NOVO' }, { ...contexto, nomeAnterior: 'NOME NOVO' });
+
+    const historico = (await repo.listNameHistory()).filter((h) => h.productId === created.id);
+    expect(historico).toHaveLength(1);
+    expect(historico[0]).toMatchObject({
+      loja: 'BASE', codigo: 'PR-HIST-01', nomeAnterior: 'NOME ANTERIOR', nomeNovo: 'NOME NOVO', alteradoPorNome: 'Teste',
+    });
+  });
+
   it('cria na loja TNP, lê, lista por loja (isolado), detecta duplicado, exclui', async () => {
     const created = await repo.create(payload, { loja: 'TNP', codigo: 'PR-TEST-0001', createdByUserId: null, createdByName: 'José' });
     expect(created.loja).toBe('TNP');

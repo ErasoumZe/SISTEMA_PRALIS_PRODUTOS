@@ -104,6 +104,11 @@ export class ProductController {
       }));
   }
 
+  async listNameHistory(request: FastifyRequest, reply: FastifyReply) {
+    const data = await this.service.listNameHistory(requireUser(request));
+    return reply.status(200).send(buildResponse(data, 'Histórico de alterações de nome'));
+  }
+
   async delete(request: FastifyRequest<{ Params: IdParams }>, reply: FastifyReply) {
     await this.service.delete(requireUser(request), request.params.id);
     return reply.status(200).send(buildResponse(null, 'Produto excluído com sucesso'));

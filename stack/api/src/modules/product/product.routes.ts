@@ -52,6 +52,22 @@ export async function productRoutes(app: FastifyInstance) {
     controller.importBase.bind(controller),
   );
 
+  a.get(
+    '/admin/produtos/historico-nomes',
+    {
+      schema: {
+        response: { 200: apiResponseSchema(z.array(z.object({
+          id: z.string(), productId: z.string(), loja: z.string(), codigo: z.string(),
+          codigoInterno: z.string().nullable(), nomeAnterior: z.string(), nomeNovo: z.string(),
+          alteradoPorNome: z.string().nullable(), alteradoEm: z.string(),
+        }))) },
+        summary: 'Listar alterações de nome dos produtos (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    controller.listNameHistory.bind(controller),
+  );
+
   a.get<{ Params: { id: string } }>(
     '/products/:id',
     { schema: { params: ProductRequests.productIdParamSchema, response: { 200: productReply }, summary: 'Detalhe do produto', tags: ['PRODUCTS'] } },
