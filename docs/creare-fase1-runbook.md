@@ -101,7 +101,9 @@ O que a config precisa ter, com os valores que o TXT do fornecedor comprova:
     "decimalPlaces": {
       "unitPrice": 2,          // confirmado: 0000000690 = R$ 6,90
       "cost": 3,               // A CONFERIR nos 10 primeiros (ver passo 3)
-      "icmsReduction": 2, "fullTaxRate": 2, "fcpRate": 2,
+      "icmsReduction": 2,      // confirmado: 5333 = 53,33%
+      "fullTaxRate": 3,        // CORRIGIDO de 2 -> 3, ver abaixo
+      "fcpRate": 2,
       "pisRate": 4, "cofinsRate": 4,
       "maximumQuantity": 3, "minimumQuantity": 3
     },
@@ -118,6 +120,46 @@ O que a config precisa ter, com os valores que o TXT do fornecedor comprova:
 
 `groupCodes` e `ecfTaxCodesByGroup` deixaram de ser usados quando há casamento
 no SIA — grupo e alíquota vêm de lá. Ver `creare-aliquota-ecf.md`.
+
+### O que o arquivo do fornecedor provou (16/09/2026)
+
+`arquivo_importar_tnp.txt` — um registro que o importador **aceitou e aplicou**
+na máquina da TNP — permitiu conferir campo a campo. São 363 posições, como o
+nosso. O que ele decidiu:
+
+| Campo | No arquivo aceito | Conclusão |
+|---|---|---|
+| `unitPrice` | `0000001390` | R$ 13,90 → **2 casas**, como já estava |
+| `icmsReduction` | `5333` | 53,33% → **2 casas**, como já estava |
+| `fullTaxRate` | `18000` | 18% → **3 casas**. Estava 2. |
+| `maximumQuantity` / `minimumQuantity` | `0000020000` / `0000010000` | 20 e 10 → **3 casas**, como já estava |
+| `scaleValidity` (352-354) | `000` | numérico, e não branco |
+
+**A alíquota cheia é a correção que importa.** O produto tem NCM 19059090 com
+redução de 53,33% — ICMS de 18% com essa redução dá 8,4% efetivo, que é a conta
+de cesta básica. Logo `18000` em 5 posições são 18 com **três** casas; com duas
+seriam 180,00%, que não existe.
+
+Com `fullTaxRate: 2` mandaríamos 18% como `01800`, e o importador — lendo três
+casas — gravaria **1,8%**. Erro tributário silencioso, em todo produto com
+alíquota cheia preenchida.
+
+**O custo continua indefinido, e agora com uma pista contra o palpite.** Os dois
+exemplos do fornecedor trazem o MESMO `0000000100`: a SKOL 473ML, que vende a
+R$ 6,90, e este biscoito, que vende a R$ 13,90. Dois produtos de preços
+diferentes com o mesmo custo é valor de enchimento, não custo real — então o
+arquivo do fornecedor **não responde** esta pergunta. Continua valendo o passo
+3: aplicar dez produtos e olhar qual coluna bate no SIA.
+
+Duas diferenças de estilo, sem consequência conhecida: o fornecedor preenche os
+campos alfa vazios (`supplierManufacturer`, `reference`) com zeros, e deixa o
+`cest` em branco onde nós gravamos `0000000`. Os dois são aceitos.
+
+Uma diferença a observar no primeiro `Aplicar` real: o código de barras do
+fornecedor tem 14 dígitos e vai no campo ESTENDIDO, com o campo curto zerado —
+e o log do importador registrou `CODIGOS - codigo: 00192505327413`, o valor
+estendido. Código de até 13 dígitos, como os nossos, vai no campo curto pela
+regra `automatic`. Confira no log se o código gravado é o esperado.
 
 ## 5. Automação das 22:30
 

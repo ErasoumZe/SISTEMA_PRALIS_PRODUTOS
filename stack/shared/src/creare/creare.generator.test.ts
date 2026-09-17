@@ -381,3 +381,79 @@ describe('campo numerico nunca sai em branco', () => {
     expect(record.slice(p.start - 1, p.end)).toBe('000');
   });
 });
+
+
+/*
+ * O unico registro que se sabe ACEITO E APLICADO pelo importador do Criare.
+ *
+ * Veio de `arquivo_importar_tnp.txt`, aplicado na maquina da TNP em 16/09/2026
+ * as 17:47 -- o log do importador registrou INSERIDO nas quatro tabelas para o
+ * coditem 13125. E a unica evidencia de campo que nao depende de leitura de
+ * manual, e por isso ele mora aqui: se o nosso layout se mexer, ele avisa.
+ */
+const REGISTRO_ACEITO_PELO_IMPORTADOR =
+  '00000000000000012BISCOITO POLVILHO COM CA0000001390UN0300000000000131250000000000000000000'
+  + '000000000000000000000000000000000000000000000000000N0000000100BISCOITO POLVILHO COM CARINH'
+  + 'O DE INHAME COM CHIA 800000030/12/9930/12/990000000040AT19059090    000013125N000       53'
+  + '331800000009900000000000000000000020000000001000000192505327413SS0000000000000000000000000'
+  + '002';
+
+describe('o arquivo que o importador aceitou', () => {
+  const posicoes = creareProductPositions();
+  const em = (nome: string) => {
+    const p = posicoes.find((x) => x.name === nome)!;
+    return REGISTRO_ACEITO_PELO_IMPORTADOR.slice(p.start - 1, p.end);
+  };
+
+  it('tem exatamente as 363 posicoes do nosso layout', () => {
+    expect(REGISTRO_ACEITO_PELO_IMPORTADOR).toHaveLength(CREARE_PRODUCT_RECORD_LENGTH);
+  });
+
+  it('o nosso layout o le em campos coerentes', () => {
+    expect(parseCreareRecord(REGISTRO_ACEITO_PELO_IMPORTADOR)).toMatchObject({
+      unit: 'UN',
+      internalCode: '013125',
+      extendedInternalCode: '000013125',
+      ncm: '19059090',
+      promotionStart: '30/12/99',
+      active: 'S',
+    });
+  });
+
+  /*
+   * A CONTA QUE DECIDE AS CASAS DA ALIQUOTA CHEIA.
+   *
+   * NCM 19059090 com reducao de 53,33%: ICMS de 18% reduzido em 53,33% da 8,4%
+   * efetivo, que e a conta de cesta basica. Logo `18000` em CINCO posicoes sao
+   * 18 com TRES casas; com duas seriam 180,00%, que nao existe.
+   *
+   * Com `fullTaxRate: 2` mandariamos 18% como `01800`, e o importador -- lendo
+   * tres casas -- gravaria 1,8%.
+   */
+  it('a aliquota cheia e de 3 casas, e a reducao de 2', () => {
+    expect(em('fullTaxRate')).toBe('18000');
+    expect(Number(em('fullTaxRate')) / 1000).toBe(18);
+
+    expect(em('icmsReduction')).toBe('5333');
+    expect(Number(em('icmsReduction')) / 100).toBe(53.33);
+  });
+
+  it('o preco de venda e de 2 casas', () => {
+    expect(Number(em('unitPrice')) / 100).toBe(13.9);
+  });
+
+  /* Era isto que o nosso arquivo mandava em branco, e por isso foi recusado. */
+  it('a validade de balanca vem NUMERICA, zerada', () => {
+    expect(em('scaleValidity')).toBe('000');
+  });
+
+  /*
+   * O custo NAO e decidido por este arquivo: os dois exemplos do fornecedor --
+   * a SKOL 473ML, que vende a R$ 6,90, e este biscoito, que vende a R$ 13,90 --
+   * trazem o MESMO `0000000100`. Dois precos diferentes com o mesmo custo e
+   * valor de enchimento. A pergunta segue aberta no runbook.
+   */
+  it('o custo dos exemplos e valor de enchimento, nao evidencia', () => {
+    expect(em('cost')).toBe('0000000100');
+  });
+});
