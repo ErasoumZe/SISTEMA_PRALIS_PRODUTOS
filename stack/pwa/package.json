@@ -19,6 +19,7 @@
     "vuetify-nuxt-module": "^0.18.3"
   },
   "devDependencies": {
+    "@vite-pwa/nuxt": "^1.1.1",
     "typescript": "^5.9.3"
   }
 }

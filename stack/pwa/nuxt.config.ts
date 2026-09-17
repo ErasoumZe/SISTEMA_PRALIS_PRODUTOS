@@ -5,10 +5,33 @@ export default defineNuxtConfig({
   // App interno 100% autenticado (cookie httpOnly cross-domain não chega no SSR).
   // SPA evita hydration mismatch e deixa o cliente saber a largura real no 1º paint.
   ssr: false,
-  // SPA não precisa do app manifest (evita o erro "#app-manifest" em rebuilds)
+  // O manifest interno do Nuxt não é usado; o manifest instalável vem do PWA.
   experimental: { appManifest: false },
 
-  modules: ['vuetify-nuxt-module'],
+  modules: ['vuetify-nuxt-module', '@vite-pwa/nuxt'],
+
+  pwa: {
+    registerType: 'autoUpdate',
+    manifest: {
+      id: '/',
+      name: 'Cicluz Gestão',
+      short_name: 'Cicluz Gestão',
+      description: 'Gestão profissional de produtos da Cicluz.',
+      theme_color: '#050507',
+      background_color: '#050507',
+      display: 'standalone',
+      start_url: '/',
+      scope: '/',
+      icons: [
+        { src: '/pwa/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: '/pwa/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+      ],
+    },
+    workbox: {
+      navigateFallback: '/',
+      globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
+    },
+  },
 
   // CSS global da identidade Cicluz. Ícones são Material Symbols (via plugin).
   css: ['~/assets/css/main.css'],
@@ -27,7 +50,15 @@ export default defineNuxtConfig({
           rel: 'stylesheet',
           href: 'https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..600,0..1,-25..0&display=block',
         },
-        { rel: 'icon', type: 'image/png', href: '/cicluz/cicluz-favicon.png' },
+        { rel: 'icon', type: 'image/png', href: '/pwa/icon-192.png' },
+        { rel: 'apple-touch-icon', href: '/pwa/icon-512.png' },
+      ],
+      meta: [
+        { name: 'theme-color', content: '#050507' },
+        { name: 'mobile-web-app-capable', content: 'yes' },
+        { name: 'apple-mobile-web-app-capable', content: 'yes' },
+        { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+        { name: 'apple-mobile-web-app-title', content: 'Cicluz Gestão' },
       ],
       title: 'Cicluz Gestão Profissional — Produtos',
     },
