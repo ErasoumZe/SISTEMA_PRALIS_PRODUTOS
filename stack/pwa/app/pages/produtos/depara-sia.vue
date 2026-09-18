@@ -19,14 +19,26 @@ const isAdmin = computed(() => user.value?.role === 'admin');
 
 const LOJAS = ['TNP', 'LI', 'HORA'];
 const loja = ref('LI');
-const arquivos = ref<File[]>([]);
+const arquivos = ref<File | File[] | null>(null);
 const resumo = ref<ResumoDePara | null>(null);
 const confirmacao = ref('');
 const conferindo = ref(false);
 const gravando = ref(false);
 const erro = ref('');
 
-const arquivo = computed(() => arquivos.value[0] ?? null);
+/**
+ * O `v-file-input` sem `multiple` entrega UM `File` no Vuetify 3.9+ e um
+ * ARRAY nas versões anteriores. Ler só `[0]` fazia o arquivo escolhido nunca
+ * chegar aqui — o nome aparecia no campo e o botão continuava apagado.
+ *
+ * Aceita as duas formas de propósito: a diferença é de versão da biblioteca,
+ * não do nosso domínio, e não vale prender a tela a uma delas.
+ */
+const arquivo = computed<File | null>(() => {
+  const valor = arquivos.value;
+  if (!valor) return null;
+  return Array.isArray(valor) ? (valor[0] ?? null) : valor;
+});
 const problemas = computed(() => (resumo.value?.barrasAmbiguas.length ?? 0) + (resumo.value?.coditensRepetidos.length ?? 0));
 const podeGravar = computed(() => !!resumo.value
   && problemas.value === 0
@@ -62,7 +74,7 @@ async function gravar() {
     };
     resumo.value = null;
     confirmacao.value = '';
-    arquivos.value = [];
+    arquivos.value = null;
   } catch (e: unknown) {
     erro.value = (e as { data?: { message?: string } })?.data?.message || 'Não consegui gravar.';
   } finally {
