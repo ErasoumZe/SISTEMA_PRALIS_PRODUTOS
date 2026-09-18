@@ -4,6 +4,7 @@ import { db, Tx } from '@/db/databases';
 import { barcodeCandidates } from '@/modules/apoio/tax-rule.service';
 import { ProductSchemas, ProductRequests } from '@pralis/shared';
 import { products, productTransformacao, productFiscal, promocoes, productNameHistory } from './product.table';
+import { calcularProximoCodigoInterno } from './codigo-interno';
 
 type ProductEntity = ProductSchemas.ProductEntity;
 type Promocao = ProductSchemas.Promocao;
@@ -251,7 +252,7 @@ export class ProductRepository {
     return row ?? null;
   }
 
-  /** Próximo código interno sequencial (00001...), baseado no maior já atribuído (em qualquer produto). */
+  /** Próximo código interno sequencial, acima do maior do sistema e da faixa legada do Criare. */
   /**
    * Próximo código interno livre.
    *
@@ -270,7 +271,7 @@ export class ProductRepository {
       sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max FROM products WHERE codigo_interno ~ '^[0-9]+$'`,
     );
     const max = Number((res.rows?.[0] as { max?: number | string } | undefined)?.max ?? 0);
-    return String(max + 1).padStart(5, '0');
+    return calcularProximoCodigoInterno(max);
   }
 
   /** Produto duplicado dentro da loja: mesmo nome (case-insensitive) OU mesmo código de barras. */
