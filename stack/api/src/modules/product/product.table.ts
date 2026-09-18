@@ -131,6 +131,19 @@ export const productFiscal = pgTable('product_fiscal', {
   pctNcm: numeric('pct_ncm', { precision: 6, scale: 4 }),
 });
 
+/** Trilha reversível das reconciliações de código com os catálogos SIA. */
+export const productCodigoInternoHistory = pgTable('product_codigo_interno_history', {
+  id: text('id').primaryKey().$defaultFn(() => uuidv7()),
+  productId: text('product_id').notNull(),
+  loja: text('loja').notNull(),
+  codigoAnterior: text('codigo_anterior'),
+  codigoNovo: text('codigo_novo').notNull(),
+  fonte: text('fonte').notNull(),
+  alteradoPorUserId: text('alterado_por_user_id'),
+  alteradoPorNome: text('alterado_por_nome'),
+  alteradoEm: timestamp('alterado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const promocoes = pgTable('promocoes', {
   id: text('id').primaryKey().$defaultFn(() => uuidv7()),
   productId: text('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),

@@ -20,8 +20,7 @@ export interface CreateContext {
    * Código interno (00001...), igual entre BASE e as cópias das lojas.
    *
    * `undefined` = **gere um**, dentro da transação da criação.
-   * `null` ou string = use exatamente isto (a cópia da loja HERDA o da BASE e
-   * não pode ganhar número novo).
+   * `null` ou string = use exatamente isto.
    */
   codigoInterno?: string | null;
 }
@@ -167,7 +166,7 @@ export class ProductRepository {
           // `undefined` pede geração aqui dentro — a trava só vale enquanto a
           // transação existe, então gerar fora dela não protegeria de nada.
           codigoInterno: ctx.codigoInterno === undefined
-            ? await this.proximoCodigoInterno(tx)
+            ? await this.proximoCodigoInterno(ctx.loja, tx)
             : ctx.codigoInterno,
         } as typeof products.$inferInsert)
         .returning();
@@ -265,13 +264,15 @@ export class ProductRepository {
    * `start:prod` ainda roda `drizzle-kit push --force`, e trocar isso é
    * assunto separado.
    */
-  async proximoCodigoInterno(tx: Tx = db): Promise<string> {
+  async proximoCodigoInterno(loja: Catalogo = 'BASE', tx: Tx = db): Promise<string> {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${CHAVE_TRAVA_CODIGO_INTERNO})`);
     const res = await tx.execute(
-      sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max FROM products WHERE codigo_interno ~ '^[0-9]+$'`,
+      sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max
+          FROM products
+          WHERE loja = ${loja} AND codigo_interno ~ '^[0-9]+$'`,
     );
     const max = Number((res.rows?.[0] as { max?: number | string } | undefined)?.max ?? 0);
-    return calcularProximoCodigoInterno(max);
+    return calcularProximoCodigoInterno(max, loja);
   }
 
   /** Produto duplicado dentro da loja: mesmo nome (case-insensitive) OU mesmo código de barras. */

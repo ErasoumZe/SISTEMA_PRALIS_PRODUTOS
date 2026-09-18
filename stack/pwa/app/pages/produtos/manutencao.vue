@@ -20,6 +20,40 @@ const executando = ref(false);
 const erro = ref('');
 const resultado = ref('');
 
+// ---- reconciliação de códigos SIA ----
+type PreviaCodigos = Awaited<ReturnType<typeof api.codigosPrevia>>;
+const previaCodigos = ref<PreviaCodigos | null>(null);
+const conferindoCodigos = ref(false);
+const aplicandoCodigos = ref(false);
+const confirmacaoCodigos = ref('');
+const resultadoCodigos = ref('');
+
+async function conferirCodigos() {
+  conferindoCodigos.value = true;
+  erro.value = '';
+  try { previaCodigos.value = await api.codigosPrevia(); }
+  catch (e) { erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui conferir os códigos.'; }
+  finally { conferindoCodigos.value = false; }
+}
+
+const podeAplicarCodigos = computed(() => !!previaCodigos.value
+  && previaCodigos.value.alteracoes > 0
+  && confirmacaoCodigos.value.trim().toUpperCase() === previaCodigos.value.confirmacao);
+
+async function aplicarCodigos() {
+  if (!podeAplicarCodigos.value) return;
+  aplicandoCodigos.value = true;
+  erro.value = '';
+  try {
+    const r = await api.codigosAplicar(confirmacaoCodigos.value);
+    resultadoCodigos.value = `${r.aplicadas} código(s) atualizado(s); planilha: ${r.planilha}.`;
+    confirmacaoCodigos.value = '';
+    await conferirCodigos();
+  } catch (e) {
+    erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui aplicar os códigos.';
+  } finally { aplicandoCodigos.value = false; }
+}
+
 async function carregarPrevia() {
   carregando.value = true;
   erro.value = '';
@@ -158,6 +192,7 @@ onMounted(() => {
   carregarPrevia();
   carregarFila();
   carregarPanorama();
+  conferirCodigos();
 });
 </script>
 
@@ -190,6 +225,44 @@ onMounted(() => {
           <v-btn variant="tonal" color="primary" prepend-icon="fact_check" to="/produtos/reconciliacao">
             Abrir a conferência
           </v-btn>
+        </v-card-text>
+      </v-card>
+
+      <v-card variant="outlined" class="mb-4">
+        <v-card-title class="text-subtitle-1">Códigos internos SIA</v-card-title>
+        <v-card-text>
+          <p class="mb-3">
+            Cruza a LI pelo EAN exato com o catálogo Compilart e reserva a farofa da TNP como
+            <strong>01326</strong>. Duplicidades e ambiguidades ficam bloqueadas para revisão.
+          </p>
+          <v-btn variant="tonal" prepend-icon="fact_check" :loading="conferindoCodigos" @click="conferirCodigos">
+            Conferir códigos
+          </v-btn>
+          <template v-if="previaCodigos">
+            <p class="mt-4 mb-2">
+              <strong>{{ previaCodigos.alteracoes }}</strong> alterações seguras;
+              {{ previaCodigos.bloqueadosDuplicidade }} bloqueados por duplicidade,
+              {{ previaCodigos.ambiguosCatalogo }} ambíguos no Compilart e
+              {{ previaCodigos.semCorrespondencia }} sem correspondência.
+            </p>
+            <v-table v-if="previaCodigos.amostra.length" density="compact" class="mb-3">
+              <tbody>
+                <tr v-for="a in previaCodigos.amostra" :key="a.id">
+                  <td>{{ a.loja }}</td><td>{{ a.nome }}</td><td>{{ a.de }} → {{ a.para }}</td>
+                </tr>
+              </tbody>
+            </v-table>
+            <v-text-field
+              v-model="confirmacaoCodigos"
+              :label="`Digite ${previaCodigos.confirmacao}`"
+              density="comfortable"
+              class="mb-3"
+            />
+            <v-btn color="primary" prepend-icon="sync" :disabled="!podeAplicarCodigos" :loading="aplicandoCodigos" @click="aplicarCodigos">
+              Aplicar e sincronizar planilha
+            </v-btn>
+            <p v-if="resultadoCodigos" class="mt-3 mb-0 text-success">{{ resultadoCodigos }}</p>
+          </template>
         </v-card-text>
       </v-card>
 

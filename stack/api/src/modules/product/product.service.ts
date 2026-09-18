@@ -44,7 +44,7 @@ export type UpdatedProduct = ProductSchemas.ProductEntity & {
  */
 const CAMPOS_HERDADOS = [
   'nome', 'quantidade', 'medidaBase', 'codigoBarras', 'marca', 'embalagem', 'cDe',
-  'qtCad', 'medidaCompra', 'compraAproximada', 'codigoInterno', 'fotoUrl', 'grupo', 'tipo', 'status',
+  'qtCad', 'medidaCompra', 'compraAproximada', 'fotoUrl', 'grupo', 'tipo', 'status',
   'habilitarAjuda', 'estoqueMin', 'estoqueMax', 'setorEstoque', 'custo',
   'margemPontual', 'vVendaPontual', 'auto', 'localVenda1', 'localVenda2',
 ] as const satisfies readonly (keyof ProductSchemas.ProductEntity)[];
@@ -615,7 +615,9 @@ export class ProductService {
       const criado = await this.repo.create(this.toCreatePayload(base), {
         loja,
         codigo,
-        codigoInterno: base.codigoInterno, // herda o mesmo código interno da base (igual entre lojas)
+        // Cada SIA tem catálogo e sequência próprios. `undefined` manda o
+        // repositório reservar o próximo número da loja dentro da transação.
+        codigoInterno: undefined,
         createdByUserId: user.id,
         createdByName: user.name,
         baseProductId: baseId,

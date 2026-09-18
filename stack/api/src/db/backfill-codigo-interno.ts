@@ -10,7 +10,7 @@ import 'reflect-metadata';
 import 'dotenv/config';
 import { sql } from 'drizzle-orm';
 import { db as defaultDb } from '@/db/databases';
-import { ULTIMO_CODIGO_LEGADO_CREARE } from '@/modules/product/codigo-interno';
+import { ULTIMO_CODIGO_LEGADO_POR_LOJA, type LojaCodigoInterno } from '@/modules/product/codigo-interno';
 
 type Database = typeof defaultDb;
 
@@ -19,46 +19,30 @@ type Database = typeof defaultDb;
  * descartável (Testcontainers). Retorna quantos foram numerados em cada etapa.
  */
 export async function backfillCodigoInterno(db: Database = defaultDb): Promise<{ base: number; orfaos: number }> {
-  // Continua do maior já atribuído, sem invadir a faixa legada do Criare (até 01325).
-  const maxRes = await db.execute(
-    sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max FROM products WHERE codigo_interno ~ '^[0-9]+$'`,
-  );
-  let n = Math.max(
-    Number((maxRes.rows?.[0] as { max?: number | string } | undefined)?.max ?? 0),
-    ULTIMO_CODIGO_LEGADO_CREARE,
-  );
-
-  // 1) BASE sem código, em ordem de criação (mais antigo primeiro)
-  const baseSem = await db.execute(
-    sql`SELECT id FROM products WHERE loja = 'BASE' AND codigo_interno IS NULL ORDER BY created_at ASC, id ASC`,
-  );
-  const baseIds = (baseSem.rows ?? []) as { id: string }[];
-  for (const r of baseIds) {
-    n++;
-    await db.execute(sql`UPDATE products SET codigo_interno = ${String(n).padStart(5, '0')} WHERE id = ${r.id}`);
+  let base = 0;
+  let orfaos = 0;
+  for (const loja of Object.keys(ULTIMO_CODIGO_LEGADO_POR_LOJA) as LojaCodigoInterno[]) {
+    const maxRes = await db.execute(sql`
+      SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max
+      FROM products
+      WHERE loja = ${loja} AND codigo_interno ~ '^[0-9]+$'`);
+    let n = Math.max(
+      Number((maxRes.rows?.[0] as { max?: number | string } | undefined)?.max ?? 0),
+      ULTIMO_CODIGO_LEGADO_POR_LOJA[loja],
+    );
+    const semCodigo = await db.execute(sql`
+      SELECT id FROM products
+      WHERE loja = ${loja} AND codigo_interno IS NULL
+      ORDER BY created_at ASC, id ASC`);
+    const ids = (semCodigo.rows ?? []) as { id: string }[];
+    for (const r of ids) {
+      n += 1;
+      await db.execute(sql`UPDATE products SET codigo_interno = ${String(n).padStart(5, '0')} WHERE id = ${r.id}`);
+    }
+    if (loja === 'BASE') base += ids.length;
+    else orfaos += ids.length;
   }
-
-  // 2) propaga o código da base para as cópias importadas nas lojas
-  await db.execute(sql`
-    UPDATE products s
-    SET codigo_interno = b.codigo_interno
-    FROM products b
-    WHERE s.base_product_id = b.id
-      AND s.loja <> 'BASE'
-      AND b.codigo_interno IS NOT NULL
-      AND s.codigo_interno IS DISTINCT FROM b.codigo_interno`);
-
-  // 3) produtos órfãos (criados direto na loja no modelo antigo, sem base) — recebem código próprio
-  const orfaos = await db.execute(
-    sql`SELECT id FROM products WHERE codigo_interno IS NULL ORDER BY created_at ASC, id ASC`,
-  );
-  const orfaoIds = (orfaos.rows ?? []) as { id: string }[];
-  for (const r of orfaoIds) {
-    n++;
-    await db.execute(sql`UPDATE products SET codigo_interno = ${String(n).padStart(5, '0')} WHERE id = ${r.id}`);
-  }
-
-  return { base: baseIds.length, orfaos: orfaoIds.length };
+  return { base, orfaos };
 }
 
 async function main() {

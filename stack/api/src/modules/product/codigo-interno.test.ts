@@ -14,4 +14,10 @@ describe('calcularProximoCodigoInterno', () => {
     expect(calcularProximoCodigoInterno(1326)).toBe('01327');
     expect(calcularProximoCodigoInterno(1767)).toBe('01768');
   });
+
+  it('mantém uma faixa independente para cada loja', () => {
+    expect(calcularProximoCodigoInterno(426, 'TNP')).toBe('01326');
+    expect(calcularProximoCodigoInterno(276, 'LI')).toBe('04397');
+    expect(calcularProximoCodigoInterno(4397, 'LI')).toBe('04398');
+  });
 });
