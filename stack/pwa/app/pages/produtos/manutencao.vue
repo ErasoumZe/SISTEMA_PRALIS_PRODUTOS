@@ -191,6 +191,25 @@ onMounted(() => {
             Abrir a conferência
           </v-btn>
         </v-card-text>
+
+      <!--
+        De-para do SIA: é a régua da numeração, e antes só dava para trocar por
+        linha de comando com acesso ao banco. Fica ANTES do código de cadastro
+        na ordem de uso — sem de-para, aquela tela não tem o que propor.
+      -->
+      <v-card variant="outlined" class="mb-4">
+        <v-card-title class="text-subtitle-1">De-para do SIA</v-card-title>
+        <v-card-text>
+          <p class="mb-3">
+            Envia a exportação do SIA Supervisor de uma loja e substitui o de-para dela.
+            <strong>Confere antes de gravar</strong>: código de barras apontando para dois
+            produtos é recusado, porque um sobrescreveria o outro no PDV.
+          </p>
+          <v-btn variant="tonal" color="primary" prepend-icon="sync_alt" to="/produtos/depara-sia">
+            Abrir o de-para
+          </v-btn>
+        </v-card-text>
+      </v-card>
       </v-card>
 
       <!--

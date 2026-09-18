@@ -71,6 +71,7 @@ const titulo = computed(() => {
     '/produtos/codigo-cadastro': 'Código de cadastro',
     '/produtos/importar-mix': 'Importar da planilha',
     '/produtos/custo-discriminacao': 'Custo da discriminação',
+    '/produtos/depara-sia': 'De-para do SIA',
     '/usuarios': 'Usuários',
     '/importar': 'Importar da base',
     '/produtos/novo': 'Novo produto',
@@ -87,6 +88,7 @@ const subtitulo = computed(() => {
     '/produtos/codigo-cadastro': 'A numeração vem do PDV',
     '/produtos/importar-mix': 'O que existe na planilha e não no sistema',
     '/produtos/custo-discriminacao': 'O valor da compra mais recente',
+    '/produtos/depara-sia': 'A régua da numeração da rede',
     '/produtos/historico-nomes': 'Alterações de nome em tempo real',
   };
   return map[route.path] ?? '';

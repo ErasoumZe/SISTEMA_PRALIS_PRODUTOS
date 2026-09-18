@@ -121,12 +121,23 @@ export function lerDePara(tabela: unknown[][]): ResultadoLeitura {
   };
 }
 
+/**
+ * Mesma leitura de `lerArquivo`, a partir do conteúdo já em memória.
+ *
+ * Existe porque o arquivo também chega pela tela, em upload: ali não há caminho
+ * no disco. A separação mantém uma única regra de parsing — quem muda o formato
+ * muda em um lugar só.
+ */
+export function lerConteudo(conteudo: Buffer, nome: string): unknown[][] {
+  const wb = /\.csv$/i.test(nome)
+    ? XLSX.read(conteudo.toString('utf8'), { type: 'string', raw: true })
+    : XLSX.read(conteudo, { type: 'buffer' });
+  const aba = wb.Sheets[wb.SheetNames[0]!]!;
+  return XLSX.utils.sheet_to_json(aba, { header: 1, defval: '', raw: true });
+}
+
 export function lerArquivo(caminho: string): unknown[][] {
   // Lemos o arquivo aqui em vez de usar `XLSX.readFile`: no build ESM o
   // SheetJS não vem com o `fs` ligado, e `readFile` simplesmente não existe.
-  const wb = /\.csv$/i.test(caminho)
-    ? XLSX.read(readFileSync(caminho, 'utf8'), { type: 'string', raw: true })
-    : XLSX.read(readFileSync(caminho), { type: 'buffer' });
-  const aba = wb.Sheets[wb.SheetNames[0]!]!;
-  return XLSX.utils.sheet_to_json(aba, { header: 1, defval: '', raw: true });
+  return lerConteudo(readFileSync(caminho), caminho);
 }

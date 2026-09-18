@@ -52,6 +52,21 @@ export interface PreviaCodigoCadastro {
   loteMaximo: number;
 }
 
+/** Conferência de uma exportação do SIA antes de substituir o de-para. */
+export interface ResumoDePara {
+  loja: string;
+  arquivo: string;
+  linhas: number;
+  semBarras: number;
+  /** Quantas linhas a loja tem hoje — o que seria substituído. */
+  atuais: number;
+  barrasAmbiguas: Array<{ chave: string; coditens: string[] }>;
+  coditensRepetidos: string[];
+  /** Menor e maior coditem do arquivo: confere a loja num relance. */
+  faixa: { min: number; max: number } | null;
+  confirmacao: string;
+}
+
 /** Por que um produto não recebeu custo da base de discriminação. */
 export type MotivoSemCusto = 'sem-lancamento' | 'nome-ambiguo-no-cadastro' | 'custo-ilegivel' | 'ja-esta-certo';
 
@@ -477,6 +492,28 @@ export function useApi() {
         '/admin/produtos/importar-mix',
         { ...base, method: 'POST', body: { confirmacao } },
       )),
+
+    // ---- de-para do SIA ----
+    /**
+     * Confere a exportação SEM gravar. É o equivalente ao script sem `--apply`.
+     */
+    deParaPrevia: (loja: string, arquivo: File) => {
+      const fd = new FormData();
+      fd.append('loja', loja);
+      fd.append('file', arquivo);
+      return unwrap($fetch<{ data: ResumoDePara }>('/admin/creare/depara/previa', { ...base, method: 'POST', body: fd }));
+    },
+
+    /** Substitui o de-para da loja inteiro. */
+    deParaAplicar: (loja: string, arquivo: File, confirmacao: string) => {
+      const fd = new FormData();
+      fd.append('loja', loja);
+      fd.append('confirmacao', confirmacao);
+      fd.append('file', arquivo);
+      return unwrap($fetch<{ data: { loja: string; gravadas: number; substituidas: number; semBarras: number } }>(
+        '/admin/creare/depara', { ...base, method: 'POST', body: fd },
+      ));
+    },
 
     // ---- custo, da base de discriminação ----
     /** Prévia da carga de custo. NÃO grava. */
