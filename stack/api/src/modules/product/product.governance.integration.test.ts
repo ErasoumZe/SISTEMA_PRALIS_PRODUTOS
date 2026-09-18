@@ -153,11 +153,14 @@ describe('Código interno — sequencial, herança e backfill', () => {
     expect(Number(b.codigoInterno)).toBe(Number(a.codigoInterno) + 1);
   });
 
-  it('importação herda o MESMO código interno da base (igual entre lojas)', async () => {
+  it('importação reserva o código na sequência própria da loja', async () => {
+    await service.create(admin, mkPayload('CODIGO BASE ANTERIOR'));
     const base = await service.create(admin, mkPayload('CODIGO HERANCA'));
     await service.importFromBase(jose, [base.id]);
     const copia = (await repo.list('TNP', {})).find((x) => x.baseProductId === base.id)!;
-    expect(copia.codigoInterno).toBe(base.codigoInterno);
+    expect(copia.codigoInterno).toMatch(/^\d{5}$/);
+    expect(Number(copia.codigoInterno)).toBeGreaterThanOrEqual(1326);
+    expect(copia.codigoInterno).not.toBe(base.codigoInterno);
   });
 
   it('backfill dá código próprio a produto órfão (criado direto na loja, sem base)', async () => {

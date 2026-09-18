@@ -351,6 +351,20 @@ export function useApi() {
      */
     produtosCsvUrl: () => `${base.baseURL}/admin/produtos/export.csv`,
 
+    codigosPrevia: () =>
+      unwrap($fetch<{ data: {
+        totalLi: number; totalTnp: number; exatos: number; aptos: number;
+        alteracoes: number; jaCorretos: number; bloqueadosDuplicidade: number;
+        ambiguosCatalogo: number; semCorrespondencia: number; colisoes: number;
+        confirmacao: string;
+        amostra: Array<{ id: string; loja: string; nome: string; de: string; para: string }>;
+      } }>('/admin/produtos/codigos/previa', { ...base })),
+
+    codigosAplicar: (confirmacao: string) =>
+      unwrap($fetch<{ data: {
+        aplicadas: number; planilha: string; falhasPlanilha: number;
+      } }>('/admin/produtos/codigos/aplicar', { ...base, method: 'POST', body: { confirmacao } })),
+
     /** Quantos seriam apagados e qual frase confirma. Não apaga nada. */
     zerarPrevia: () =>
       unwrap($fetch<{ data: { total: number; confirmacao: string } }>(

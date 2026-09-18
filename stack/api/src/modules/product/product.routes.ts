@@ -5,6 +5,7 @@ import { z } from 'zod/v4';
 import { ProductController } from './product.controller';
 import { ProductExportController } from './product-export.controller';
 import { ProductZerarController } from './product-zerar.controller';
+import { CodigoInternoReconciliacaoController } from './codigo-interno-reconciliacao.controller';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { apiResponseSchema } from '@/config/api.replies';
 import { authMiddleware } from '@/middlewares/auth-handler';
@@ -13,6 +14,7 @@ export async function productRoutes(app: FastifyInstance) {
   const controller = container.resolve(ProductController);
   const exportController = container.resolve(ProductExportController);
   const zerarController = container.resolve(ProductZerarController);
+  const codigoController = container.resolve(CodigoInternoReconciliacaoController);
   const a = app.withTypeProvider<ZodTypeProvider>();
 
   // todas as rotas exigem autenticação
@@ -119,4 +121,15 @@ export async function productRoutes(app: FastifyInstance) {
     },
     zerarController.zerar.bind(zerarController),
   );
+
+  a.get('/admin/produtos/codigos/previa', {
+    schema: { summary: 'Prévia da reconciliação de códigos SIA (admin)', tags: ['ADMIN', 'PRODUTOS'] },
+  }, codigoController.previa.bind(codigoController));
+
+  a.post('/admin/produtos/codigos/aplicar', {
+    schema: {
+      body: z.object({ confirmacao: z.string() }),
+      summary: 'Aplicar reconciliação de códigos SIA (admin)', tags: ['ADMIN', 'PRODUTOS'],
+    },
+  }, codigoController.aplicar.bind(codigoController));
 }

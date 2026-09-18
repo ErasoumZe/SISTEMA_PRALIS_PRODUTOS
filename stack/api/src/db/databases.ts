@@ -2,7 +2,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { env } from '../config/env';
 import {
-  products, productTransformacao, productFiscal, promocoes,
+  products, productTransformacao, productFiscal, promocoes, productCodigoInternoHistory,
 } from '@/modules/product/product.table';
 import { gruposMercadoria, locaisVenda, setores } from '@/modules/apoio/apoio.table';
 import { users } from '@/modules/user/user.table';
@@ -15,6 +15,7 @@ const schema = {
   productTransformacao,
   productFiscal,
   promocoes,
+  productCodigoInternoHistory,
   gruposMercadoria,
   locaisVenda,
   setores,
