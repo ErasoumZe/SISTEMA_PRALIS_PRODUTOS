@@ -105,6 +105,25 @@ export const env = {
   /** Aba com os grupos oficiais e a margem padrao de cada um (colunas M e N). */
   GOOGLE_SHEETS_GRUPOS_TAB: envVar('GOOGLE_SHEETS_GRUPOS_TAB', '(TNP/LI/HORA - EXP.) GRUPOS/REF. - VLD SAIDA'),
   GOOGLE_SHEETS_DEFAULT_LOJAS: envVar('GOOGLE_SHEETS_DEFAULT_LOJAS', 'TNP,LI,HORA'),
+
+  // ---- Planilha MIX: de onde vem a numeração de cadastro (SÓ LEITURA) ----
+  /**
+   * SEM VALOR PADRÃO, pela mesma razão da `GOOGLE_SHEETS_SPREADSHEET_ID`: o
+   * destino de uma leitura de produção tem de ser decisão explícita de quem
+   * configura. Vazio desliga a reconciliação de código, que responde dizendo
+   * o que falta em vez de ler a planilha errada.
+   *
+   * Esta planilha é **lida e nunca escrita** — ela é a fonte da numeração, e
+   * escrever nela seria sobrescrever a própria régua.
+   */
+  GOOGLE_SHEETS_MIX_SPREADSHEET_ID: envVar('GOOGLE_SHEETS_MIX_SPREADSHEET_ID', ''),
+  GOOGLE_SHEETS_MIX_TAB: envVar('GOOGLE_SHEETS_MIX_TAB', 'MIX PRODUTOS LOJA E PRODUÇÃO ASSOCIAÇÃO'),
+  /** Linha dos títulos (`COD INTERNO`, `DESCRIÇÃO`, `COD BARRA 1`). */
+  GOOGLE_SHEETS_MIX_LINHA_CABECALHO: envNum('GOOGLE_SHEETS_MIX_LINHA_CABECALHO', 6),
+  /** Primeira linha de produto: as linhas entre o cabeçalho e ela são legenda. */
+  GOOGLE_SHEETS_MIX_LINHA_INICIAL: envNum('GOOGLE_SHEETS_MIX_LINHA_INICIAL', 11),
+  /** Última linha lida. Folga sobre as 4.451 atuais, para a planilha crescer. */
+  GOOGLE_SHEETS_MIX_LINHA_FINAL: envNum('GOOGLE_SHEETS_MIX_LINHA_FINAL', 6000),
   /**
    * Aba de cada loja no espelho, como JSON. Vazio usa o padrao do servico,
    * que cobre TNP e LI. HORA fica FORA de proposito: a aba existe e ja tem as

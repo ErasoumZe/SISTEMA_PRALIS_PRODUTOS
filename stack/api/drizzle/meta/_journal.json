@@ -169,6 +169,13 @@
       "when": 1789648438340,
       "tag": "0023_typical_human_torch",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789744921806,
+      "tag": "0024_sweet_bloodstorm",
+      "breakpoints": true
     }
   ]
 }

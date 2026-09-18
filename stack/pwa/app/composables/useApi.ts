@@ -17,6 +17,41 @@ export type VincularBody = VendasDePara.VincularBody;
 export type ProdutosUnicos = VendasUnicos.ProdutosUnicos;
 export type ProdutosUnicosQuery = VendasUnicos.ProdutosUnicosQuery;
 
+/** Onde cada produto caiu na reconciliação do código de cadastro. */
+export type BaldeCodigo = 'ja-correto' | 'exato' | 'conflito-sia' | 'disputado' | 'novo';
+
+/** Um produto do SIA que casou pelo código de barras. */
+export interface CandidatoCodigo {
+  loja: string;
+  coditem: string;
+  descricao: string;
+}
+
+export interface ItemCodigoCadastro {
+  productId: string;
+  loja: string;
+  nome: string;
+  codigoBarras: string | null;
+  codigoAtual: string | null;
+  balde: BaldeCodigo;
+  codigoProposto: string | null;
+  motivo: string;
+  candidatos: CandidatoCodigo[];
+}
+
+export interface PreviaCodigoCadastro {
+  resumo: Record<BaldeCodigo, number>;
+  /** De onde sai o próximo código cunhado. */
+  teto: number;
+  tetoDe: string;
+  paresSia: number;
+  /** A planilha MIX só entra no teto — quem decide o código é o SIA. */
+  planilha: { estado: string; teto: number; linhas: number };
+  itens: ItemCodigoCadastro[];
+  confirmacao: string;
+  loteMaximo: number;
+}
+
 /** Uma linha de fonte dentro do grupo, como veio do staging. */
 export interface ItemUnificacao {
   fonte: string; loja: string; codInterno: string | null; codBarras: string | null;
@@ -338,6 +373,40 @@ export function useApi() {
       unwrap($fetch<{ data: Reconciliacao }>('/admin/produtos/reconciliacao', {
         ...base, query: limite ? { limite } : undefined,
       })),
+
+    // ---- código de cadastro × planilha MIX ----
+    /**
+     * Prévia da reconciliação. NÃO grava: dá para abrir, ler e fechar. A
+     * planilha MIX é lida, nunca escrita.
+     */
+    codigoCadastroPrevia: () =>
+      unwrap($fetch<{ data: PreviaCodigoCadastro }>('/admin/produtos/codigo-cadastro/previa', { ...base })),
+
+    /** Adota de uma vez os que casaram por código de barras. Só esse balde. */
+    codigoCadastroAdotarExatos: (confirmacao: string) =>
+      unwrap($fetch<{ data: { aplicadas: number; conflitos: number; restantes: number } }>(
+        '/admin/produtos/codigo-cadastro/adotar-exatos',
+        { ...base, method: 'POST', body: { confirmacao } },
+      )),
+
+    /**
+     * Uma decisão, um produto: adotar um código do SIA ou cunhar novo.
+     *
+     * `codigoAtualEsperado` é o que a TELA mostrava. Vai junto de propósito:
+     * sem ele, quem está com a tela velha aberta sobrescreve em silêncio quem
+     * decidiu primeiro.
+     */
+    codigoCadastroDecidir: (body: {
+      productId: string;
+      codigo?: string;
+      cunhar?: boolean;
+      codigoAtualEsperado: string | null;
+      confirmacao: string;
+    }) =>
+      unwrap($fetch<{ data: { codigo: string; fonte: string } }>(
+        '/admin/produtos/codigo-cadastro/decidir',
+        { ...base, method: 'POST', body },
+      )),
 
     // ---- estado fiscal ----
     /** Quantos produtos em cada estado fiscal. É o health do fiscal. */

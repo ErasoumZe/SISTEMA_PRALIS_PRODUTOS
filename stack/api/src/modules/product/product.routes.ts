@@ -5,6 +5,7 @@ import { z } from 'zod/v4';
 import { ProductController } from './product.controller';
 import { ProductExportController } from './product-export.controller';
 import { ProductZerarController } from './product-zerar.controller';
+import { CodigoCadastroController } from './codigo-cadastro.controller';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { apiResponseSchema } from '@/config/api.replies';
 import { authMiddleware } from '@/middlewares/auth-handler';
@@ -13,6 +14,7 @@ export async function productRoutes(app: FastifyInstance) {
   const controller = container.resolve(ProductController);
   const exportController = container.resolve(ProductExportController);
   const zerarController = container.resolve(ProductZerarController);
+  const codigoCadastroController = container.resolve(CodigoCadastroController);
   const a = app.withTypeProvider<ZodTypeProvider>();
 
   // todas as rotas exigem autenticação
@@ -134,5 +136,89 @@ export async function productRoutes(app: FastifyInstance) {
       },
     },
     zerarController.zerar.bind(zerarController),
+  );
+
+  /*
+   * ---- Código de cadastro × coditem do SIA ----
+   *
+   * A prévia é GET e não grava nada. Toda gravação exige a frase de
+   * confirmação, e a adoção em lote cobre SÓ o balde `exato` (código de barras
+   * casando com o SIA, sem outro produto disputando o mesmo código). O resto é
+   * clique humano, item a item, com o código que a tela viu indo junto para
+   * impedir que uma tela velha sobrescreva quem decidiu antes.
+   */
+  const baldeCodigo = z.enum(['ja-correto', 'exato', 'conflito-sia', 'disputado', 'novo']);
+  const itemPrevia = z.object({
+    productId: z.string(),
+    loja: z.string(),
+    nome: z.string(),
+    codigoBarras: z.string().nullable(),
+    codigoAtual: z.string().nullable(),
+    balde: baldeCodigo,
+    codigoProposto: z.string().nullable(),
+    motivo: z.string(),
+    candidatos: z.array(z.object({ loja: z.string(), coditem: z.string(), descricao: z.string() })),
+  });
+
+  a.get(
+    '/admin/produtos/codigo-cadastro/previa',
+    {
+      schema: {
+        response: {
+          200: apiResponseSchema(z.object({
+            resumo: z.record(baldeCodigo, z.number()),
+            teto: z.number(),
+            tetoDe: z.string(),
+            paresSia: z.number(),
+            planilha: z.object({ estado: z.string(), teto: z.number(), linhas: z.number() }),
+            itens: z.array(itemPrevia),
+            confirmacao: z.string(),
+            loteMaximo: z.number(),
+          })),
+        },
+        summary: 'Prévia da reconciliação do código de cadastro com o SIA (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    codigoCadastroController.previa.bind(codigoCadastroController),
+  );
+
+  a.post(
+    '/admin/produtos/codigo-cadastro/adotar-exatos',
+    {
+      schema: {
+        body: z.object({ confirmacao: z.string() }),
+        response: {
+          200: apiResponseSchema(z.object({
+            aplicadas: z.number(), conflitos: z.number(), restantes: z.number(),
+          })),
+        },
+        summary: 'Adotar os códigos que casaram por código de barras no SIA (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    codigoCadastroController.adotarExatos.bind(codigoCadastroController),
+  );
+
+  a.post(
+    '/admin/produtos/codigo-cadastro/decidir',
+    {
+      schema: {
+        body: z.object({
+          productId: z.string().min(1),
+          codigo: z.string().optional(),
+          cunhar: z.boolean().optional(),
+          /** O que a tela mostrava: sem isso a guarda contra corrida não existe. */
+          codigoAtualEsperado: z.string().nullable(),
+          confirmacao: z.string(),
+        }).refine((b) => !!b.cunhar !== !!b.codigo, {
+          message: 'Escolha um código OU cunhe um novo — não os dois, nem nenhum.',
+        }),
+        response: { 200: apiResponseSchema(z.object({ codigo: z.string(), fonte: z.string() })) },
+        summary: 'Decidir o código de um produto: adotar do SIA ou cunhar novo (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    codigoCadastroController.decidir.bind(codigoCadastroController),
   );
 }
