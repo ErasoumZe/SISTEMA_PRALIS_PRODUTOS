@@ -303,6 +303,8 @@ export async function productRoutes(app: FastifyInstance) {
     nome: z.string(),
     custoAtual: z.number().nullable(),
     custoNovo: z.number().nullable(),
+    custoUnitario: z.number().nullable(),
+    qtCad: z.number(),
     fonte: z.string().nullable(),
     motivo: motivoSemCusto.optional(),
   });

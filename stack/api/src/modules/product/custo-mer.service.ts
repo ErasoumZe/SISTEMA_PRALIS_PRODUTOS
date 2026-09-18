@@ -51,7 +51,7 @@ export class CustoMerService {
    * não têm de quem herdar.
    */
   private async produtos() {
-    return db.select({ id: products.id, nome: products.nome, custo: products.custo })
+    return db.select({ id: products.id, nome: products.nome, custo: products.custo, qtCad: products.qtCad })
       .from(products)
       .where(and(isNull(products.baseProductId), ne(products.status, 'unificado')))
       .orderBy(products.nome);

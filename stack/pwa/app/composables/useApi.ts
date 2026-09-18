@@ -75,6 +75,10 @@ export interface PropostaCusto {
   nome: string;
   custoAtual: number | null;
   custoNovo: number | null;
+  /** O valor unitário da nota, antes de virar custo de embalagem. */
+  custoUnitario: number | null;
+  /** Por quanto o unitário foi multiplicado. */
+  qtCad: number;
   /** De qual compra veio: linha e data. */
   fonte: string | null;
   motivo?: MotivoSemCusto;
