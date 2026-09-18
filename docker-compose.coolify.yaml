@@ -67,6 +67,12 @@ services:
       # Vazio ja significa desligado.
       GOOGLE_SHEETS_LOJA_ESPELHO_AUTO: ${GOOGLE_SHEETS_LOJA_ESPELHO_AUTO}
       GOOGLE_SHEETS_LOJA_TABS: ${GOOGLE_SHEETS_LOJA_TABS}
+      # Planilha MIX: régua da numeração de cadastro. Lida, NUNCA escrita.
+      GOOGLE_SHEETS_MIX_SPREADSHEET_ID: ${GOOGLE_SHEETS_MIX_SPREADSHEET_ID}
+      GOOGLE_SHEETS_MIX_TAB: ${GOOGLE_SHEETS_MIX_TAB}
+      GOOGLE_SHEETS_MIX_LINHA_CABECALHO: ${GOOGLE_SHEETS_MIX_LINHA_CABECALHO}
+      GOOGLE_SHEETS_MIX_LINHA_INICIAL: ${GOOGLE_SHEETS_MIX_LINHA_INICIAL}
+      GOOGLE_SHEETS_MIX_LINHA_FINAL: ${GOOGLE_SHEETS_MIX_LINHA_FINAL}
       # Pasta dos CSVs de fonte da Central. Vazio usa os versionados em docs/.
       UNIFICACAO_FONTES_DIR: ${UNIFICACAO_FONTES_DIR}
       # Token exclusivo do robô para POST /vendas/importar (mínimo 32 caracteres).

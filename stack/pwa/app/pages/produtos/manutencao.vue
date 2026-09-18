@@ -194,6 +194,25 @@ onMounted(() => {
       </v-card>
 
       <!--
+        Código de cadastro: a numeração que a rede usa mora na planilha MIX, não
+        aqui. Esta tela adota o código de lá e só cria número novo para o que
+        realmente não existe — uma decisão por clique, porque cunhar não tem volta.
+      -->
+      <v-card variant="outlined" class="mb-4">
+        <v-card-title class="text-subtitle-1">Código de cadastro</v-card-title>
+        <v-card-text>
+          <p class="mb-3">
+            Confronta o código interno de cada produto com o <strong>COD INTERNO</strong>
+            da planilha MIX. Adota sozinho só quando o código de barras casa com uma
+            linha só; o resto fica para você decidir item a item.
+          </p>
+          <v-btn variant="tonal" color="primary" prepend-icon="pin" to="/produtos/codigo-cadastro">
+            Abrir a reconciliação
+          </v-btn>
+        </v-card-text>
+      </v-card>
+
+      <!--
         Carga fiscal: é a pendência que aparece na planilha em vermelho.
       -->
       <v-card variant="outlined" class="mb-4">
