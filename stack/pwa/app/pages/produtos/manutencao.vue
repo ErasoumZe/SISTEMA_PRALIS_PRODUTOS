@@ -230,6 +230,25 @@ onMounted(() => {
             Abrir a importação
           </v-btn>
         </v-card-text>
+
+      <!--
+        Custo: vem da base de discriminação, pela regra do DB-05 (compra mais
+        recente). Fica DEPOIS da importação — produto que ainda não existe não
+        tem onde receber custo.
+      -->
+      <v-card variant="outlined" class="mb-4">
+        <v-card-title class="text-subtitle-1">Custo da discriminação</v-card-title>
+        <v-card-text>
+          <p class="mb-3">
+            Traz para cada produto o valor unitário da <strong>compra mais recente</strong>
+            na base de discriminação de mercadorias. Mostra o custo antigo ao lado do novo
+            antes de gravar — custo alimenta o preço de venda calculado.
+          </p>
+          <v-btn variant="tonal" color="primary" prepend-icon="payments" to="/produtos/custo-discriminacao">
+            Abrir a carga de custo
+          </v-btn>
+        </v-card-text>
+      </v-card>
       </v-card>
 
       <!--

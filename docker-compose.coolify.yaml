@@ -73,6 +73,10 @@ services:
       GOOGLE_SHEETS_MIX_LINHA_CABECALHO: ${GOOGLE_SHEETS_MIX_LINHA_CABECALHO}
       GOOGLE_SHEETS_MIX_LINHA_INICIAL: ${GOOGLE_SHEETS_MIX_LINHA_INICIAL}
       GOOGLE_SHEETS_MIX_LINHA_FINAL: ${GOOGLE_SHEETS_MIX_LINHA_FINAL}
+      # Base de discriminação: de onde vem o custo. Lida, NUNCA escrita.
+      GOOGLE_SHEETS_MER_SPREADSHEET_ID: ${GOOGLE_SHEETS_MER_SPREADSHEET_ID}
+      GOOGLE_SHEETS_MER_TAB: ${GOOGLE_SHEETS_MER_TAB}
+      GOOGLE_SHEETS_MER_LINHA_FINAL: ${GOOGLE_SHEETS_MER_LINHA_FINAL}
       # Pasta dos CSVs de fonte da Central. Vazio usa os versionados em docs/.
       UNIFICACAO_FONTES_DIR: ${UNIFICACAO_FONTES_DIR}
       # Token exclusivo do robô para POST /vendas/importar (mínimo 32 caracteres).
