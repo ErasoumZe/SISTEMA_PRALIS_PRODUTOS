@@ -124,6 +124,20 @@ export const env = {
   GOOGLE_SHEETS_MIX_LINHA_INICIAL: envNum('GOOGLE_SHEETS_MIX_LINHA_INICIAL', 11),
   /** Última linha lida. Folga sobre as 4.451 atuais, para a planilha crescer. */
   GOOGLE_SHEETS_MIX_LINHA_FINAL: envNum('GOOGLE_SHEETS_MIX_LINHA_FINAL', 6000),
+
+  // ---- Base de discriminação de mercadorias: de onde vem o custo (SÓ LEITURA) ----
+  /**
+   * SEM VALOR PADRÃO, pela mesma razão das outras: destino de leitura de
+   * produção é decisão explícita de quem configura. Vazio desliga a carga de
+   * custo, que responde dizendo o que falta.
+   *
+   * A regra é o DB-05 do backlog: o custo do produto é o da compra MAIS RECENTE
+   * nesta base. Cada linha da aba é um lançamento, não um cadastro.
+   */
+  GOOGLE_SHEETS_MER_SPREADSHEET_ID: envVar('GOOGLE_SHEETS_MER_SPREADSHEET_ID', ''),
+  GOOGLE_SHEETS_MER_TAB: envVar('GOOGLE_SHEETS_MER_TAB', 'TNP - DISCRIMINAÇÃO MERCADORIAS (MER)'),
+  /** Última linha lida. O cabeçalho é PROCURADO, não configurado. */
+  GOOGLE_SHEETS_MER_LINHA_FINAL: envNum('GOOGLE_SHEETS_MER_LINHA_FINAL', 20000),
   /**
    * Aba de cada loja no espelho, como JSON. Vazio usa o padrao do servico,
    * que cobre TNP e LI. HORA fica FORA de proposito: a aba existe e ja tem as

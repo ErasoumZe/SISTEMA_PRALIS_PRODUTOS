@@ -7,6 +7,7 @@ import { ProductExportController } from './product-export.controller';
 import { ProductZerarController } from './product-zerar.controller';
 import { CodigoCadastroController } from './codigo-cadastro.controller';
 import { ImportarMixController } from './importar-mix.controller';
+import { CustoMerController } from './custo-mer.controller';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { apiResponseSchema } from '@/config/api.replies';
 import { authMiddleware } from '@/middlewares/auth-handler';
@@ -17,6 +18,7 @@ export async function productRoutes(app: FastifyInstance) {
   const zerarController = container.resolve(ProductZerarController);
   const codigoCadastroController = container.resolve(CodigoCadastroController);
   const importarMixController = container.resolve(ImportarMixController);
+  const custoMerController = container.resolve(CustoMerController);
   const a = app.withTypeProvider<ZodTypeProvider>();
 
   // todas as rotas exigem autenticação
@@ -287,5 +289,65 @@ export async function productRoutes(app: FastifyInstance) {
       },
     },
     importarMixController.importar.bind(importarMixController),
+  );
+
+  /*
+   * ---- Custo, da base de discriminação de mercadorias ----
+   *
+   * Regra do DB-05 do backlog: o custo do produto é o da compra MAIS RECENTE
+   * nessa base. Cada linha da aba é um lançamento, não um cadastro.
+   */
+  const motivoSemCusto = z.enum(['sem-lancamento', 'nome-ambiguo-no-cadastro', 'custo-ilegivel', 'ja-esta-certo']);
+  const propostaCusto = z.object({
+    productId: z.string(),
+    nome: z.string(),
+    custoAtual: z.number().nullable(),
+    custoNovo: z.number().nullable(),
+    fonte: z.string().nullable(),
+    motivo: motivoSemCusto.optional(),
+  });
+
+  a.get(
+    '/admin/produtos/custo-discriminacao/previa',
+    {
+      schema: {
+        response: {
+          200: apiResponseSchema(z.object({
+            estado: z.enum(['ok', 'sem-destino', 'sem-coluna', 'falhou']),
+            truncada: z.boolean(),
+            faltando: z.array(z.string()),
+            erro: z.string().optional(),
+            linhaCabecalho: z.number().nullable(),
+            lancamentos: z.number(),
+            lancamentosDescartados: z.number(),
+            comCusto: z.number(),
+            semCusto: z.record(motivoSemCusto, z.number()),
+            amostra: z.array(propostaCusto),
+            confirmacao: z.string(),
+            loteMaximo: z.number(),
+          })),
+        },
+        summary: 'Prévia da carga de custo pela base de discriminação (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    custoMerController.previa.bind(custoMerController),
+  );
+
+  a.post(
+    '/admin/produtos/custo-discriminacao',
+    {
+      schema: {
+        body: z.object({ confirmacao: z.string() }),
+        response: {
+          200: apiResponseSchema(z.object({
+            aplicados: z.number(), conflitos: z.number(), restantes: z.number(),
+          })),
+        },
+        summary: 'Gravar o custo da compra mais recente em cada produto (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    custoMerController.aplicar.bind(custoMerController),
   );
 }

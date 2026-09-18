@@ -52,6 +52,35 @@ export interface PreviaCodigoCadastro {
   loteMaximo: number;
 }
 
+/** Por que um produto não recebeu custo da base de discriminação. */
+export type MotivoSemCusto = 'sem-lancamento' | 'nome-ambiguo-no-cadastro' | 'custo-ilegivel' | 'ja-esta-certo';
+
+export interface PropostaCusto {
+  productId: string;
+  nome: string;
+  custoAtual: number | null;
+  custoNovo: number | null;
+  /** De qual compra veio: linha e data. */
+  fonte: string | null;
+  motivo?: MotivoSemCusto;
+}
+
+export interface PreviaCustoMer {
+  estado: 'ok' | 'sem-destino' | 'sem-coluna' | 'falhou';
+  truncada: boolean;
+  faltando: string[];
+  erro?: string;
+  /** Em que linha da aba o cabeçalho foi encontrado. */
+  linhaCabecalho: number | null;
+  lancamentos: number;
+  lancamentosDescartados: number;
+  comCusto: number;
+  semCusto: Record<MotivoSemCusto, number>;
+  amostra: PropostaCusto[];
+  confirmacao: string;
+  loteMaximo: number;
+}
+
 /** Por que uma linha da planilha não virou cadastro. */
 export type MotivoPuloMix =
   | 'codigo-invalido' | 'codigo-repetido-na-planilha' | 'sem-nome'
@@ -446,6 +475,18 @@ export function useApi() {
     importarMix: (confirmacao: string) =>
       unwrap($fetch<{ data: { criados: number; restantes: number; falhas: Array<{ linha: number; codigo: string; erro: string }> } }>(
         '/admin/produtos/importar-mix',
+        { ...base, method: 'POST', body: { confirmacao } },
+      )),
+
+    // ---- custo, da base de discriminação ----
+    /** Prévia da carga de custo. NÃO grava. */
+    custoMerPrevia: () =>
+      unwrap($fetch<{ data: PreviaCustoMer }>('/admin/produtos/custo-discriminacao/previa', { ...base })),
+
+    /** Grava o custo da compra mais recente em cada produto, em lote. */
+    custoMerAplicar: (confirmacao: string) =>
+      unwrap($fetch<{ data: { aplicados: number; conflitos: number; restantes: number } }>(
+        '/admin/produtos/custo-discriminacao',
         { ...base, method: 'POST', body: { confirmacao } },
       )),
 
