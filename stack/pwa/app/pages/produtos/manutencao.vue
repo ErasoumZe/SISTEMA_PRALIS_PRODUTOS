@@ -213,6 +213,26 @@ onMounted(() => {
       </v-card>
 
       <!--
+        Importar da planilha: cria o que existe lá e não aqui. Fica DEPOIS da
+        reconciliação de propósito — importar antes de alinhar os códigos criaria
+        cadastro novo para produto que já existe com outro número.
+      -->
+      <v-card variant="outlined" class="mb-4">
+        <v-card-title class="text-subtitle-1">Importar da planilha</v-card-title>
+        <v-card-text>
+          <p class="mb-3">
+            Traz para a Base os produtos que existem na planilha MIX e ainda não no
+            sistema, já com o código do PDV. <strong>Nada é chutado</strong>: campo que
+            a planilha não traz entra vazio, e linha sem o mínimo para ser produto
+            fica de fora com o motivo à vista.
+          </p>
+          <v-btn variant="tonal" color="primary" prepend-icon="library_add" to="/produtos/importar-mix">
+            Abrir a importação
+          </v-btn>
+        </v-card-text>
+      </v-card>
+
+      <!--
         Carga fiscal: é a pendência que aparece na planilha em vermelho.
       -->
       <v-card variant="outlined" class="mb-4">

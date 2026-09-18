@@ -5,154 +5,181 @@ import { CodigoCadastroPlanilhaService, type MixConfig } from './codigo-cadastro
 
 const CONFIG: MixConfig = {
   GOOGLE_SHEETS_MIX_SPREADSHEET_ID: 'planilha-mix',
-  GOOGLE_SHEETS_MIX_TAB: 'MIX PRODUTOS LOJA E PRODUÇÃO ASSOCIAÇÃO',
+  GOOGLE_SHEETS_MIX_TAB: 'MIX',
   GOOGLE_SHEETS_MIX_LINHA_CABECALHO: 6,
   GOOGLE_SHEETS_MIX_LINHA_INICIAL: 11,
-  GOOGLE_SHEETS_MIX_LINHA_FINAL: 6000,
+  GOOGLE_SHEETS_MIX_LINHA_FINAL: 15,
 };
 
-/** Cabeçalho com as três colunas nas posições reais da planilha. */
+/** Cabeçalho com os títulos nas posições reais da aba, e o ruído que existe lá. */
+const COLUNAS: Record<string, number> = {
+  ATIVO: 5, 'DESCRIÇÃO COMPLETA': 7, IPPT: 23, DESCRIÇÃO: 12, 'COD INTERNO': 25,
+  'COD CESTA': 17, MIN: 43, MAX: 44, MERCADORIAS: 66, MARCAS: 67, EMB: 68,
+  QUANT: 69, 'UNID/KG': 70, SETOR: 71, 'COD BARRA 1': 73,
+};
+
 const cabecalho = () => {
-  const linha: string[] = new Array(80).fill('');
-  linha[12] = 'DESCRIÇÃO';
-  linha[25] = 'COD INTERNO';
-  linha[73] = 'COD BARRA 1';
-  // ruído que existe de verdade e não pode confundir a busca
-  linha[7] = 'DESCRIÇÃO COMPLETA';
-  linha[17] = 'COD CESTA';
-  linha[151 - 100] = 'COD INT';
+  const linha: string[] = new Array(240).fill('');
+  for (const [titulo, i] of Object.entries(COLUNAS)) linha[i] = titulo;
+  // os mesmos títulos reaparecem nos blocos de loja, mais à direita
+  linha[175] = 'MIN';
+  linha[176] = 'MAX';
+  linha[228] = 'MARCAS';
   return linha;
 };
 
 /**
- * Stub mínimo: guarda o que foi pedido e prova que nada foi escrito. A planilha
- * MIX é a régua da numeração — escrever nela seria apagar a própria régua.
+ * Stub que serve faixas de UMA coluna, como o serviço pede, e prova que nada
+ * foi escrito. A planilha MIX é a régua da numeração.
  */
 class GatewayEspiao implements SheetsGateway {
-  lidos: string[][] = [];
   escritas: ValueRange[] = [];
   estruturais: unknown[] = [];
   falha: Error | null = null;
+  pedidos: string[] = [];
 
-  constructor(private dados: Record<string, string[][]> = {}) {}
+  constructor(private colunas: Record<number, string[]> = {}, private cab = cabecalho()) {}
 
   async getSheets(): Promise<SheetMeta[]> {
-    return [{ sheetId: 1, title: CONFIG.GOOGLE_SHEETS_MIX_TAB, rowCount: 4451, columnCount: 248 }];
+    return [{ sheetId: 1, title: 'MIX', rowCount: 4451, columnCount: 248 }];
   }
 
   async batchGetValues(_id: string, ranges: string[]): Promise<string[][][]> {
     if (this.falha) throw this.falha;
-    this.lidos.push(ranges);
-    return ranges.map((r) => this.dados[r] ?? []);
+    this.pedidos.push(...ranges);
+    return ranges.map((r) => {
+      if (r.includes('!6:6')) return [this.cab];
+      const col = r.match(/!([A-Z]+)\d+:/)?.[1] ?? '';
+      let idx = 0;
+      for (const ch of col) idx = idx * 26 + (ch.charCodeAt(0) - 64);
+      return (this.colunas[idx - 1] ?? []).map((v) => [v]);
+    });
   }
 
-  async batchUpdateValues(_id: string, data: ValueRange[]): Promise<void> {
-    this.escritas.push(...data);
-  }
-
-  async batchUpdate(_id: string, requests: unknown[]): Promise<void> {
-    this.estruturais.push(...requests);
-  }
+  async batchUpdateValues(_id: string, data: ValueRange[]): Promise<void> { this.escritas.push(...data); }
+  async batchUpdate(_id: string, r: unknown[]): Promise<void> { this.estruturais.push(...r); }
 }
 
-/** A leitura do bloco começa em M (índice 12) e vai até BV (índice 73). */
-const linhaDeDados = (nome: string, codigo: string, barras: string): string[] => {
-  const bloco: string[] = new Array(62).fill('');
-  bloco[0] = nome;        // M
-  bloco[25 - 12] = codigo; // Z
-  bloco[73 - 12] = barras; // BV
-  return bloco;
+/** Monta as colunas a partir de linhas nomeadas por título. */
+const planilha = (linhas: Array<Record<string, string>>) => {
+  const colunas: Record<number, string[]> = {};
+  for (const [titulo, idx] of Object.entries(COLUNAS)) {
+    colunas[idx] = linhas.map((l) => l[titulo] ?? '');
+  }
+  return colunas;
 };
 
-const servico = (dados: Record<string, string[][]>) => {
-  const gateway = new GatewayEspiao(dados);
+const PRODUTO = {
+  'COD INTERNO': '13072', DESCRIÇÃO: 'KITKAT 41,5G BRANCO', 'COD BARRA 1': '7891000249239',
+  ATIVO: 'SIM', IPPT: 'T', MERCADORIAS: 'MER BOMBONIERI', MARCAS: 'NESTLE', EMB: 'CX',
+  QUANT: '30', 'UNID/KG': 'UNID', SETOR: 'LOJA', MIN: '5', MAX: '50',
+};
+
+const servico = (linhas: Array<Record<string, string>>) => {
+  const gateway = new GatewayEspiao(planilha(linhas));
   return { gateway, servico: new CodigoCadastroPlanilhaService(gateway) };
 };
 
-const RANGE_CABECALHO = `'MIX PRODUTOS LOJA E PRODUÇÃO ASSOCIAÇÃO'!A6:IV6`;
-const RANGE_DADOS = `'MIX PRODUTOS LOJA E PRODUÇÃO ASSOCIAÇÃO'!M11:BV6000`;
-
 describe('CodigoCadastroPlanilhaService', () => {
   it('não lê nada quando a planilha não foi configurada', async () => {
-    const { gateway, servico: s } = servico({});
+    const { gateway, servico: s } = servico([]);
     const r = await s.ler({ ...CONFIG, GOOGLE_SHEETS_MIX_SPREADSHEET_ID: '' });
     expect(r.estado).toBe('sem-destino');
-    expect(r.linhas).toEqual([]);
-    expect(gateway.lidos).toEqual([]);
+    expect(gateway.pedidos).toEqual([]);
   });
 
-  it('avisa quando o cabeçalho não tem a coluna do código', async () => {
+  it('avisa quando falta uma coluna obrigatória', async () => {
     const semCodigo = cabecalho();
     semCodigo[25] = 'OUTRA COISA';
-    const { servico: s } = servico({ [RANGE_CABECALHO]: [semCodigo] });
+    const s = new CodigoCadastroPlanilhaService(new GatewayEspiao({}, semCodigo));
     const r = await s.ler(CONFIG);
     expect(r.estado).toBe('sem-coluna');
     expect(r.faltando).toContain('COD INTERNO');
   });
 
-  it('lê as linhas e devolve o teto da numeração', async () => {
-    const { servico: s } = servico({
-      [RANGE_CABECALHO]: [cabecalho()],
-      [RANGE_DADOS]: [
-        linhaDeDados('KITKAT 41,5G BRANCO', '13072', '7891000249239'),
-        linhaDeDados('IOGURTE ACTIVIA MORANGO 150G', '13085', '7891025102656'),
-      ],
-    });
+  it('lê a linha inteira, com todos os campos do cadastro', async () => {
+    const { servico: s } = servico([PRODUTO]);
     const r = await s.ler(CONFIG);
     expect(r.estado).toBe('ok');
-    expect(r.teto).toBe(13085);
-    expect(r.linhas).toEqual([
-      { linha: 11, codigo: '13072', codigoBarras: '7891000249239', nome: 'KITKAT 41,5G BRANCO' },
-      { linha: 12, codigo: '13085', codigoBarras: '7891025102656', nome: 'IOGURTE ACTIVIA MORANGO 150G' },
-    ]);
-  });
-
-  it('descarta linha sem código de cadastro e conta a linha certa', async () => {
-    const { servico: s } = servico({
-      [RANGE_CABECALHO]: [cabecalho()],
-      [RANGE_DADOS]: [
-        linhaDeDados('LEGENDA QUALQUER', '', ''),
-        linhaDeDados('KITKAT 41,5G BRANCO', '13072', '7891000249239'),
-      ],
-    });
-    const r = await s.ler(CONFIG);
     expect(r.linhas).toHaveLength(1);
-    expect(r.linhas[0]!.linha).toBe(12);
-    expect(r.descartadas).toBe(1);
+    expect(r.linhas[0]).toMatchObject({
+      linha: 11, codigo: '13072', nome: 'KITKAT 41,5G BRANCO', codigoBarras: '7891000249239',
+      ativo: 'SIM', ippt: 'T', grupo: 'MER BOMBONIERI', marca: 'NESTLE', embalagem: 'CX',
+      quantidadeEmbalagem: '30', unidade: 'UNID', setor: 'LOJA', estoqueMin: '5', estoqueMax: '50',
+    });
   });
 
   /*
-   * Um código de barras digitado na coluna do código viraria o teto da
-   * numeração, e a próxima cunhagem sairia na casa dos trilhões — número que o
-   * layout do Creare nem aceita.
+   * MIN, MAX e MARCAS aparecem de novo nos blocos de loja. Pegar a ocorrência
+   * errada traria o estoque de uma loja como se fosse o do cadastro.
    */
+  it('usa a primeira ocorrência do título, não a dos blocos de loja', async () => {
+    const { gateway, servico: s } = servico([PRODUTO]);
+    await s.ler(CONFIG);
+    const colunasPedidas = gateway.pedidos.filter((p) => !p.includes('!6:6'));
+    expect(colunasPedidas.some((p) => p.includes('!AR11'))).toBe(true); // MIN = índice 43
+    expect(colunasPedidas.some((p) => p.includes('!FT11'))).toBe(false); // MIN do bloco = 175
+  });
+
+  it('pede uma faixa estreita por coluna, não o retângulo inteiro', async () => {
+    const { gateway, servico: s } = servico([PRODUTO]);
+    await s.ler(CONFIG);
+    const colunas = gateway.pedidos.filter((p) => !p.includes('!6:6'));
+    expect(colunas).toHaveLength(13);
+    for (const faixa of colunas) expect(faixa).toMatch(/!([A-Z]+)11:\1\d+$/);
+  });
+
   it('descarta código fora da faixa do PDV e não deixa ele virar teto', async () => {
-    const { servico: s } = servico({
-      [RANGE_CABECALHO]: [cabecalho()],
-      [RANGE_DADOS]: [
-        linhaDeDados('KITKAT 41,5G BRANCO', '13072', '7891000249239'),
-        linhaDeDados('LINHA COM BARRAS NO LUGAR DO CODIGO', '7891000249239', ''),
-        linhaDeDados('LINHA COM ZERO', '0', ''),
-      ],
-    });
+    const { servico: s } = servico([
+      PRODUTO,
+      { ...PRODUTO, 'COD INTERNO': '7891000249239', DESCRIÇÃO: 'BARRAS NO LUGAR DO CODIGO' },
+      { ...PRODUTO, 'COD INTERNO': '0' },
+      { ...PRODUTO, 'COD INTERNO': '' },
+    ]);
     const r = await s.ler(CONFIG);
     expect(r.teto).toBe(13072);
     expect(r.linhas).toHaveLength(1);
-    expect(r.descartadas).toBe(2);
+    expect(r.descartadas).toBe(3);
+  });
+
+  it('conta a linha certa da planilha mesmo pulando linhas', async () => {
+    const { servico: s } = servico([
+      { ...PRODUTO, 'COD INTERNO': '' },
+      { ...PRODUTO, 'COD INTERNO': '13072' },
+    ]);
+    const r = await s.ler(CONFIG);
+    expect(r.linhas[0]!.linha).toBe(12);
+  });
+
+  /*
+   * Janela cheia significa que pode haver produto além dela — e teto defasado
+   * faz a cunhagem colidir com código que já existe na cauda não lida.
+   */
+  it('avisa quando a leitura encheu a janela configurada', async () => {
+    const cinco = Array.from({ length: 5 }, (_, i) => ({ ...PRODUTO, 'COD INTERNO': String(13000 + i) }));
+    const { servico: s } = servico(cinco);
+    expect((await s.ler(CONFIG)).truncada).toBe(true);
+  });
+
+  it('não marca truncada quando sobrou espaço na janela', async () => {
+    const { servico: s } = servico([PRODUTO]);
+    expect((await s.ler(CONFIG)).truncada).toBe(false);
+  });
+
+  it('deixa o custo vazio: a aba tem um por loja e o cadastro é da rede', async () => {
+    const { servico: s } = servico([PRODUTO]);
+    expect((await s.ler(CONFIG)).linhas[0]!.custo).toBe('');
   });
 
   it('NUNCA escreve na planilha MIX', async () => {
-    const { gateway, servico: s } = servico({
-      [RANGE_CABECALHO]: [cabecalho()],
-      [RANGE_DADOS]: [linhaDeDados('KITKAT 41,5G BRANCO', '13072', '7891000249239')],
-    });
+    const { gateway, servico: s } = servico([PRODUTO]);
     await s.ler(CONFIG);
     expect(gateway.escritas).toEqual([]);
     expect(gateway.estruturais).toEqual([]);
   });
 
   it('não derruba a chamada quando o Google recusa', async () => {
-    const { gateway, servico: s } = servico({});
+    const { gateway, servico: s } = servico([]);
     gateway.falha = new Error('403');
     const r = await s.ler(CONFIG);
     expect(r.estado).toBe('falhou');

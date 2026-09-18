@@ -47,7 +47,7 @@ const soDigitos = (v: unknown) => String(v ?? '').replace(/\D/g, '').replace(/^0
  * mesmo número — e a guarda por `codigo_anterior` não vê nada de errado,
  * porque ela protege a LINHA, não o número.
  */
-const TRAVA_CUNHAGEM = sql`pg_advisory_xact_lock(hashtext('pralis:codigo_cadastro'))`;
+const TRAVA_CUNHAGEM = sql`SELECT pg_advisory_xact_lock(hashtext('pralis:codigo_cadastro'))`;
 
 @injectable()
 export class CodigoCadastroRepository implements CodigoCadastroRepo {

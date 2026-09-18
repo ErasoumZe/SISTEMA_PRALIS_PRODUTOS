@@ -6,6 +6,7 @@ import { ProductController } from './product.controller';
 import { ProductExportController } from './product-export.controller';
 import { ProductZerarController } from './product-zerar.controller';
 import { CodigoCadastroController } from './codigo-cadastro.controller';
+import { ImportarMixController } from './importar-mix.controller';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { apiResponseSchema } from '@/config/api.replies';
 import { authMiddleware } from '@/middlewares/auth-handler';
@@ -15,6 +16,7 @@ export async function productRoutes(app: FastifyInstance) {
   const exportController = container.resolve(ProductExportController);
   const zerarController = container.resolve(ProductZerarController);
   const codigoCadastroController = container.resolve(CodigoCadastroController);
+  const importarMixController = container.resolve(ImportarMixController);
   const a = app.withTypeProvider<ZodTypeProvider>();
 
   // todas as rotas exigem autenticação
@@ -220,5 +222,70 @@ export async function productRoutes(app: FastifyInstance) {
       },
     },
     codigoCadastroController.decidir.bind(codigoCadastroController),
+  );
+
+  /*
+   * ---- Importar da planilha MIX para a Base ----
+   *
+   * Cria cadastro novo para o que existe na planilha e não no sistema. A regra
+   * que manda: campo que a planilha não traz entra VAZIO, e linha sem o mínimo
+   * para ser produto não entra — cada recusa vem com o motivo na prévia.
+   * O fiscal NÃO vem daqui: quem preenche é o backfill, pela fonte aprovada.
+   */
+  const motivoPulo = z.enum([
+    'codigo-invalido', 'codigo-repetido-na-planilha', 'sem-nome',
+    'unidade-desconhecida', 'tipo-desconhecido', 'ja-existe-por-codigo', 'ja-existe-por-barras',
+  ]);
+
+  a.get(
+    '/admin/produtos/importar-mix/previa',
+    {
+      schema: {
+        response: {
+          200: apiResponseSchema(z.object({
+            estado: z.enum(['ok', 'sem-destino', 'sem-coluna', 'falhou']),
+            truncada: z.boolean(),
+            faltando: z.array(z.string()),
+            erro: z.string().optional(),
+            linhasLidas: z.number(),
+            linhasDescartadas: z.number(),
+            importar: z.number(),
+            pular: z.record(motivoPulo, z.number()),
+            amostra: z.array(z.object({
+              linha: z.number(),
+              codigo: z.string(),
+              nome: z.string(),
+              acao: z.enum(['importar', 'pular']),
+              motivo: motivoPulo.optional(),
+              produto: z.looseObject({}).optional(),
+            })),
+            confirmacao: z.string(),
+            loteMaximo: z.number(),
+          })),
+        },
+        summary: 'Prévia da importação de produtos da planilha MIX (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    importarMixController.previa.bind(importarMixController),
+  );
+
+  a.post(
+    '/admin/produtos/importar-mix',
+    {
+      schema: {
+        body: z.object({ confirmacao: z.string() }),
+        response: {
+          200: apiResponseSchema(z.object({
+            criados: z.number(),
+            restantes: z.number(),
+            falhas: z.array(z.object({ linha: z.number(), codigo: z.string(), erro: z.string() })),
+          })),
+        },
+        summary: 'Criar na Base os produtos que só existem na planilha MIX (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    importarMixController.importar.bind(importarMixController),
   );
 }

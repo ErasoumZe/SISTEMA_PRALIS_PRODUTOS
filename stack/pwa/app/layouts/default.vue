@@ -69,6 +69,7 @@ const titulo = computed(() => {
     '/produtos/reconciliacao': 'Conferir planilha',
     '/produtos/manutencao': 'Manutenção do catálogo',
     '/produtos/codigo-cadastro': 'Código de cadastro',
+    '/produtos/importar-mix': 'Importar da planilha',
     '/usuarios': 'Usuários',
     '/importar': 'Importar da base',
     '/produtos/novo': 'Novo produto',
@@ -82,7 +83,8 @@ const subtitulo = computed(() => {
     '/usuarios': 'Gerencie os usuários do sistema',
     '/produtos/reconciliacao': 'O que o banco e a planilha discordam',
     '/produtos/manutencao': 'Ações que não têm volta',
-    '/produtos/codigo-cadastro': 'A numeração vem da planilha MIX',
+    '/produtos/codigo-cadastro': 'A numeração vem do PDV',
+    '/produtos/importar-mix': 'O que existe na planilha e não no sistema',
     '/produtos/historico-nomes': 'Alterações de nome em tempo real',
   };
   return map[route.path] ?? '';
