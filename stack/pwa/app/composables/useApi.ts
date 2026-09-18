@@ -52,6 +52,35 @@ export interface PreviaCodigoCadastro {
   loteMaximo: number;
 }
 
+/** Por que uma linha da planilha não virou cadastro. */
+export type MotivoPuloMix =
+  | 'codigo-invalido' | 'codigo-repetido-na-planilha' | 'sem-nome'
+  | 'unidade-desconhecida' | 'tipo-desconhecido' | 'ja-existe-por-codigo' | 'ja-existe-por-barras';
+
+export interface DecisaoImportacaoMix {
+  linha: number;
+  codigo: string;
+  nome: string;
+  acao: 'importar' | 'pular';
+  motivo?: MotivoPuloMix;
+  produto?: Record<string, unknown>;
+}
+
+export interface PreviaImportacaoMix {
+  estado: 'ok' | 'sem-destino' | 'sem-coluna' | 'falhou';
+  /** A leitura encheu a janela: pode haver produto além dela. */
+  truncada: boolean;
+  faltando: string[];
+  erro?: string;
+  linhasLidas: number;
+  linhasDescartadas: number;
+  importar: number;
+  pular: Record<MotivoPuloMix, number>;
+  amostra: DecisaoImportacaoMix[];
+  confirmacao: string;
+  loteMaximo: number;
+}
+
 /** Uma linha de fonte dentro do grupo, como veio do staging. */
 export interface ItemUnificacao {
   fonte: string; loja: string; codInterno: string | null; codBarras: string | null;
@@ -406,6 +435,18 @@ export function useApi() {
       unwrap($fetch<{ data: { codigo: string; fonte: string } }>(
         '/admin/produtos/codigo-cadastro/decidir',
         { ...base, method: 'POST', body },
+      )),
+
+    // ---- importar da planilha MIX para a Base ----
+    /** Prévia da importação. NÃO cria nada. */
+    importarMixPrevia: () =>
+      unwrap($fetch<{ data: PreviaImportacaoMix }>('/admin/produtos/importar-mix/previa', { ...base })),
+
+    /** Cria os produtos, em lote. Repetir continua de onde parou. */
+    importarMix: (confirmacao: string) =>
+      unwrap($fetch<{ data: { criados: number; restantes: number; falhas: Array<{ linha: number; codigo: string; erro: string }> } }>(
+        '/admin/produtos/importar-mix',
+        { ...base, method: 'POST', body: { confirmacao } },
       )),
 
     // ---- estado fiscal ----
