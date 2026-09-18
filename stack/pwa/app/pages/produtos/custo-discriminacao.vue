@@ -171,11 +171,21 @@ async function aplicar() {
                 <span class="text-medium-emphasis">{{ reais(p.custoAtual) }}</span>
                 <v-icon size="small" icon="arrow_forward" />
                 <strong>{{ reais(p.custoNovo) }}</strong>
+                <v-chip v-if="p.qtCad > 1" size="x-small" variant="tonal">
+                  {{ reais(p.custoUnitario) }} × {{ p.qtCad }}
+                </v-chip>
               </v-list-item-title>
               <v-list-item-subtitle>{{ p.fonte }}</v-list-item-subtitle>
             </v-list-item>
           </v-list>
         </v-card>
+
+        <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+          O campo <strong>Custo</strong> do cadastro é o da <strong>embalagem</strong> — o
+          sistema divide por <code>qtCad</code> para achar o unitário. A nota da
+          discriminação traz o <strong>unitário</strong>, então ele é multiplicado pela
+          embalagem antes de gravar. A amostra abaixo mostra a conta.
+        </v-alert>
 
         <v-alert type="info" variant="tonal" density="compact" class="mb-4">
           Isto grava <strong>custo</strong>, não preço. Quem transforma custo em preço de

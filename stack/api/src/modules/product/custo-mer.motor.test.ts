@@ -9,7 +9,7 @@ const compra = (over: Partial<LancamentoMer> = {}): LancamentoMer => ({
 });
 
 const produto = (over: Partial<ProdutoParaCustear> = {}): ProdutoParaCustear => ({
-  id: 'p1', nome: 'COCA COLA 600ML', custo: null, ...over,
+  id: 'p1', nome: 'COCA COLA 600ML', custo: null, qtCad: 1, ...over,
 });
 
 const uma = (produtos: ProdutoParaCustear[], lancamentos: LancamentoMer[]) => {
@@ -74,6 +74,57 @@ describe('planejarCusto', () => {
       compra({ linha: 99, custoUnitario: '3,90', dataRef: '01/12/25' }),
     ]);
     expect(p.custoNovo).toBe(4.31);
+  });
+
+  /*
+   * A correção do defeito que errou 540 produtos na primeira carga.
+   *
+   * O campo `custo` do cadastro é o da EMBALAGEM: `product.rules.ts` calcula o
+   * preço com `custo / qtCad`, e os cadastros feitos à mão confirmam
+   * (BUDWEISER custo 124 / qtCad 24 = R$ 5,17 a garrafa). A nota traz o valor
+   * UNITÁRIO — gravar ele direto fazia o sistema dividir de novo.
+   */
+  it('multiplica o unitário pela embalagem, porque `custo` é da caixa', () => {
+    const p = uma([produto({ qtCad: 24 })], [compra({ custoUnitario: '5,17' })]);
+    expect(p.custoNovo).toBe(124.08);
+    expect(p.custoUnitario).toBe(5.17);
+    expect(p.qtCad).toBe(24);
+  });
+
+  it('o preço de volta bate com o unitário da nota', () => {
+    const p = uma([produto({ qtCad: 24 })], [compra({ custoUnitario: '4,31' })]);
+    // é exatamente o que `product.rules.ts` faz: custo / qtCad
+    expect(p.custoNovo! / p.qtCad).toBeCloseTo(4.31, 2);
+  });
+
+  it('a fonte mostra a conta, para conferir sem abrir a planilha', () => {
+    const p = uma([produto({ qtCad: 12 })], [compra({ custoUnitario: '2,50' })]);
+    expect(p.custoNovo).toBe(30);
+    expect(p.fonte).toMatch(/2\.50 × 12 da embalagem/);
+  });
+
+  it('embalagem de 1 não multiplica nada, e a fonte não fala de embalagem', () => {
+    const p = uma([produto({ qtCad: 1 })], [compra({ custoUnitario: '4,31' })]);
+    expect(p.custoNovo).toBe(4.31);
+    expect(p.fonte).not.toMatch(/embalagem/);
+  });
+
+  it('embalagem ausente ou inválida vale 1, não zera o custo', () => {
+    expect(uma([produto({ qtCad: null })], [compra()]).custoNovo).toBe(4.31);
+    expect(uma([produto({ qtCad: 0 })], [compra()]).custoNovo).toBe(4.31);
+    expect(uma([produto({ qtCad: 'seis' })], [compra()]).custoNovo).toBe(4.31);
+  });
+
+  it('arredonda o custo da caixa em centavos', () => {
+    const p = uma([produto({ qtCad: 3 })], [compra({ custoUnitario: '1,115' })]);
+    expect(p.custoNovo).toBe(3.35);
+  });
+
+  /* Re-rodar depois da correção tem que propor o valor certo em cima do errado. */
+  it('propõe a correção quando o custo gravado é o unitário sem multiplicar', () => {
+    const p = uma([produto({ qtCad: 24, custo: '4,31' })], [compra({ custoUnitario: '4,31' })]);
+    expect(p.custoAtual).toBe(4.31);
+    expect(p.custoNovo).toBe(103.44);
   });
 
   it('casa nome ignorando acento, caixa e espaço a mais', () => {

@@ -31,6 +31,13 @@ export interface ProdutoParaCustear {
   nome: string;
   /** O custo que já está no cadastro, para não regravar o mesmo valor. */
   custo: string | null;
+  /**
+   * Quantos itens vêm na embalagem de compra.
+   *
+   * É o que converte o custo unitário da nota no campo `custo` do cadastro —
+   * ver o comentário de `planejarCusto`. Ausente ou inválido vale 1.
+   */
+  qtCad: number | string | null;
 }
 
 export type MotivoSemCusto = 'sem-lancamento' | 'nome-ambiguo-no-cadastro' | 'custo-ilegivel' | 'ja-esta-certo';
@@ -40,6 +47,10 @@ export interface PropostaCusto {
   nome: string;
   custoAtual: number | null;
   custoNovo: number | null;
+  /** O valor unitário como está na nota, antes de virar custo de embalagem. */
+  custoUnitario: number | null;
+  /** Por quanto o unitário foi multiplicado (a embalagem do cadastro). */
+  qtCad: number;
   /** De qual compra veio: a data e a linha da planilha. */
   fonte: string | null;
   motivo?: MotivoSemCusto;
@@ -138,22 +149,44 @@ export const planejarCusto = (
   for (const p of produtos) {
     const nome = normalizarNome(p.nome);
     const custoAtual = dinheiro(p.custo);
-    const recusar = (motivo: MotivoSemCusto) => {
+    const qtCadBruto = Number(String(p.qtCad ?? '').replace(',', '.'));
+    const qtCad = Number.isFinite(qtCadBruto) && qtCadBruto >= 1 ? qtCadBruto : 1;
+
+    const recusar = (motivo: MotivoSemCusto, custoUnitario: number | null = null) => {
       semCusto[motivo] += 1;
-      propostas.push({ productId: p.id, nome: p.nome, custoAtual, custoNovo: null, fonte: null, motivo });
+      propostas.push({
+        productId: p.id, nome: p.nome, custoAtual, custoNovo: null, custoUnitario, qtCad, fonte: null, motivo,
+      });
     };
 
     if ((quantosComEsseNome.get(nome) ?? 0) > 1) { recusar('nome-ambiguo-no-cadastro'); continue; }
     const compra = maisRecente.get(nome);
     if (!compra) { recusar('sem-lancamento'); continue; }
-    if (custoAtual !== null && Math.abs(custoAtual - compra.custo) < 0.005) { recusar('ja-esta-certo'); continue; }
+
+    /*
+     * A conversão que faltava, e que errou 540 produtos na primeira carga.
+     *
+     * O campo `custo` do cadastro é o custo da EMBALAGEM: `product.rules.ts`
+     * calcula o preço com `custo / qtCad`, e os cadastros feitos à mão
+     * confirmam (BUDWEISER custo 124 / qtCad 24 = R$ 5,17 a garrafa). A nota da
+     * discriminação traz o valor UNITÁRIO. Gravar o unitário direto fazia o
+     * sistema dividir de novo, e o preço saía qtCad vezes menor.
+     */
+    const custoNovo = Math.round(compra.custo * qtCad * 100) / 100;
+    if (custoAtual !== null && Math.abs(custoAtual - custoNovo) < 0.005) {
+      recusar('ja-esta-certo', compra.custo);
+      continue;
+    }
 
     propostas.push({
       productId: p.id,
       nome: p.nome,
       custoAtual,
-      custoNovo: compra.custo,
-      fonte: `Discriminação (MER), linha ${compra.linha}${compra.dataTexto ? `, compra de ${compra.dataTexto}` : ''}`,
+      custoNovo,
+      custoUnitario: compra.custo,
+      qtCad,
+      fonte: `Discriminação (MER), linha ${compra.linha}${compra.dataTexto ? `, compra de ${compra.dataTexto}` : ''}`
+        + (qtCad > 1 ? ` — ${compra.custo.toFixed(2)} × ${qtCad} da embalagem` : ''),
     });
   }
 
