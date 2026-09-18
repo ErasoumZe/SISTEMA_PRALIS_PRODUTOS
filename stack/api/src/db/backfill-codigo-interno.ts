@@ -1,5 +1,5 @@
 /**
- * Atribui o código interno sequencial (00001, 00002...) aos produtos da BASE que ainda
+ * Atribui código interno sequencial aos produtos da BASE que ainda
  * não têm, propaga o mesmo código para as cópias importadas nas lojas e dá um código
  * próprio aos produtos órfãos (criados direto na loja no modelo antigo, sem base).
  * Idempotente: só preenche o que falta. Roda no start:prod (e pode rodar manualmente).
@@ -10,6 +10,7 @@ import 'reflect-metadata';
 import 'dotenv/config';
 import { sql } from 'drizzle-orm';
 import { db as defaultDb } from '@/db/databases';
+import { ULTIMO_CODIGO_LEGADO_CREARE } from '@/modules/product/codigo-interno';
 
 type Database = typeof defaultDb;
 
@@ -18,11 +19,14 @@ type Database = typeof defaultDb;
  * descartável (Testcontainers). Retorna quantos foram numerados em cada etapa.
  */
 export async function backfillCodigoInterno(db: Database = defaultDb): Promise<{ base: number; orfaos: number }> {
-  // continua a numeração a partir do maior já atribuído (qualquer produto)
+  // Continua do maior já atribuído, sem invadir a faixa legada do Criare (até 01325).
   const maxRes = await db.execute(
     sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max FROM products WHERE codigo_interno ~ '^[0-9]+$'`,
   );
-  let n = Number((maxRes.rows?.[0] as { max?: number | string } | undefined)?.max ?? 0);
+  let n = Math.max(
+    Number((maxRes.rows?.[0] as { max?: number | string } | undefined)?.max ?? 0),
+    ULTIMO_CODIGO_LEGADO_CREARE,
+  );
 
   // 1) BASE sem código, em ordem de criação (mais antigo primeiro)
   const baseSem = await db.execute(
