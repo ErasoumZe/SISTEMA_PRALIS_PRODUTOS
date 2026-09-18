@@ -67,6 +67,33 @@ describe('previa', () => {
     expect(await linhasDe('LI')).toHaveLength(1);
   });
 
+  /*
+   * A exportação traz, no fim, o mesmo produto cadastrado de novo para a
+   * entrega. Somar os dois blocos fazia a faixa sair "10000–719000" — número
+   * que parece erro de leitura e assusta quem vai gravar.
+   */
+  it('separa as linhas de delivery da faixa do catálogo', async () => {
+    const r = await servico.previa('LI', csv([
+      ['10000', '7891000249239', 'ABACAXI UNID'],
+      ['13439', '7891000249246', 'IOGURTE ACTIVIA'],
+      ['710000', '7891000249253', 'ABACAXI UNID DELIVERY'],
+      ['719000', '7891000249260', 'IOGURTE ACTIVIA DELIVERY'],
+    ]), 'a.csv');
+
+    expect(r.faixa).toEqual({ min: 10000, max: 13439 });
+    expect(r.delivery).toBe(2);
+    // o de-para continua guardando tudo: delivery também é produto no PDV
+    expect(r.linhas).toBe(4);
+  });
+
+  it('não confunde produto cujo nome só contém a palavra no meio', async () => {
+    const r = await servico.previa('LI', csv([
+      ['10000', '7891000249239', 'CAIXA DELIVERY TERMICA 40L'],
+    ]), 'a.csv');
+    expect(r.delivery).toBe(0);
+    expect(r.faixa).toEqual({ min: 10000, max: 10000 });
+  });
+
   it('mostra a ambiguidade em vez de escondê-la', async () => {
     const r = await servico.previa('LI', csv([
       ['10000', '7891000249239', 'UM'],

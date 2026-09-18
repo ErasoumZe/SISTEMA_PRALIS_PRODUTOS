@@ -137,7 +137,9 @@ async function gravar() {
               <div class="text-body-1 font-weight-medium">
                 {{ resumo.faixa ? `${resumo.faixa.min}–${resumo.faixa.max}` : '—' }}
               </div>
-              <div class="text-caption">Faixa de código no arquivo</div>
+              <div class="text-caption">
+                Faixa do catálogo<span v-if="resumo.delivery"> · +{{ resumo.delivery.toLocaleString("pt-BR") }} de delivery</span>
+              </div>
             </v-card>
           </v-col>
         </v-row>

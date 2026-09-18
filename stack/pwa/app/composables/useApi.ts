@@ -64,6 +64,8 @@ export interface ResumoDePara {
   coditensRepetidos: string[];
   /** Menor e maior coditem do arquivo: confere a loja num relance. */
   faixa: { min: number; max: number } | null;
+  /** Linhas de delivery — o mesmo produto cadastrado para a entrega. */
+  delivery: number;
   confirmacao: string;
 }
 

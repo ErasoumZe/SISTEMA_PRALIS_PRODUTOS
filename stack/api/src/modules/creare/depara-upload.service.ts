@@ -32,10 +32,27 @@ export interface ResumoDePara {
   atuais: number;
   barrasAmbiguas: Array<{ chave: string; coditens: string[] }>;
   coditensRepetidos: string[];
-  /** Menor e maior `coditem` do arquivo: confere se é a loja certa num relance. */
+  /**
+   * Menor e maior `coditem` do **catálogo**, já sem as linhas de delivery.
+   *
+   * Antes esta faixa somava os dois blocos e saía "10000–719000", que parece um
+   * erro grosseiro de leitura quando na verdade é o cadastro de entrega no fim
+   * do arquivo. Separar os dois é a diferença entre um número que assusta e um
+   * número que informa.
+   */
   faixa: { min: number; max: number } | null;
+  /**
+   * Linhas de delivery: o mesmo produto cadastrado de novo para a entrega.
+   *
+   * Reconhecidas pelo nome terminado em DELIVERY — que é o que dá para observar
+   * no arquivo. Na exportação da Lisboa o código também é `700000 + o normal`,
+   * mas isso é padrão de uma loja, não regra do SIA, então o nome é que manda.
+   */
+  delivery: number;
   confirmacao: string;
 }
+
+const EH_DELIVERY = /\bDELIVERY\s*$/i;
 
 @injectable()
 export class DeParaUploadService {
@@ -67,7 +84,8 @@ export class DeParaUploadService {
   /** Confere sem gravar. É o equivalente ao script sem `--apply`. */
   async previa(loja: CreareStore, conteudo: Buffer, nome: string): Promise<ResumoDePara> {
     const r = this.ler(conteudo, nome);
-    const numeros = r.linhas.map((l) => Number(l.coditem)).filter(Number.isFinite);
+    const catalogo = r.linhas.filter((l) => !EH_DELIVERY.test(l.descricao));
+    const numeros = catalogo.map((l) => Number(l.coditem)).filter(Number.isFinite);
     return {
       loja,
       arquivo: nome,
@@ -77,6 +95,7 @@ export class DeParaUploadService {
       barrasAmbiguas: r.barrasAmbiguas.slice(0, 20),
       coditensRepetidos: r.coditensRepetidos.slice(0, 20),
       faixa: numeros.length ? { min: Math.min(...numeros), max: Math.max(...numeros) } : null,
+      delivery: r.linhas.length - catalogo.length,
       confirmacao: CONFIRMACAO_DEPARA,
     };
   }
