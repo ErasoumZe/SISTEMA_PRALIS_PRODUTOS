@@ -62,10 +62,10 @@ export interface ResumoDePara {
   atuais: number;
   barrasAmbiguas: Array<{ chave: string; coditens: string[] }>;
   coditensRepetidos: string[];
-  /** Menor e maior coditem do arquivo: confere a loja num relance. */
+  /** Menor e maior coditem do CATÁLOGO — a entrega não entra na conta. */
   faixa: { min: number; max: number } | null;
-  /** Linhas de delivery — o mesmo produto cadastrado para a entrega. */
-  delivery: number;
+  /** Linhas de entrega, que ficam de fora do de-para. */
+  entrega: number;
   confirmacao: string;
 }
 
@@ -510,13 +510,13 @@ export function useApi() {
       return unwrap($fetch<{ data: ResumoDePara }>('/admin/creare/depara/previa', { ...base, method: 'POST', body: fd }));
     },
 
-    /** Substitui o de-para da loja inteiro. */
+    /** Substitui o de-para da loja inteiro (só o catálogo; entrega fica de fora). */
     deParaAplicar: (loja: string, arquivo: File, confirmacao: string) => {
       const fd = new FormData();
       fd.append('loja', loja);
       fd.append('confirmacao', confirmacao);
       fd.append('file', arquivo);
-      return unwrap($fetch<{ data: { loja: string; gravadas: number; substituidas: number; semBarras: number } }>(
+      return unwrap($fetch<{ data: { loja: string; gravadas: number; substituidas: number; semBarras: number; entrega: number } }>(
         '/admin/creare/depara', { ...base, method: 'POST', body: fd },
       ));
     },

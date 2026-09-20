@@ -57,7 +57,8 @@ async function gravar() {
   try {
     const r = await api.deParaAplicar(loja.value, arquivo.value, confirmacao.value);
     flash.value = {
-      texto: `De-para de ${r.loja} substituído: ${r.gravadas} linha(s) no lugar de ${r.substituidas}.`,
+      texto: `De-para de ${r.loja} substituído: ${r.gravadas} linha(s) no lugar de ${r.substituidas}.`
+        + (r.entrega ? ` ${r.entrega} linha(s) de entrega ficaram de fora.` : ''),
       tipo: 'success',
     };
     resumo.value = null;
@@ -117,7 +118,9 @@ async function gravar() {
           <v-col cols="6" md="3">
             <v-card flat border rounded="lg" class="pa-4">
               <div class="text-h5">{{ resumo.linhas.toLocaleString('pt-BR') }}</div>
-              <div class="text-caption">Linhas com código de barras</div>
+              <div class="text-caption">
+                Do catálogo<span v-if="resumo.entrega"> · {{ resumo.entrega.toLocaleString("pt-BR") }} de entrega fora</span>
+              </div>
             </v-card>
           </v-col>
           <v-col cols="6" md="3">
@@ -138,7 +141,7 @@ async function gravar() {
                 {{ resumo.faixa ? `${resumo.faixa.min}–${resumo.faixa.max}` : '—' }}
               </div>
               <div class="text-caption">
-                Faixa do catálogo<span v-if="resumo.delivery"> · +{{ resumo.delivery.toLocaleString("pt-BR") }} de delivery</span>
+                Faixa do catálogo
               </div>
             </v-card>
           </v-col>

@@ -69,29 +69,74 @@ describe('previa', () => {
 
   /*
    * A exportação traz, no fim, o mesmo produto cadastrado de novo para a
-   * entrega. Somar os dois blocos fazia a faixa sair "10000–719000" — número
-   * que parece erro de leitura e assusta quem vai gravar.
+   * entrega, com código `700000 + o do catálogo`. Eles ficam de fora: o Pralis
+   * não administra esses cadastros, e mantê-los cria produto disputando código.
    */
-  it('separa as linhas de delivery da faixa do catálogo', async () => {
+  it('deixa a entrega de fora e mostra a faixa só do catálogo', async () => {
     const r = await servico.previa('LI', csv([
       ['10000', '7891000249239', 'ABACAXI UNID'],
-      ['13439', '7891000249246', 'IOGURTE ACTIVIA'],
+      ['13126', '7891000249246', 'IOGURTE ACTIVIA'],
       ['710000', '7891000249253', 'ABACAXI UNID DELIVERY'],
       ['719000', '7891000249260', 'IOGURTE ACTIVIA DELIVERY'],
     ]), 'a.csv');
 
-    expect(r.faixa).toEqual({ min: 10000, max: 13439 });
-    expect(r.delivery).toBe(2);
-    // o de-para continua guardando tudo: delivery também é produto no PDV
-    expect(r.linhas).toBe(4);
+    expect(r.faixa).toEqual({ min: 10000, max: 13126 });
+    expect(r.linhas).toBe(2);
+    expect(r.entrega).toBe(2);
   });
 
-  it('não confunde produto cujo nome só contém a palavra no meio', async () => {
+  /*
+   * Por que o corte é pelo CÓDIGO e não pelo nome: o SIA trunca a descrição em
+   * ~50 caracteres, e na exportação de 20/09 a palavra DELIVERY saiu cortada
+   * ou sumiu em 216 das 1.208 linhas de entrega.
+   */
+  it('reconhece a entrega mesmo com o nome truncado pelo SIA', async () => {
+    const r = await servico.previa('LI', csv([
+      ['10000', '7891000249239', 'ABACAXI UNID'],
+      ['710518', '7891000249253', 'IOGURTE ZERO LACTOSE FRUTAS VER ITAMBE 170G DELIVE'],
+      ['710519', '7891000249260', 'IOGURTE ZERO LACTOSE FRUTAS VERMELHAS ITAMBE 600G'],
+    ]), 'a.csv');
+
+    expect(r.entrega).toBe(2);
+    expect(r.linhas).toBe(1);
+  });
+
+  it('não tira do catálogo um produto cujo nome só cita entrega', async () => {
     const r = await servico.previa('LI', csv([
       ['10000', '7891000249239', 'CAIXA DELIVERY TERMICA 40L'],
     ]), 'a.csv');
-    expect(r.delivery).toBe(0);
-    expect(r.faixa).toEqual({ min: 10000, max: 10000 });
+    expect(r.entrega).toBe(0);
+    expect(r.linhas).toBe(1);
+  });
+
+  it('grava só o catálogo', async () => {
+    const r = await servico.aplicar('LI', csv([
+      ['10000', '7891000249239', 'ABACAXI UNID'],
+      ['710000', '7891000249253', 'ABACAXI UNID DELIVERY'],
+    ]), 'a.csv', FRASE);
+
+    expect(r).toMatchObject({ gravadas: 1, entrega: 1 });
+    expect((await linhasDe('LI')).map((l) => l.coditem)).toEqual(['10000']);
+  });
+
+  /*
+   * Colisão ENTRE linhas de entrega não pode travar a gravação de um bloco que
+   * nem vai ser gravado.
+   */
+  it('não recusa por ambiguidade que só existe entre linhas de entrega', async () => {
+    const r = await servico.aplicar('LI', csv([
+      ['10000', '7891000249239', 'ABACAXI UNID'],
+      ['710001', '7899999999999', 'UM DELIVERY'],
+      ['710002', '7899999999999', 'OUTRO DELIVERY'],
+    ]), 'a.csv', FRASE);
+
+    expect(r.gravadas).toBe(1);
+  });
+
+  it('recusa quando o arquivo só tem entrega, dizendo o que falta', async () => {
+    await expect(servico.aplicar('LI', csv([
+      ['710000', '7891000249253', 'ABACAXI UNID DELIVERY'],
+    ]), 'a.csv', FRASE)).rejects.toThrow(/só tem linhas de entrega/i);
   });
 
   it('mostra a ambiguidade em vez de escondê-la', async () => {
