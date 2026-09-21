@@ -24,6 +24,7 @@ const confirmacao = ref('');
 const MOTIVO: Record<MotivoPuloMix, string> = {
   'ja-existe-por-codigo': 'Já cadastrado (mesmo código)',
   'ja-existe-por-barras': 'Já cadastrado (mesmo código de barras)',
+  'barras-repetida-na-planilha': 'Duas linhas da planilha com o mesmo código de barras',
   'sem-nome': 'A linha não tem descrição',
   'unidade-desconhecida': 'Unidade que o cadastro não conhece',
   'tipo-desconhecido': 'Sem IPPT: não dá para saber se é revenda ou produção',

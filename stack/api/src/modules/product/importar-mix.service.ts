@@ -75,6 +75,7 @@ export class ImportarMixService {
     const vazio = {
       'codigo-invalido': 0, 'codigo-repetido-na-planilha': 0, 'sem-nome': 0,
       'unidade-desconhecida': 0, 'tipo-desconhecido': 0, 'ja-existe-por-codigo': 0, 'ja-existe-por-barras': 0,
+      'barras-repetida-na-planilha': 0,
     };
     return {
       estado: leitura.estado,

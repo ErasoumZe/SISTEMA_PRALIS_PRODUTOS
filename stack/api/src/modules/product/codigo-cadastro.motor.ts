@@ -109,7 +109,11 @@ const chavesDeBarras = (codigoBarras: string | null | undefined): Map<string, bo
   return chaves;
 };
 
-const decidir = (produto: ProdutoParaReconciliar, porChave: Map<string, ParSia[]>): PropostaCodigo => {
+const decidir = (
+  produto: ProdutoParaReconciliar,
+  porChave: Map<string, ParSia[]>,
+  porCoditem: Map<string, ParSia[]>,
+): PropostaCodigo => {
   const vistos = new Set<string>();
   const fortes: ParSia[] = [];
   const fracos: ParSia[] = [];
@@ -123,13 +127,34 @@ const decidir = (produto: ProdutoParaReconciliar, porChave: Map<string, ParSia[]
   }
 
   if (fortes.length === 0) {
+    /*
+     * Sem casamento por barras, mas o código que o produto JÁ TEM é um
+     * `coditem` de verdade no SIA. Então ele está alinhado — e não pode cair em
+     * "sem par", onde a tela ofereceria cunhar um número novo POR CIMA do
+     * código certo.
+     *
+     * Isto não é caso raro: 2.139 das 2.968 linhas do de-para não têm código de
+     * barras (o SIA guarda o próprio código nesse campo), e os produtos que
+     * vieram delas entram no Pralis sem barras nenhuma. É só pelo código que
+     * dá para reconhecê-los.
+     */
+    const peloCodigo = porCoditem.get(digitos(produto.codigoInterno));
+    if (peloCodigo?.length) {
+      return {
+        produto,
+        balde: 'ja-correto',
+        codigoProposto: null,
+        candidatos: peloCodigo,
+        motivo: `O código ${formatarCodigoCadastro(produto.codigoInterno)} já é o do produto no SIA.`,
+      };
+    }
     return fracos.length === 0
       ? {
         produto,
         balde: 'novo',
         codigoProposto: null,
         candidatos: [],
-        motivo: 'Nenhum produto do SIA tem este código de barras.',
+        motivo: 'Nenhum produto do SIA tem este código de barras, e o código atual não existe no PDV.',
       }
       : {
         produto,
@@ -188,14 +213,17 @@ export const reconciliarCodigoCadastro = (
   pares: ParSia[],
 ): PropostaCodigo[] => {
   const porChave = new Map<string, ParSia[]>();
+  const porCoditem = new Map<string, ParSia[]>();
   for (const par of pares) {
     if (!codigoCadastroValido(par.coditem)) continue;
+    const cod = digitos(par.coditem);
+    porCoditem.set(cod, [...(porCoditem.get(cod) ?? []), par]);
     const chave = digitos(par.chaveBarras);
     if (!chave) continue;
     porChave.set(chave, [...(porChave.get(chave) ?? []), par]);
   }
 
-  const propostas = produtos.map((produto) => decidir(produto, porChave));
+  const propostas = produtos.map((produto) => decidir(produto, porChave, porCoditem));
 
   const quantosQuerem = new Map<string, number>();
   for (const p of propostas) {
