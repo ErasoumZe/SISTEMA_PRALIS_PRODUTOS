@@ -18,7 +18,18 @@ export type ProdutosUnicos = VendasUnicos.ProdutosUnicos;
 export type ProdutosUnicosQuery = VendasUnicos.ProdutosUnicosQuery;
 
 /** Onde cada produto caiu na reconciliação do código de cadastro. */
-export type BaldeCodigo = 'ja-correto' | 'exato' | 'conflito-sia' | 'disputado' | 'fora-do-sia' | 'novo';
+export type BaldeCodigo =
+  | 'ja-correto'
+  | 'exato'
+  /** O código está escrito no campo de barras, mas o de-para não o confirma. */
+  | 'barras-tem-codigo'
+  | 'conflito-sia'
+  | 'disputado'
+  | 'fora-do-sia'
+  | 'novo';
+
+/** Os baldes que podem ser adotados em lote — os de código lido, não sugerido. */
+export type BaldeEmLote = 'exato' | 'barras-tem-codigo';
 
 /** Um produto do SIA que casou pelo código de barras. */
 export interface CandidatoCodigo {
@@ -464,11 +475,14 @@ export function useApi() {
     codigoCadastroPrevia: () =>
       unwrap($fetch<{ data: PreviaCodigoCadastro }>('/admin/produtos/codigo-cadastro/previa', { ...base })),
 
-    /** Adota de uma vez os que casaram por código de barras. Só esse balde. */
-    codigoCadastroAdotarExatos: (confirmacao: string) =>
+    /**
+     * Adota um balde inteiro de uma vez. Só os dois em que o código é um número
+     * lido — nunca os que dependem de semelhança de nome.
+     */
+    codigoCadastroAdotarExatos: (confirmacao: string, balde: BaldeEmLote = 'exato') =>
       unwrap($fetch<{ data: { aplicadas: number; conflitos: number; restantes: number } }>(
         '/admin/produtos/codigo-cadastro/adotar-exatos',
-        { ...base, method: 'POST', body: { confirmacao } },
+        { ...base, method: 'POST', body: { confirmacao, balde } },
       )),
 
     /**

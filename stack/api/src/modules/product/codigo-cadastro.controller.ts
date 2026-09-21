@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
-import { CodigoCadastroService, type DecisaoPedida } from './codigo-cadastro.service';
+import { CodigoCadastroService, type BaldeEmLote, type DecisaoPedida } from './codigo-cadastro.service';
 
 /**
  * Reconciliação do código de cadastro com o `coditem` do SIA.
@@ -30,9 +30,12 @@ export class CodigoCadastroController {
     ));
   }
 
-  async adotarExatos(request: FastifyRequest<{ Body: { confirmacao: string } }>, reply: FastifyReply) {
+  async adotarExatos(
+    request: FastifyRequest<{ Body: { confirmacao: string; balde?: BaldeEmLote } }>,
+    reply: FastifyReply,
+  ) {
     const user = this.exigirAdmin(request);
-    const r = await this.service.adotarExatos(user, request.body.confirmacao);
+    const r = await this.service.adotarExatos(user, request.body.confirmacao, request.body.balde);
     const partes = [`${r.aplicadas} código(s) adotado(s) do SIA.`];
     if (r.conflitos) partes.push(`${r.conflitos} mudaram no meio do caminho e ficaram de fora.`);
     if (r.restantes) partes.push(`Faltam ${r.restantes} — rode de novo para continuar.`);

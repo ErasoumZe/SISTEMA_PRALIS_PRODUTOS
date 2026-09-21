@@ -60,7 +60,22 @@ export interface DecisaoPedida {
   confirmacao: string;
 }
 
-const BALDES: BaldeCodigo[] = ['ja-correto', 'exato', 'conflito-sia', 'disputado', 'fora-do-sia', 'novo'];
+const BALDES: BaldeCodigo[] = [
+  'ja-correto', 'exato', 'barras-tem-codigo', 'conflito-sia', 'disputado', 'fora-do-sia', 'novo',
+];
+
+/**
+ * Os baldes que podem ser adotados EM LOTE — os dois em que o código proposto
+ * é um número lido, não uma semelhança.
+ *
+ * Ficam separados de propósito: `exato` casou por etiqueta e o de-para confirma;
+ * `barras-tem-codigo` leu o número no campo de barras do próprio cadastro e o
+ * de-para NÃO confirma (a exportação está atrasada). São graus de certeza
+ * diferentes, e juntá-los num botão só tiraria de quem opera a chance de
+ * conferir o segundo grupo antes.
+ */
+export const BALDES_EM_LOTE = ['exato', 'barras-tem-codigo'] as const;
+export type BaldeEmLote = (typeof BALDES_EM_LOTE)[number];
 
 const zerado = (): Record<BaldeCodigo, number> => Object.fromEntries(
   BALDES.map((b) => [b, 0]),
@@ -149,10 +164,10 @@ export class CodigoCadastroService {
    * O motor já rebaixou para `disputado` qualquer código que dois produtos
    * queiram, então aqui não há como dois cadastros receberem o mesmo número.
    */
-  async adotarExatos(user: CurrentUser, confirmacao: string) {
+  async adotarExatos(user: CurrentUser, confirmacao: string, balde: BaldeEmLote = 'exato') {
     this.conferirFrase(confirmacao);
     const propostas = await this.propostas();
-    const alvos = propostas.filter((p) => p.balde === 'exato');
+    const alvos = propostas.filter((p) => p.balde === balde);
     const lote = alvos.slice(0, LOTE_MAXIMO);
 
     let aplicadas = 0;
@@ -163,7 +178,7 @@ export class CodigoCadastroService {
         loja: p.produto.loja,
         codigoAnteriorEsperado: p.produto.codigoInterno,
         codigoNovo: p.codigoProposto!,
-        fonte: `SIA ${p.candidatos.map((c) => c.loja).join('/')} (código de barras exato)`,
+        fonte: p.fonte,
         alteradoPorUserId: user.id,
         alteradoPorNome: user.name,
       });
@@ -221,7 +236,14 @@ export class CodigoCadastroService {
 
     const escolhido = formatarCodigoCadastro(pedido.codigo);
     const par = alvo.candidatos.find((c) => formatarCodigoCadastro(c.coditem) === escolhido);
-    if (!par) {
+    /*
+     * `barras-tem-codigo` não tem candidato: o código não veio de um par do
+     * de-para, veio do campo de barras do próprio cadastro. Aceitar a proposta
+     * do motor é o que permite resolver esses um a um, em vez de só em lote.
+     */
+    const proposto = alvo.codigoProposto
+      && formatarCodigoCadastro(alvo.codigoProposto) === escolhido;
+    if (!par && !proposto) {
       throw new AppError(
         'Esse código não está entre os pares deste produto no SIA. Escolha um dos oferecidos, ou cunhe um novo.',
         422,
@@ -247,13 +269,14 @@ export class CodigoCadastroService {
         409,
       );
     }
+    const origem = par ? `SIA ${par.loja}` : alvo.fonte;
     const r = await this.repo.trocar({
       ...comum,
       codigoNovo: escolhido,
-      fonte: `SIA ${par.loja} (escolhido por ${alvo.balde})`,
+      fonte: `${origem} (escolhido por ${alvo.balde})`,
     });
     if (r !== 'trocado') throw this.conflito();
-    return { codigo: escolhido, fonte: `SIA ${par.loja}` };
+    return { codigo: escolhido, fonte: origem };
   }
 
   private conflito() {
