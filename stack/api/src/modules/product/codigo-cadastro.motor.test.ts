@@ -59,6 +59,99 @@ describe('reconciliarCodigoCadastro', () => {
   });
 
   /*
+   * O SIA grava o próprio `coditem` no campo de código de barras quando o
+   * produto não tem etiqueta — 2.139 das 2.984 linhas do catálogo são assim.
+   * Quando o de-para CONFIRMA esse código, o casamento é por barras e já
+   * funcionava; estes testes cobrem o caso em que ele NÃO confirma, porque a
+   * exportação do SIA está atrasada (143 códigos, medidos em 21/09).
+   */
+  it('lê o código que o SIA esconde no campo de barras quando o de-para não o tem', () => {
+    const p = uma(
+      [produto({ codigoBarras: '00000000012067', codigoInterno: '00268', nome: 'BOLO REDONDO FORMIGUEIRO GD' })],
+      [par({ coditem: '10419', chaveBarras: '10419', descricao: 'TRIDENTE TUTTI-FRUTTI 8G ROSA' })],
+    );
+    expect(p.balde).toBe('barras-tem-codigo');
+    expect(p.codigoProposto).toBe('12067');
+    // e NÃO oferece sugestão por nome: o número está escrito, não se adivinha
+    expect(p.candidatos).toEqual([]);
+  });
+
+  it('um código de barras de verdade não é confundido com coditem', () => {
+    const p = uma(
+      [produto({ codigoBarras: '07891000460207', codigoInterno: '00322' })],
+      [par({ coditem: '10419', chaveBarras: '10419', descricao: 'OUTRA COISA' })],
+    );
+    expect(p.balde).not.toBe('barras-tem-codigo');
+  });
+
+  /*
+   * A armadilha do PR #62: `11151` CRU não é o formato do SIA, é código de
+   * cadastro digitado no campo de barras. Sem os zeros à esquerda num campo
+   * largo, a leitura não vale — senão esta correção ressuscita aquele bug.
+   */
+  it('número curto sem zeros à esquerda não é lido como código', () => {
+    const p = uma(
+      [produto({ codigoBarras: '11151', codigoInterno: '00268', nome: 'COXINHA DE COSTELA' })],
+      [par({ coditem: '10419', chaveBarras: '10419', descricao: 'OUTRA COISA' })],
+    );
+    expect(p.balde).not.toBe('barras-tem-codigo');
+  });
+
+  /*
+   * Duplicata é exatamente isto: dois cadastros com o mesmo número no campo de
+   * barras. Se o lote os adotasse, os dois ficariam com o mesmo código interno
+   * — e não há índice único em `products.codigo_interno` para reclamar depois.
+   */
+  it('dois cadastros com o mesmo código nas barras viram disputa, não adoção', () => {
+    const propostas = reconciliarCodigoCadastro(
+      [
+        produto({ id: 'a', codigoBarras: '00000000012067', codigoInterno: '00268', nome: 'BOLO FORMIGUEIRO GD' }),
+        produto({ id: 'b', codigoBarras: '00000000012067', codigoInterno: '00269', nome: 'BOLO FORMIGUEIRO GRANDE' }),
+      ],
+      [par({ coditem: '10419', chaveBarras: '10419', descricao: 'OUTRA COISA' })],
+    );
+    expect(propostas.map((p) => p.balde)).toEqual(['disputado', 'disputado']);
+    expect(propostas.every((p) => p.codigoProposto === null)).toBe(true);
+  });
+
+  it('não propõe em lote um código que outro cadastro já tem', () => {
+    const propostas = reconciliarCodigoCadastro(
+      [
+        produto({ id: 'a', codigoBarras: null, codigoInterno: '12067', nome: 'QUEM JA TEM' }),
+        produto({ id: 'b', codigoBarras: '00000000012067', codigoInterno: '00269', nome: 'QUEM QUER' }),
+      ],
+      [par({ coditem: '10419', chaveBarras: '10419', descricao: 'OUTRA COISA' })],
+    );
+    const b = propostas.find((p) => p.produto.id === 'b')!;
+    expect(b.balde).toBe('disputado');
+    expect(b.motivo).toMatch(/já é de outro cadastro/i);
+  });
+
+  it('barras zeradas não viram código', () => {
+    const p = uma(
+      [produto({ codigoBarras: '0000000000000', codigoInterno: '00268', nome: 'SO EXISTE AQUI' })],
+      [par({ coditem: '10419', chaveBarras: '10419', descricao: 'OUTRA COISA' })],
+    );
+    expect(p.balde).toBe('novo');
+  });
+
+  it('código de entrega escondido nas barras fica fora da faixa da rede', () => {
+    const p = uma(
+      [produto({ codigoBarras: '00000000712934', codigoInterno: '00268', nome: 'SO EXISTE AQUI' })],
+      [par({ coditem: '10419', chaveBarras: '10419', descricao: 'OUTRA COISA' })],
+    );
+    expect(p.balde).toBe('novo');
+  });
+
+  it('quem já tem o código que está nas barras cai em falta-no-PDV, não em proposta', () => {
+    const p = uma(
+      [produto({ codigoBarras: '00000000012067', codigoInterno: '12067', nome: 'BOLO REDONDO FORMIGUEIRO GD' })],
+      [par({ coditem: '10419', chaveBarras: '10419', descricao: 'OUTRA COISA' })],
+    );
+    expect(p.balde).toBe('fora-do-sia');
+  });
+
+  /*
    * O caso TRIDENT, encontrado pelo José em 21/09: o produto existe na rede com
    * código certo, mas nem ele nem a linha do SIA têm código de barras. Sem
    * sugestão por nome, o cadastro antigo ia para cunhagem e ganhava um número
@@ -252,12 +345,21 @@ describe('reconciliarCodigoCadastro', () => {
     expect(propostas[0]!.motivo).toMatch(/também aponta/i);
   });
 
-  it('não rebaixa quando o segundo produto já está com o código', () => {
+  /*
+   * Este teste já existiu esperando `['exato', 'ja-correto']` — e estava
+   * errado. `a` e `b` são dois cadastros do MESMO produto (mesmo código de
+   * barras), e `b` já está com o 10365; deixar `a` adotar o 10365 também dava
+   * aos dois o mesmo código interno, que é exatamente a duplicata que o José
+   * está limpando à mão. Como a prévia só traz BASE e órfãos (cópia de loja
+   * herda da BASE e fica fora), dois aqui são dois cadastros de verdade.
+   */
+  it('não adota um código que outro cadastro da prévia já tem', () => {
     const propostas = reconciliarCodigoCadastro(
       [produto({ id: 'a' }), produto({ id: 'b', codigoInterno: '10365' })],
       [par()],
     );
-    expect(propostas.map((p) => p.balde)).toEqual(['exato', 'ja-correto']);
+    expect(propostas.map((p) => p.balde)).toEqual(['disputado', 'ja-correto']);
+    expect(propostas[0]!.motivo).toMatch(/já é de outro cadastro/i);
   });
 
   it('classifica cada produto da lista uma vez só, na ordem recebida', () => {

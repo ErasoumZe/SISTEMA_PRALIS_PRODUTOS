@@ -6,6 +6,7 @@ import { ProductController } from './product.controller';
 import { ProductExportController } from './product-export.controller';
 import { ProductZerarController } from './product-zerar.controller';
 import { CodigoCadastroController } from './codigo-cadastro.controller';
+import { BALDES_EM_LOTE } from './codigo-cadastro.service';
 import { ImportarMixController } from './importar-mix.controller';
 import { CustoMerController } from './custo-mer.controller';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
@@ -151,7 +152,9 @@ export async function productRoutes(app: FastifyInstance) {
    * clique humano, item a item, com o código que a tela viu indo junto para
    * impedir que uma tela velha sobrescreva quem decidiu antes.
    */
-  const baldeCodigo = z.enum(['ja-correto', 'exato', 'conflito-sia', 'disputado', 'fora-do-sia', 'novo']);
+  const baldeCodigo = z.enum([
+    'ja-correto', 'exato', 'barras-tem-codigo', 'conflito-sia', 'disputado', 'fora-do-sia', 'novo',
+  ]);
   const itemPrevia = z.object({
     productId: z.string(),
     loja: z.string(),
@@ -193,13 +196,17 @@ export async function productRoutes(app: FastifyInstance) {
     '/admin/produtos/codigo-cadastro/adotar-exatos',
     {
       schema: {
-        body: z.object({ confirmacao: z.string() }),
+        body: z.object({
+          confirmacao: z.string(),
+          /** Qual balde adotar. Ausente = `exato`, como era antes deste campo existir. */
+          balde: z.enum(BALDES_EM_LOTE).optional(),
+        }),
         response: {
           200: apiResponseSchema(z.object({
             aplicadas: z.number(), conflitos: z.number(), restantes: z.number(),
           })),
         },
-        summary: 'Adotar os códigos que casaram por código de barras no SIA (admin)',
+        summary: 'Adotar em lote os códigos lidos do SIA ou do campo de barras (admin)',
         tags: ['ADMIN', 'PRODUTOS'],
       },
     },

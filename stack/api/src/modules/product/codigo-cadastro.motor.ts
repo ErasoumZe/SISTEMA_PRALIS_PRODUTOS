@@ -51,7 +51,15 @@ export interface ProdutoParaReconciliar {
  * adotar os dois criaria código repetido, que é o defeito que nenhum índice
  * pega hoje.
  */
-export type BaldeCodigo = 'ja-correto' | 'exato' | 'conflito-sia' | 'disputado' | 'fora-do-sia' | 'novo';
+export type BaldeCodigo =
+  | 'ja-correto'
+  | 'exato'
+  /** O código está escrito no campo de barras, mas o de-para não o confirma. */
+  | 'barras-tem-codigo'
+  | 'conflito-sia'
+  | 'disputado'
+  | 'fora-do-sia'
+  | 'novo';
 
 export interface PropostaCodigo {
   produto: ProdutoParaReconciliar;
@@ -60,6 +68,14 @@ export interface PropostaCodigo {
   /** Os pares do SIA que casaram — o que a pessoa lê para decidir. */
   candidatos: ParSia[];
   motivo: string;
+  /**
+   * De onde saiu a proposta, para o histórico de troca de código.
+   *
+   * Vive aqui e não no service porque só o motor sabe qual caminho decidiu:
+   * derivar depois, a partir dos candidatos, dava frase errada justamente no
+   * caminho que não tem candidato nenhum (o código lido do campo de barras).
+   */
+  fonte: string;
 }
 
 const digitos = (valor: unknown): string => String(valor ?? '').replace(/\D/g, '').replace(/^0+(?=\d)/, '');
@@ -132,6 +148,46 @@ const MAX_SUGESTOES = 5;
  */
 const SEMELHANCA_MINIMA = 55;
 
+/**
+ * O código de cadastro que o SIA guarda DENTRO do campo de código de barras.
+ *
+ * O SIA preenche o campo de barras com o próprio `coditem` alinhado à direita
+ * em 14 casas quando o produto não tem etiqueta: `00000000012067` é o produto
+ * 12067, não um código de barras. Medido na exportação de 21/09: 2.139 das
+ * 2.984 linhas do catálogo (72%) são assim — é a regra, não a exceção.
+ *
+ * O que identifica o formato é o ALINHAMENTO À DIREITA NUM CAMPO LARGO: campo
+ * comprido (14 casas), valor curto, zeros no meio. Os dois lados importam.
+ *
+ * - campo comprido descarta `11151` cru, que é a armadilha do PR #62: aquele
+ *   número não estava zero-preenchido, era o código de cadastro digitado no
+ *   campo errado, e casou com o PLU de outro produto por coincidência;
+ * - valor curto descarta etiqueta de verdade zero-preenchida — medido: quando
+ *   o campo é o coditem o valor tem 5 ou 6 dígitos, quando é etiqueta tem 8 ou
+ *   mais (os 48 EAN-8 do tipo `00000078939318`). Zero sobreposição, e é o mesmo
+ *   `MENOR_CODIGO_DE_BARRAS` que separa as duas leituras.
+ *
+ * O piso vem do de-para (é o que barra `0000000000000`, que vira `0`). O teto
+ * NÃO: é a fronteira da entrega. Usar o maior coditem conhecido derrubaria
+ * justamente os códigos que faltam — e é por estarem faltando que este caminho
+ * existe. Um export atrasado não pode estreitar a faixa que ele mesmo não cobre.
+ */
+export const PRIMEIRO_CODIGO_DE_ENTREGA = 700_000;
+
+const codigoNasBarras = (
+  codigoBarras: string | null | undefined,
+  pisoDaRede: number,
+): string | null => {
+  const crus = String(codigoBarras ?? '').replace(/\D/g, '');
+  const n = digitos(crus);
+  if (!n || n.length >= MENOR_CODIGO_DE_BARRAS) return null;
+  // sem zeros à esquerda num campo largo não é o formato do SIA, é outra coisa
+  if (crus.length < MENOR_CODIGO_DE_BARRAS || crus.length === n.length) return null;
+  if (pisoDaRede <= 0) return null;
+  const valor = Number(n);
+  return valor >= pisoDaRede && valor < PRIMEIRO_CODIGO_DE_ENTREGA ? n : null;
+};
+
 /** Os nomes mais parecidos no SIA, excluindo código que outro produto já tem. */
 const sugerirPorNome = (
   nome: string,
@@ -196,8 +252,39 @@ const decidir = (
         codigoProposto: null,
         candidatos: peloCodigo,
         motivo: `O código ${formatarCodigoCadastro(produto.codigoInterno)} já é o do produto no SIA.`,
+        fonte: 'Nada a gravar: o código já é o do SIA.',
       };
     }
+    /*
+     * O código do produto está ESCONDIDO no campo de código de barras.
+     *
+     * Caso levantado pelo José em 21/09: ROCAMBOLE PRESTIGIO GR carrega
+     * `00000000012563` no campo de barras e o código velho `00322` no campo do
+     * código. O 12563 é o `coditem` do produto no SIA — o de-para é que não o
+     * lista, porque a exportação usada está atrasada (medido: 143 códigos que
+     * a MIX conhece e a exportação não).
+     *
+     * Antes disto o produto caía em `novo` e a tela oferecia CUNHAR, ou pior:
+     * depois da sugestão por nome, oferecia adotar `11488` com 92% de
+     * parecença — um produto diferente. Dar ao PDV o código de outro produto é
+     * o estrago que esta tela existe para impedir.
+     *
+     * Por isso a leitura das barras vem ANTES da sugestão por nome: quando o
+     * número está escrito no cadastro, não se adivinha por semelhança.
+     */
+    const nasBarras = codigoNasBarras(produto.codigoBarras, pisoDaRede);
+    if (nasBarras && digitos(nasBarras) !== digitos(produto.codigoInterno)) {
+      const codigo = formatarCodigoCadastro(nasBarras);
+      return {
+        produto,
+        balde: 'barras-tem-codigo',
+        codigoProposto: codigo,
+        candidatos: [],
+        motivo: `O campo de código de barras guarda ${codigo}, que é o código deste produto no SIA. O de-para carregado não lista esse código — provavelmente a exportação do SIA está atrasada.`,
+        fonte: `Código lido do campo de barras do próprio cadastro (${codigo})`,
+      };
+    }
+
     /*
      * Sem par, mas o produto JÁ TEM um código dentro da faixa da rede.
      *
@@ -217,6 +304,7 @@ const decidir = (
         codigoProposto: null,
         candidatos: [],
         motivo: `Já tem o código ${formatarCodigoCadastro(produto.codigoInterno)}, mas o PDV ainda não cadastrou este produto.`,
+        fonte: 'Nada a gravar: o código já é da faixa da rede.',
       };
     }
     if (fracos.length === 0) {
@@ -240,6 +328,7 @@ const decidir = (
           codigoProposto: null,
           candidatos: sugestoes,
           motivo: 'Sem código de barras dos dois lados. Estes são os nomes mais parecidos no SIA — confira antes de escolher.',
+          fonte: 'Sugestão por semelhança de nome, escolhida a mão.',
         };
       }
       return {
@@ -248,6 +337,7 @@ const decidir = (
         codigoProposto: null,
         candidatos: [],
         motivo: 'Nenhum produto do SIA tem este código de barras ou nome parecido.',
+        fonte: 'Sem par no SIA: só resta cunhar.',
       };
     }
     return {
@@ -256,6 +346,7 @@ const decidir = (
       codigoProposto: null,
       candidatos: fracos,
       motivo: 'O número deste produto é curto demais para ser código de barras — casou por coincidência.',
+      fonte: 'Casamento fraco por barras, escolhido a mão.',
     };
   }
 
@@ -272,6 +363,7 @@ const decidir = (
       codigoProposto: null,
       candidatos: fortes,
       motivo: `As lojas discordam do código no SIA: ${[...codigos].join(', ')}.`,
+      fonte: 'Desempate entre lojas, escolhido a mão.',
     };
   }
 
@@ -283,6 +375,7 @@ const decidir = (
       codigoProposto: null,
       candidatos: fortes,
       motivo: 'O produto já está com o código do PDV.',
+      fonte: 'Nada a gravar: o produto já está certo.',
     };
   }
   return {
@@ -291,6 +384,7 @@ const decidir = (
     codigoProposto: codigo,
     candidatos: fortes,
     motivo: `Código de barras casa com ${fortes.map((p) => p.loja).join('/')} no SIA.`,
+    fonte: `SIA ${fortes.map((p) => p.loja).join('/')} (código de barras exato)`,
   };
 };
 
@@ -339,21 +433,44 @@ export const reconciliarCodigoCadastro = (
     (produto) => decidir(produto, porChave, porCoditem, pisoDaRede, pares, codigosOcupados),
   );
 
+  /*
+   * O passe de injetividade vale para TODO balde que propõe código, não só
+   * `exato` — `barras-tem-codigo` também propõe, e dois cadastros com o mesmo
+   * número no campo de barras (que é o que duplicata é) passariam direto pelo
+   * botão de lote.
+   */
+  const propoe = (p: PropostaCodigo) => (p.balde === 'exato' || p.balde === 'barras-tem-codigo')
+    && !!p.codigoProposto;
+
   const quantosQuerem = new Map<string, number>();
   for (const p of propostas) {
-    if (p.balde !== 'exato' || !p.codigoProposto) continue;
-    quantosQuerem.set(p.codigoProposto, (quantosQuerem.get(p.codigoProposto) ?? 0) + 1);
+    if (!propoe(p)) continue;
+    quantosQuerem.set(p.codigoProposto!, (quantosQuerem.get(p.codigoProposto!) ?? 0) + 1);
   }
-  return propostas.map((p) => (
-    p.balde === 'exato' && p.codigoProposto && (quantosQuerem.get(p.codigoProposto) ?? 0) > 1
-      ? {
-        ...p,
-        balde: 'disputado' as const,
-        codigoProposto: null,
-        motivo: `Outro cadastro do Pralis também aponta para o código ${p.codigoProposto}. Unifique antes de numerar.`,
-      }
-      : p
-  ));
+
+  /*
+   * E ninguém pode receber um código que outro cadastro JÁ TEM. O `decidir`
+   * barra isso item a item; sem esta linha, o lote não barrava.
+   */
+  const jaGravados = new Set(
+    propostas.map((p) => digitos(p.produto.codigoInterno)).filter(Boolean),
+  );
+
+  return propostas.map((p) => {
+    if (!propoe(p)) return p;
+    const querem = quantosQuerem.get(p.codigoProposto!) ?? 0;
+    const doOutro = jaGravados.has(digitos(p.codigoProposto))
+      && digitos(p.produto.codigoInterno) !== digitos(p.codigoProposto);
+    if (querem <= 1 && !doOutro) return p;
+    return {
+      ...p,
+      balde: 'disputado' as const,
+      codigoProposto: null,
+      motivo: doOutro
+        ? `O código ${p.codigoProposto} já é de outro cadastro do Pralis. Unifique os dois antes de numerar.`
+        : `Outro cadastro do Pralis também aponta para o código ${p.codigoProposto}. Unifique antes de numerar.`,
+    };
+  });
 };
 
 /**

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BaldeCodigo, ItemCodigoCadastro, PreviaCodigoCadastro } from '~/composables/useApi';
+import type { BaldeCodigo, BaldeEmLote, ItemCodigoCadastro, PreviaCodigoCadastro } from '~/composables/useApi';
 
 /**
  * Reconciliação do código de cadastro com o `coditem` do SIA.
@@ -32,6 +32,11 @@ const BALDES: Array<{ id: BaldeCodigo; titulo: string; ajuda: string }> = [
     ajuda: 'O código de barras casa com um produto do SIA e nenhum outro cadastro disputa esse código. É o único balde adotado de uma vez.',
   },
   {
+    id: 'barras-tem-codigo',
+    titulo: 'Código está nas barras',
+    ajuda: 'O SIA grava o código do produto no campo do código de barras quando ele não tem etiqueta — 00000000012067 é o produto 12067. Aqui o de-para carregado NÃO lista esse código, sinal de que a exportação do SIA está atrasada. O número está certo; confira alguns antes de adotar o lote, e reenvie um de-para novo quando puder.',
+  },
+  {
     id: 'conflito-sia',
     titulo: 'Precisa de você',
     ajuda: 'Ou as lojas discordam do código no SIA, ou o número deste produto é curto demais para ser código de barras e casou por coincidência.',
@@ -61,14 +66,28 @@ const BALDES: Array<{ id: BaldeCodigo; titulo: string; ajuda: string }> = [
 const visao = ref<BaldeCodigo>('exato');
 const busca = ref('');
 
+/**
+ * Busca: enquanto há termo, procura em TODOS os baldes.
+ *
+ * Antes ela filtrava só o balde aberto, e isso enganava: o José procurou
+ * "farinha alvear" com "Sem código da rede" na tela, não achou nada e concluiu
+ * que o produto não tinha sido importado — quando ele estava em "Já está
+ * certo", a dois cliques dali. Uma busca que responde "nada encontrado" sobre
+ * um produto que existe é pior do que não ter busca.
+ */
+const buscando = computed(() => busca.value.trim().length > 0);
+
 const itens = computed<ItemCodigoCadastro[]>(() => {
-  const todos = (dados.value?.itens ?? []).filter((i) => i.balde === visao.value);
   const termo = busca.value.trim().toLowerCase();
-  if (!termo) return todos;
+  const todos = dados.value?.itens ?? [];
+  if (!termo) return todos.filter((i) => i.balde === visao.value);
   return todos.filter((i) => i.nome.toLowerCase().includes(termo)
     || (i.codigoBarras ?? '').includes(termo)
     || (i.codigoAtual ?? '').includes(termo));
 });
+
+/** O título do balde de cada item, para a busca global dizer onde ele está. */
+const tituloDoBalde = (balde: BaldeCodigo) => BALDES.find((b) => b.id === balde)?.titulo ?? balde;
 
 const conta = (balde: BaldeCodigo) => dados.value?.resumo?.[balde] ?? 0;
 const fraseOk = computed(() => confirmacao.value.trim().toUpperCase() === (dados.value?.confirmacao ?? ''));
@@ -93,11 +112,11 @@ function avisar(texto: string, tipo: 'success' | 'warning' | 'error') {
   flash.value = { texto, tipo };
 }
 
-async function adotarExatos() {
+async function adotarExatos(balde: BaldeEmLote) {
   if (!fraseOk.value) return;
   aplicando.value = true;
   try {
-    const r = await api.codigoCadastroAdotarExatos(confirmacao.value);
+    const r = await api.codigoCadastroAdotarExatos(confirmacao.value, balde);
     const extras = [
       r.conflitos ? `${r.conflitos} mudaram no meio do caminho` : '',
       r.restantes ? `faltam ${r.restantes} — clique de novo` : '',
@@ -214,17 +233,22 @@ async function decidir(item: ItemCodigoCadastro, corpo: { codigo?: string; cunha
             density="compact" hide-details variant="outlined"
             style="min-width: 320px; max-width: 420px"
           />
+          <!--
+            Um botão por balde adotável, e nunca os dois no mesmo clique:
+            `exato` o de-para confirma, `barras-tem-codigo` não. Graus de
+            certeza diferentes merecem decisões diferentes.
+          -->
           <v-btn
-            v-if="visao === 'exato'"
-            color="primary"
-            :disabled="!fraseOk || conta('exato') === 0"
+            v-if="visao === 'exato' || visao === 'barras-tem-codigo'"
+            :color="visao === 'exato' ? 'primary' : 'warning'"
+            :disabled="!fraseOk || conta(visao) === 0"
             :loading="aplicando"
             prepend-icon="done_all"
-            @click="adotarExatos"
+            @click="adotarExatos(visao)"
           >
-            Adotar {{ Math.min(conta('exato'), dados.loteMaximo) }}
-            <span v-if="conta('exato') > dados.loteMaximo" class="ml-1">
-              de {{ conta('exato') }}
+            Adotar {{ Math.min(conta(visao), dados.loteMaximo) }}
+            <span v-if="conta(visao) > dados.loteMaximo" class="ml-1">
+              de {{ conta(visao) }}
             </span>
           </v-btn>
         </div>
@@ -243,6 +267,10 @@ async function decidir(item: ItemCodigoCadastro, corpo: { codigo?: string; cunha
             <v-list-item>
               <v-list-item-title class="d-flex flex-wrap align-center ga-2">
                 <span class="font-weight-medium">{{ item.nome }}</span>
+                <!-- Buscando, o resultado vem de qualquer balde: diga de qual. -->
+                <v-chip v-if="buscando" size="x-small" variant="flat" color="primary">
+                  {{ tituloDoBalde(item.balde) }}
+                </v-chip>
                 <v-chip size="x-small" variant="tonal">{{ item.loja }}</v-chip>
                 <v-chip size="x-small" variant="tonal">atual: {{ item.codigoAtual || '—' }}</v-chip>
                 <v-chip v-if="item.codigoBarras" size="x-small" variant="text">
@@ -253,6 +281,22 @@ async function decidir(item: ItemCodigoCadastro, corpo: { codigo?: string; cunha
               <v-list-item-subtitle class="mt-1">{{ item.motivo }}</v-list-item-subtitle>
 
               <div class="d-flex flex-wrap align-center ga-2 mt-2">
+                <!--
+                  `barras-tem-codigo` não tem candidato do de-para: o código veio
+                  do próprio cadastro. Sem este botão só restaria o lote, e quem
+                  quer conferir um a um ficaria sem saída.
+                -->
+                <v-btn
+                  v-if="item.balde === 'barras-tem-codigo' && item.codigoProposto"
+                  size="small" variant="tonal" color="warning"
+                  :loading="decidindo === item.productId"
+                  :disabled="!fraseOk"
+                  @click="decidir(item, { codigo: item.codigoProposto })"
+                >
+                  Adotar {{ item.codigoProposto }}
+                  <span class="text-medium-emphasis ml-1">· lido do código de barras</span>
+                </v-btn>
+
                 <v-btn
                   v-for="c in item.candidatos"
                   :key="`${c.loja}:${c.coditem}`"
