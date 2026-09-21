@@ -129,6 +129,33 @@ describe('CodigoCadastroPlanilhaService', () => {
     for (const faixa of colunas) expect(faixa).toMatch(/!([A-Z]+)11:\1\d+$/);
   });
 
+  /*
+   * A aba tem a numeração pré-preenchida por fórmula muito além do que já foi
+   * cadastrado: 313 linhas de 13127 a 13439 com código e nenhum nome. Contá-las
+   * empurrava o teto para 13439 e a cunhagem pularia 313 números livres.
+   */
+  it('linha com código e sem nome não levanta o teto', async () => {
+    const { servico: s } = servico([
+      { ...PRODUTO, 'COD INTERNO': '13126', DESCRIÇÃO: 'ULTIMO PRODUTO DE VERDADE' },
+      { ...PRODUTO, 'COD INTERNO': '13127', DESCRIÇÃO: '' },
+      { ...PRODUTO, 'COD INTERNO': '13439', DESCRIÇÃO: '' },
+    ]);
+    const r = await s.ler(CONFIG);
+    expect(r.teto).toBe(13126);
+    // as vazias continuam na lista: quem importa as recusa por não ter nome
+    expect(r.linhas).toHaveLength(3);
+  });
+
+  it('o teto é o maior COM nome, mesmo fora de ordem', async () => {
+    const { servico: s } = servico([
+      { ...PRODUTO, 'COD INTERNO': '13439', DESCRIÇÃO: '' },
+      { ...PRODUTO, 'COD INTERNO': '12000', DESCRIÇÃO: 'UM PRODUTO' },
+      { ...PRODUTO, 'COD INTERNO': '13126', DESCRIÇÃO: 'OUTRO PRODUTO' },
+      { ...PRODUTO, 'COD INTERNO': '13300', DESCRIÇÃO: '' },
+    ]);
+    expect((await s.ler(CONFIG)).teto).toBe(13126);
+  });
+
   it('descarta código fora da faixa do PDV e não deixa ele virar teto', async () => {
     const { servico: s } = servico([
       PRODUTO,
