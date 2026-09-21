@@ -1,3 +1,5 @@
+import { semelhanca } from './semelhanca-de-nome';
+
 /**
  * Reconciliação do código de cadastro com a numeração real da rede.
  *
@@ -26,6 +28,11 @@ export interface ParSia {
   /** Código de barras já normalizado — é a chave de casamento. */
   chaveBarras: string;
   descricao: string;
+  /**
+   * Só nas SUGESTÕES por nome: 0..100 de parecença. Ausente quando o candidato
+   * veio de casamento por código de barras, que não é parecido — é igual.
+   */
+  semelhanca?: number;
 }
 
 export interface ProdutoParaReconciliar {
@@ -109,12 +116,53 @@ const chavesDeBarras = (codigoBarras: string | null | undefined): Map<string, bo
   return chaves;
 };
 
+/**
+ * Quantas sugestões oferecer. Mais que isso vira lista, não sugestão — mesmo
+ * teto do de-para de vendas, que resolve o mesmo problema.
+ */
+const MAX_SUGESTOES = 5;
+
+/**
+ * Abaixo disso o nome não se parece o bastante para valer o clique.
+ *
+ * O número e a razão são os mesmos do de-para de vendas
+ * (`vendas-depara.service.ts`), que já apanhou desse problema: numa tela de
+ * confirmação, sugestão ruim não é neutra — ela convida ao clique errado, e
+ * aqui o clique errado dá a um produto o código de outro no PDV.
+ */
+const SEMELHANCA_MINIMA = 55;
+
+/** Os nomes mais parecidos no SIA, excluindo código que outro produto já tem. */
+const sugerirPorNome = (
+  nome: string,
+  pares: ParSia[],
+  codigosOcupados: Set<string>,
+): ParSia[] => {
+  if (!nome.trim()) return [];
+  const vistos = new Set<string>();
+  return pares
+    .filter((p) => {
+      const cod = digitos(p.coditem);
+      // código que já é de outro cadastro não pode ser sugerido a ninguém
+      if (codigosOcupados.has(cod)) return false;
+      if (vistos.has(cod)) return false;
+      vistos.add(cod);
+      return true;
+    })
+    .map((p) => ({ ...p, semelhanca: semelhanca(nome, p.descricao) }))
+    .filter((p) => p.semelhanca >= SEMELHANCA_MINIMA)
+    .sort((a, b) => b.semelhanca - a.semelhanca)
+    .slice(0, MAX_SUGESTOES);
+};
+
 const decidir = (
   produto: ProdutoParaReconciliar,
   porChave: Map<string, ParSia[]>,
   porCoditem: Map<string, ParSia[]>,
   /** Menor coditem visto no SIA: onde começa a numeração da rede. */
   pisoDaRede: number,
+  todos: ParSia[],
+  codigosOcupados: Set<string>,
 ): PropostaCodigo => {
   const vistos = new Set<string>();
   const fortes: ParSia[] = [];
@@ -171,21 +219,44 @@ const decidir = (
         motivo: `Já tem o código ${formatarCodigoCadastro(produto.codigoInterno)}, mas o PDV ainda não cadastrou este produto.`,
       };
     }
-    return fracos.length === 0
-      ? {
+    if (fracos.length === 0) {
+      /*
+       * Última tentativa antes de mandar para cunhagem: procurar pelo NOME.
+       *
+       * É o caso do TRIDENT, que o José encontrou em 21/09. O produto existe na
+       * rede com código certo (`10419 TRIDENTE TUTTI-FRUTTI 8G ROSA`), mas nem
+       * ele nem a linha do SIA têm código de barras — não há chave nenhuma para
+       * casar. Sem isto, o cadastro antigo (`00253`) ia para cunhagem e ganharia
+       * um 13138 novo, deixando dois números para o mesmo produto na rede.
+       *
+       * Sugestão NUNCA decide: o balde continua sendo o de decisão humana, e
+       * a semelhança vai junto na tela para a pessoa ver o quanto é parecido.
+       */
+      const sugestoes = sugerirPorNome(produto.nome, todos, codigosOcupados);
+      if (sugestoes.length) {
+        return {
+          produto,
+          balde: 'novo',
+          codigoProposto: null,
+          candidatos: sugestoes,
+          motivo: 'Sem código de barras dos dois lados. Estes são os nomes mais parecidos no SIA — confira antes de escolher.',
+        };
+      }
+      return {
         produto,
         balde: 'novo',
         codigoProposto: null,
         candidatos: [],
-        motivo: 'Nenhum produto do SIA tem este código de barras, e o código atual não é da faixa da rede.',
-      }
-      : {
-        produto,
-        balde: 'conflito-sia',
-        codigoProposto: null,
-        candidatos: fracos,
-        motivo: 'O número deste produto é curto demais para ser código de barras — casou por coincidência.',
+        motivo: 'Nenhum produto do SIA tem este código de barras ou nome parecido.',
       };
+    }
+    return {
+      produto,
+      balde: 'conflito-sia',
+      codigoProposto: null,
+      candidatos: fracos,
+      motivo: 'O número deste produto é curto demais para ser código de barras — casou por coincidência.',
+    };
   }
 
   /*
@@ -255,7 +326,18 @@ export const reconciliarCodigoCadastro = (
     return Number.isFinite(n) && (menor === 0 || n < menor) ? n : menor;
   }, 0);
 
-  const propostas = produtos.map((produto) => decidir(produto, porChave, porCoditem, pisoDaRede));
+  /*
+   * Códigos que algum cadastro JÁ tem: nenhum deles pode ser sugerido a outro
+   * produto, senão a sugestão cria o duplicado que o balde `disputado` existe
+   * para impedir.
+   */
+  const codigosOcupados = new Set(
+    produtos.map((p) => digitos(p.codigoInterno)).filter(Boolean),
+  );
+
+  const propostas = produtos.map(
+    (produto) => decidir(produto, porChave, porCoditem, pisoDaRede, pares, codigosOcupados),
+  );
 
   const quantosQuerem = new Map<string, number>();
   for (const p of propostas) {

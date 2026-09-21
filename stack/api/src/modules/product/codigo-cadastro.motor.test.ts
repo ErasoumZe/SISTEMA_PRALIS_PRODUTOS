@@ -48,10 +48,62 @@ describe('reconciliarCodigoCadastro', () => {
     expect(p.balde).toBe('ja-correto');
   });
 
-  it('marca como novo quando nenhum produto do SIA tem esse código de barras', () => {
-    const p = uma([produto({ codigoBarras: '7899999999999' })], [par()]);
+  it('marca como novo quando nada no SIA casa nem se parece', () => {
+    const p = uma(
+      [produto({ codigoBarras: '7899999999999', nome: 'PRODUTO QUE SO EXISTE AQUI' })],
+      [par()],
+    );
     expect(p.balde).toBe('novo');
     expect(p.candidatos).toEqual([]);
+    expect(p.motivo).toMatch(/código de barras ou nome parecido/i);
+  });
+
+  /*
+   * O caso TRIDENT, encontrado pelo José em 21/09: o produto existe na rede com
+   * código certo, mas nem ele nem a linha do SIA têm código de barras. Sem
+   * sugestão por nome, o cadastro antigo ia para cunhagem e ganhava um número
+   * novo — deixando dois códigos para o mesmo produto na rede.
+   */
+  it('sem barras dos dois lados, sugere pelo nome — mas não decide', () => {
+    const p = uma(
+      [produto({ codigoBarras: null, codigoInterno: '00253', nome: 'TRIDENTE TUTTI-FRUTTI 8G' })],
+      [
+        par({ coditem: '10419', chaveBarras: '10419', descricao: 'TRIDENTE TUTTI-FRUTTI 8G ROSA' }),
+        par({ coditem: '11595', chaveBarras: '11595', descricao: 'MENTOS TUTTI FRUTTI 37,5G' }),
+      ],
+    );
+    expect(p.balde).toBe('novo');
+    // continua sendo decisão humana: nada é proposto de ofício
+    expect(p.codigoProposto).toBeNull();
+    expect(p.candidatos[0]).toMatchObject({ coditem: '10419' });
+    expect(p.candidatos[0]!.semelhanca).toBeGreaterThan(85);
+  });
+
+  it('a sugestão vem ordenada da mais parecida para a menos', () => {
+    const p = uma(
+      [produto({ codigoBarras: null, codigoInterno: '00253', nome: 'TRIDENTE MORANGO 8G' })],
+      [
+        par({ coditem: '11857', chaveBarras: '11857', descricao: 'TRENTO MORANGO 32G' }),
+        par({ coditem: '10418', chaveBarras: '10418', descricao: 'TRIDENTE MORANGO 8G VERMELHO' }),
+      ],
+    );
+    expect(p.candidatos.map((c) => c.coditem)).toEqual(['10418', '11857']);
+  });
+
+  /*
+   * Sugerir um código que outro cadastro já tem criaria o duplicado que o balde
+   * `disputado` existe para impedir.
+   */
+  it('não sugere código que outro produto já tem', () => {
+    const propostas = reconciliarCodigoCadastro(
+      [
+        produto({ id: 'a', codigoBarras: null, codigoInterno: '10419', nome: 'OUTRO QUALQUER' }),
+        produto({ id: 'b', codigoBarras: null, codigoInterno: '00253', nome: 'TRIDENTE TUTTI-FRUTTI 8G' }),
+      ],
+      [par({ coditem: '10419', chaveBarras: '10419', descricao: 'TRIDENTE TUTTI-FRUTTI 8G ROSA' })],
+    );
+    const b = propostas.find((p) => p.produto.id === 'b')!;
+    expect(b.candidatos).toEqual([]);
   });
 
   it('produto sem código de barras nenhum cai em novo', () => {

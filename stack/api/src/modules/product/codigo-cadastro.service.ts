@@ -35,7 +35,7 @@ export interface ItemPrevia {
   balde: BaldeCodigo;
   codigoProposto: string | null;
   motivo: string;
-  candidatos: Array<{ loja: string; coditem: string; descricao: string }>;
+  candidatos: Array<{ loja: string; coditem: string; descricao: string; semelhanca?: number }>;
 }
 
 export interface Previa {
@@ -131,7 +131,7 @@ export class CodigoCadastroService {
         codigoProposto: p.codigoProposto,
         motivo: p.motivo,
         candidatos: p.candidatos.map((c) => ({
-          loja: c.loja, coditem: formatarCodigoCadastro(c.coditem), descricao: c.descricao,
+          loja: c.loja, coditem: formatarCodigoCadastro(c.coditem), descricao: c.descricao, semelhanca: c.semelhanca,
         })),
       })),
     };
@@ -192,9 +192,18 @@ export class CodigoCadastroService {
     };
 
     if (pedido.cunhar) {
-      if (alvo.candidatos.length > 0) {
+      /*
+       * Cunhar só no balde `novo` — o único em que o produto não casa com nada
+       * no SIA e o código atual não é da faixa da rede.
+       *
+       * Antes isto olhava `candidatos.length`, e passou a bloquear demais
+       * quando o balde ganhou SUGESTÃO POR NOME: sugestão não é par, e a pessoa
+       * precisa poder dizer "nenhuma dessas serve, cria um número novo".
+       * Olhar o balde diz a mesma coisa sem confundir as duas naturezas.
+       */
+      if (alvo.balde !== 'novo') {
         throw new AppError(
-          'Este produto tem par no SIA. Resolva o par antes de cunhar um código novo.',
+          `Este produto está em "${alvo.balde}", não em "sem código da rede". Resolva ali antes de cunhar.`,
           422,
         );
       }
@@ -216,6 +225,26 @@ export class CodigoCadastroService {
       throw new AppError(
         'Esse código não está entre os pares deste produto no SIA. Escolha um dos oferecidos, ou cunhe um novo.',
         422,
+      );
+    }
+
+    /*
+     * Nenhum código para dois cadastros.
+     *
+     * A prévia só traz BASE e órfãos (as cópias de loja herdam da BASE e ficam
+     * de fora), então dois produtos DAQUI com o mesmo número são duplicata de
+     * verdade — e é exatamente o estrago que o José está limpando à mão.
+     * O banco não tem unicidade em `codigo_interno` para barrar isso, e o
+     * balde `disputado` só freia a adoção EM LOTE; a decisão uma a uma passava.
+     */
+    const dono = propostas.find((p) => p.produto.id !== alvo.produto.id
+      && p.produto.codigoInterno
+      && formatarCodigoCadastro(p.produto.codigoInterno) === escolhido);
+    if (dono) {
+      throw new AppError(
+        `O código ${escolhido} já é do cadastro "${dono.produto.nome}" (${dono.produto.loja}). `
+        + 'Dois cadastros com o mesmo número brigam no PDV — unifique os dois antes de numerar.',
+        409,
       );
     }
     const r = await this.repo.trocar({
