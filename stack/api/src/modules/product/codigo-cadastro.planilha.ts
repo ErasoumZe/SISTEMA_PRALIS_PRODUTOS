@@ -159,12 +159,24 @@ export class CodigoCadastroPlanilhaService {
        * teto virar a casa dos trilhões e a cunhagem seguinte sair de lá.
        */
       if (!codigoCadastroValido(codigo)) { descartadas += 1; continue; }
+      const nome = valor('nome', i);
+      /*
+       * O teto conta só linha COM PRODUTO.
+       *
+       * A aba tem a numeração pré-preenchida por fórmula bem além do que já foi
+       * cadastrado: medido em 20/09, 313 linhas de 13127 a 13439 com código e
+       * **nenhum nome**. Contá-las empurrava o teto para 13439 e a cunhagem
+       * seguinte sairia em 13440, pulando 313 números que estão livres.
+       *
+       * A linha vazia continua entrando em `linhas` — quem importa já a recusa
+       * por não ter nome, e o número dela ainda serve para o relatório.
+       */
       const numero = Number(codigo);
-      if (numero > teto) teto = numero;
+      if (nome && numero > teto) teto = numero;
       linhas.push({
         linha: cfg.GOOGLE_SHEETS_MIX_LINHA_INICIAL + i,
         codigo,
-        nome: valor('nome', i),
+        nome,
         codigoBarras: valor('codigoBarras', i) || null,
         ativo: valor('ativo', i),
         ippt: valor('ippt', i),
