@@ -22,6 +22,8 @@ const products = ref<Product[]>([]);
 const search = ref('');
 const loading = ref(false);
 const erro = ref('');
+const statusEmAlteracao = ref<Set<string>>(new Set());
+const fotoAberta = ref<{ url: string; nome: string } | null>(null);
 let timer: ReturnType<typeof setInterval> | null = null;
 /**
  * Assinatura da última lista recebida. O polling só substitui os dados quando
@@ -258,6 +260,46 @@ async function remover(p: Product) {
   await load();
 }
 
+function abrindoStatus(id: string): boolean {
+  return statusEmAlteracao.value.has(id);
+}
+
+function marcarStatusEmAlteracao(id: string, alterando: boolean) {
+  const ids = new Set(statusEmAlteracao.value);
+  if (alterando) ids.add(id);
+  else ids.delete(id);
+  statusEmAlteracao.value = ids;
+}
+
+/** Ativa/inativa no próprio card, preservando a mesma regra de edição da API. */
+async function alternarStatus(p: Product) {
+  if (abrindoStatus(p.id)) return;
+  const novoStatus = p.status === 'ativo' ? 'inativo' : 'ativo';
+  marcarStatusEmAlteracao(p.id, true);
+  try {
+    const resposta = await api.updateProduct(p.id, { status: novoStatus });
+    const listaAtualizada = products.value.map((item) => item.id === p.id ? resposta.data : item);
+    assinatura = JSON.stringify(listaAtualizada);
+    products.value = listaAtualizada;
+    const espelhoPendente = ['failed', 'pending', 'misconfigured'].includes(resposta.details?.sheetSync ?? '');
+    flash.value = {
+      tipo: espelhoPendente ? 'warning' : 'success',
+      texto: resposta.message || `Produto ${novoStatus === 'ativo' ? 'ativado' : 'inativado'}.`,
+    };
+  } catch (e: unknown) {
+    flash.value = {
+      tipo: 'error',
+      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível alterar o status do produto.',
+    };
+  } finally {
+    marcarStatusEmAlteracao(p.id, false);
+  }
+}
+
+function abrirFoto(p: Product) {
+  if (p.fotoUrl) fotoAberta.value = { url: p.fotoUrl, nome: p.nome };
+}
+
 onMounted(() => {
   load();
   void carregarMargens();
@@ -320,6 +362,20 @@ function preco(p: Product): string | null {
         <v-btn variant="text" @click="mostrarFlash = false">Fechar</v-btn>
       </template>
     </v-snackbar>
+
+    <v-dialog :model-value="!!fotoAberta" max-width="760" @update:model-value="(aberto) => { if (!aberto) fotoAberta = null; }">
+      <v-card v-if="fotoAberta" rounded="lg">
+        <v-card-title class="d-flex align-center ga-2">
+          <span class="text-truncate">{{ fotoAberta.nome }}</span>
+          <v-spacer />
+          <v-btn icon="close" variant="text" aria-label="Fechar foto" @click="fotoAberta = null" />
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-2 pa-sm-4">
+          <v-img :src="fotoAberta.url" :alt="`Foto ampliada de ${fotoAberta.nome}`" max-height="72vh" contain class="rounded-lg bg-grey-lighten-4" />
+        </v-card-text>
+      </v-card>
+    </v-dialog>
 
     <PwaInstallCard />
 
@@ -448,7 +504,18 @@ function preco(p: Product): string | null {
           <v-divider v-if="i > 0" />
           <v-list-item :to="`/produtos/${p.id}`" class="py-2">
             <template #prepend>
-              <v-avatar size="44" rounded="lg" :color="p.fotoUrl ? undefined : 'bege'">
+              <v-avatar
+                size="44"
+                rounded="lg"
+                :color="p.fotoUrl ? undefined : 'bege'"
+                :class="{ 'foto-clicavel': p.fotoUrl }"
+                :role="p.fotoUrl ? 'button' : undefined"
+                :tabindex="p.fotoUrl ? 0 : undefined"
+                :aria-label="p.fotoUrl ? `Abrir foto de ${p.nome}` : undefined"
+                @click.prevent.stop="abrirFoto(p)"
+                @keydown.enter.prevent.stop="abrirFoto(p)"
+                @keydown.space.prevent.stop="abrirFoto(p)"
+              >
                 <v-img v-if="p.fotoUrl" :src="p.fotoUrl" cover />
                 <span v-else class="text-subtitle-1 font-weight-bold text-primary">{{ inicial(p.nome) }}</span>
               </v-avatar>
@@ -462,9 +529,17 @@ function preco(p: Product): string | null {
 
             <template #append>
               <div class="d-flex align-center ga-2">
-                <v-chip :color="p.status === 'ativo' ? 'success' : 'grey'" variant="tonal" size="small">
+                <v-btn
+                  :color="p.status === 'ativo' ? 'success' : 'grey-darken-1'"
+                  variant="tonal"
+                  size="small"
+                  rounded="pill"
+                  :loading="abrindoStatus(p.id)"
+                  :aria-label="`${p.status === 'ativo' ? 'Inativar' : 'Ativar'} ${p.nome}`"
+                  @click.prevent.stop="alternarStatus(p)"
+                >
                   {{ p.status === 'ativo' ? 'Ativo' : 'Inativo' }}
-                </v-chip>
+                </v-btn>
                 <!-- `.prevent` para o clique de excluir não navegar para a edição -->
                 <v-btn
                   v-if="isAdmin"
@@ -488,7 +563,18 @@ function preco(p: Product): string | null {
           <v-card-item>
             <div class="d-flex align-center justify-space-between ga-2">
               <div class="d-flex align-center ga-3" style="min-width: 0">
-                <v-avatar size="46" rounded="lg" :color="p.fotoUrl ? undefined : 'bege'">
+                <v-avatar
+                  size="46"
+                  rounded="lg"
+                  :color="p.fotoUrl ? undefined : 'bege'"
+                  :class="{ 'foto-clicavel': p.fotoUrl }"
+                  :role="p.fotoUrl ? 'button' : undefined"
+                  :tabindex="p.fotoUrl ? 0 : undefined"
+                  :aria-label="p.fotoUrl ? `Abrir foto de ${p.nome}` : undefined"
+                  @click.stop="abrirFoto(p)"
+                  @keydown.enter.prevent.stop="abrirFoto(p)"
+                  @keydown.space.prevent.stop="abrirFoto(p)"
+                >
                   <v-img v-if="p.fotoUrl" :src="p.fotoUrl" cover />
                   <v-icon v-else color="primary">inventory_2</v-icon>
                 </v-avatar>
@@ -497,9 +583,18 @@ function preco(p: Product): string | null {
                   <div class="text-caption text-medium-emphasis">{{ p.codigoInterno || '—' }}</div>
                 </div>
               </div>
-              <v-chip :color="p.status === 'ativo' ? 'success' : 'grey'" variant="tonal" size="small" class="font-weight-medium flex-shrink-0">
+              <v-btn
+                :color="p.status === 'ativo' ? 'success' : 'grey-darken-1'"
+                variant="tonal"
+                size="small"
+                rounded="pill"
+                class="font-weight-medium flex-shrink-0"
+                :loading="abrindoStatus(p.id)"
+                :aria-label="`${p.status === 'ativo' ? 'Inativar' : 'Ativar'} ${p.nome}`"
+                @click.stop="alternarStatus(p)"
+              >
                 {{ p.status === 'ativo' ? 'Ativo' : 'Inativo' }}
-              </v-chip>
+              </v-btn>
             </div>
           </v-card-item>
           <v-divider />
@@ -636,5 +731,12 @@ function preco(p: Product): string | null {
   box-shadow:
     0 2px 6px rgba(29, 29, 31, 0.06),
     0 12px 28px rgba(29, 29, 31, 0.08) !important;
+}
+.foto-clicavel {
+  cursor: zoom-in;
+  outline-offset: 3px;
+}
+.foto-clicavel:focus-visible {
+  outline: 2px solid var(--cx-brand);
 }
 </style>
