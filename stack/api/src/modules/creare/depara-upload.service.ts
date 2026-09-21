@@ -32,10 +32,46 @@ export interface ResumoDePara {
   atuais: number;
   barrasAmbiguas: Array<{ chave: string; coditens: string[] }>;
   coditensRepetidos: string[];
-  /** Menor e maior `coditem` do arquivo: confere se é a loja certa num relance. */
+  /**
+   * Menor e maior `coditem` do **catálogo**, já sem as linhas de delivery.
+   *
+   * Antes esta faixa somava os dois blocos e saía "10000–719000", que parece um
+   * erro grosseiro de leitura quando na verdade é o cadastro de entrega no fim
+   * do arquivo. Separar os dois é a diferença entre um número que assusta e um
+   * número que informa.
+   */
   faixa: { min: number; max: number } | null;
+  /**
+   * Linhas de entrega, que ficam **de fora** do de-para.
+   *
+   * São o mesmo produto cadastrado de novo para o delivery, com código
+   * `700000 + o do catálogo`. O Pralis não administra esses cadastros — eles são
+   * do PDV da loja — e mantê-los aqui só cria produto disputando o mesmo código.
+   */
+  entrega: number;
   confirmacao: string;
 }
+
+/**
+ * Onde termina o catálogo e começa a entrega.
+ *
+ * **Pelo código, não pelo nome.** A primeira versão disto olhava o nome
+ * terminado em `DELIVERY`, e a exportação de 20/09 mostrou por que não dá: o
+ * SIA trunca a descrição em ~50 caracteres, e em **216 das 1.208** linhas de
+ * entrega a palavra sai cortada (`... 170G DELIVE`) ou some inteira. Já o
+ * código separa os dois blocos sem exceção — medido no mesmo arquivo:
+ *
+ *   catálogo  10000–13126   2.984 linhas
+ *   entrega  710000–719000  1.208 linhas
+ *
+ * Nenhuma linha de catálogo passa de 700000 e nenhuma de entrega fica abaixo.
+ */
+const PRIMEIRO_CODIGO_DE_ENTREGA = 700_000;
+
+const ehEntrega = (coditem: string): boolean => {
+  const n = Number(String(coditem).replace(/\D/g, ''));
+  return Number.isFinite(n) && n >= PRIMEIRO_CODIGO_DE_ENTREGA;
+};
 
 @injectable()
 export class DeParaUploadService {
@@ -54,14 +90,44 @@ export class DeParaUploadService {
         422,
       );
     }
+    let bruto: ReturnType<typeof lerDePara>;
     try {
-      return lerDePara(tabela);
+      bruto = lerDePara(tabela);
     } catch (e: unknown) {
       throw new AppError(
         `O arquivo não tem as colunas do SIA (${e instanceof Error ? e.message : 'cabeçalho não reconhecido'}).`,
         422,
       );
     }
+    return this.separarCatalogo(bruto);
+  }
+
+  /**
+   * Fica só com o catálogo e recalcula as recusas SOBRE ELE.
+   *
+   * Recalcular importa: uma linha de entrega colidindo com outra linha de
+   * entrega travaria a gravação de um bloco que nem vai ser gravado. A conta
+   * tem que ser sobre o que realmente entra no de-para.
+   */
+  private separarCatalogo(bruto: ReturnType<typeof lerDePara>) {
+    const catalogo = bruto.linhas.filter((l) => !ehEntrega(l.coditem));
+
+    const porChave = new Map<string, string[]>();
+    const porCoditem = new Map<string, number>();
+    for (const l of catalogo) {
+      porChave.set(l.chaveBarras, [...(porChave.get(l.chaveBarras) ?? []), l.coditem]);
+      porCoditem.set(l.coditem, (porCoditem.get(l.coditem) ?? 0) + 1);
+    }
+
+    return {
+      linhas: catalogo,
+      entrega: bruto.linhas.length - catalogo.length,
+      semBarras: bruto.semBarras,
+      barrasAmbiguas: [...porChave.entries()]
+        .filter(([, coditens]) => coditens.length > 1)
+        .map(([chave, coditens]) => ({ chave, coditens })),
+      coditensRepetidos: [...porCoditem.entries()].filter(([, n]) => n > 1).map(([c]) => c),
+    };
   }
 
   /** Confere sem gravar. É o equivalente ao script sem `--apply`. */
@@ -77,6 +143,7 @@ export class DeParaUploadService {
       barrasAmbiguas: r.barrasAmbiguas.slice(0, 20),
       coditensRepetidos: r.coditensRepetidos.slice(0, 20),
       faixa: numeros.length ? { min: Math.min(...numeros), max: Math.max(...numeros) } : null,
+      entrega: r.entrega,
       confirmacao: CONFIRMACAO_DEPARA,
     };
   }
@@ -109,7 +176,12 @@ export class DeParaUploadService {
       );
     }
     if (r.linhas.length === 0) {
-      throw new AppError('O arquivo não tem nenhuma linha com código de barras.', 422);
+      throw new AppError(
+        r.entrega > 0
+          ? `O arquivo só tem linhas de entrega (código a partir de ${PRIMEIRO_CODIGO_DE_ENTREGA}). Envie a exportação do catálogo.`
+          : 'O arquivo não tem nenhuma linha com código de barras.',
+        422,
+      );
     }
 
     const antes = await this.atuais(loja);
@@ -121,6 +193,6 @@ export class DeParaUploadService {
       }
     });
 
-    return { loja, gravadas: r.linhas.length, substituidas: antes, semBarras: r.semBarras };
+    return { loja, gravadas: r.linhas.length, substituidas: antes, semBarras: r.semBarras, entrega: r.entrega };
   }
 }
