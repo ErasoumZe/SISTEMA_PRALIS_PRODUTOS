@@ -55,8 +55,44 @@ describe('reconciliarCodigoCadastro', () => {
   });
 
   it('produto sem código de barras nenhum cai em novo', () => {
-    const p = uma([produto({ codigoBarras: null })], [par()]);
+    const p = uma([produto({ codigoBarras: null, codigoInterno: '00034' })], [par()]);
     expect(p.balde).toBe('novo');
+  });
+
+  /*
+   * A armadilha que quase custou caro: 2.139 das 2.968 linhas do de-para não
+   * têm código de barras (o SIA guarda o próprio código nesse campo), então os
+   * produtos que vieram delas entram sem barras. Sem esta regra eles cairiam em
+   * "sem par", onde a tela ofereceria cunhar um número novo POR CIMA do código
+   * certo que eles já têm.
+   */
+  it('sem barras, mas com código que já é coditem do SIA, está correto', () => {
+    const p = uma(
+      [produto({ codigoBarras: null, codigoInterno: '10365' })],
+      [par({ coditem: '10365', chaveBarras: '10365' })],
+    );
+    expect(p.balde).toBe('ja-correto');
+    expect(p.codigoProposto).toBeNull();
+    expect(p.motivo).toMatch(/já é o do produto no SIA/);
+  });
+
+  it('compara o código ignorando zeros à esquerda', () => {
+    const p = uma([produto({ codigoBarras: null, codigoInterno: '010365' })], [par({ coditem: '10365' })]);
+    expect(p.balde).toBe('ja-correto');
+  });
+
+  it('código que não existe no SIA continua sendo sem par', () => {
+    const p = uma([produto({ codigoBarras: null, codigoInterno: '99999' })], [par({ coditem: '10365' })]);
+    expect(p.balde).toBe('novo');
+  });
+
+  it('o casamento por barras ganha do código quando os dois existem', () => {
+    const p = uma(
+      [produto({ codigoBarras: '7891000249239', codigoInterno: '11111' })],
+      [par({ coditem: '10365' }), par({ coditem: '11111', chaveBarras: '9999999999999' })],
+    );
+    expect(p.balde).toBe('exato');
+    expect(p.codigoProposto).toBe('10365');
   });
 
   it('o mesmo coditem nas duas lojas continua sendo adoção exata', () => {

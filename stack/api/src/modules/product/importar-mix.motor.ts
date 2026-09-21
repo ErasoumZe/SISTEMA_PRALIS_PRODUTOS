@@ -45,7 +45,8 @@ export type MotivoPulo =
   | 'unidade-desconhecida'
   | 'tipo-desconhecido'
   | 'ja-existe-por-codigo'
-  | 'ja-existe-por-barras';
+  | 'ja-existe-por-barras'
+  | 'barras-repetida-na-planilha';
 
 /** O cadastro que vai ser criado. Campo ausente é `null`, nunca um palpite. */
 export interface ProdutoNovo {
@@ -83,6 +84,29 @@ export interface CadastroExistente {
 
 const texto = (v: unknown): string => String(v ?? '').replace(/\s+/g, ' ').trim();
 const digitos = (v: unknown): string => texto(v).replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+
+/**
+ * Menor número de dígitos para um valor ser código de barras. Mesmo piso do
+ * `codigo-cadastro.motor` — EAN-8 é o menor padrão real.
+ */
+const MENOR_CODIGO_DE_BARRAS = 8;
+
+/**
+ * O código de barras da linha, ou `null` quando não é um.
+ *
+ * Existe porque **2.246 das 3.124 linhas da aba trazem `0000000000000`** — o
+ * jeito da planilha de dizer "não tem código de barras". Tratar isso como um
+ * valor real fez duas coisas ruins na primeira carga: gravou `0` no cadastro de
+ * quem entrou, e depois recusou TODAS as outras 2.245 como "já cadastrado
+ * (mesmo código de barras)", porque elas compartilhavam esse não-valor.
+ *
+ * Qualquer coisa com menos de 8 dígitos cai no mesmo caso: é PLU, código de
+ * cadastro digitado no campo errado, ou sobra — nunca identidade de produto.
+ */
+const codigoDeBarras = (v: unknown): string | null => {
+  const d = digitos(v);
+  return d.length >= MENOR_CODIGO_DE_BARRAS ? d : null;
+};
 
 /**
  * Número no formato da planilha (`1.234,56`) para número.
@@ -128,7 +152,7 @@ const zerado = (): Record<MotivoPulo, number> => ({
   'unidade-desconhecida': 0,
   'tipo-desconhecido': 0,
   'ja-existe-por-codigo': 0,
-  'ja-existe-por-barras': 0,
+  'ja-existe-por-barras': 0, 'barras-repetida-na-planilha': 0,
 });
 
 /**
@@ -147,7 +171,7 @@ export const planejarImportacao = (
   for (const e of existentes) {
     const c = digitos(e.codigoInterno);
     if (c) porCodigo.add(c);
-    const b = digitos(e.codigoBarras);
+    const b = codigoDeBarras(e.codigoBarras);
     if (b) porBarras.add(b);
   }
 
@@ -161,6 +185,8 @@ export const planejarImportacao = (
   const decisoes: DecisaoImportacao[] = [];
   /** Códigos já aceitos nesta rodada — a planilha repete linha de vez em quando. */
   const aceitos = new Set<string>();
+  /** Códigos de barras já aceitos nesta rodada. */
+  const barrasAceitas = new Set<string>();
 
   for (const l of linhas) {
     const codigo = digitos(l.codigo);
@@ -187,10 +213,17 @@ export const planejarImportacao = (
     if (!tipo) { recusar('tipo-desconhecido'); continue; }
 
     if (porCodigo.has(codigo)) { recusar('ja-existe-por-codigo'); continue; }
-    const barras = digitos(l.codigoBarras);
+    const barras = codigoDeBarras(l.codigoBarras);
     if (barras && porBarras.has(barras)) { recusar('ja-existe-por-barras'); continue; }
+    /*
+     * Duas linhas da planilha com o MESMO código de barras e códigos
+     * diferentes: a primeira entra, a segunda não. Criar as duas produziria,
+     * dentro da Base, o duplicado que a tela de código depois recusa numerar.
+     */
+    if (barras && barrasAceitas.has(barras)) { recusar('barras-repetida-na-planilha'); continue; }
 
     aceitos.add(codigo);
+    if (barras) barrasAceitas.add(barras);
     const qtCad = numero(l.quantidadeEmbalagem);
     decisoes.push({
       ...base,
@@ -198,7 +231,7 @@ export const planejarImportacao = (
       produto: {
         codigoInterno: formatarCodigoCadastro(codigo),
         nome,
-        codigoBarras: barras || null,
+        codigoBarras: barras,
         medidaBase,
         tipo,
         /* ATIVO em branco não vira "ativo" por conveniência: só SIM é ativo. */

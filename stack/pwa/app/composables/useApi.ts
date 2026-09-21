@@ -105,7 +105,8 @@ export interface PreviaCustoMer {
 /** Por que uma linha da planilha não virou cadastro. */
 export type MotivoPuloMix =
   | 'codigo-invalido' | 'codigo-repetido-na-planilha' | 'sem-nome'
-  | 'unidade-desconhecida' | 'tipo-desconhecido' | 'ja-existe-por-codigo' | 'ja-existe-por-barras';
+  | 'unidade-desconhecida' | 'tipo-desconhecido' | 'ja-existe-por-codigo' | 'ja-existe-por-barras'
+  | 'barras-repetida-na-planilha';
 
 export interface DecisaoImportacaoMix {
   linha: number;

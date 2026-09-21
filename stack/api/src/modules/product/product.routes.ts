@@ -237,6 +237,7 @@ export async function productRoutes(app: FastifyInstance) {
   const motivoPulo = z.enum([
     'codigo-invalido', 'codigo-repetido-na-planilha', 'sem-nome',
     'unidade-desconhecida', 'tipo-desconhecido', 'ja-existe-por-codigo', 'ja-existe-por-barras',
+    'barras-repetida-na-planilha',
   ]);
 
   a.get(

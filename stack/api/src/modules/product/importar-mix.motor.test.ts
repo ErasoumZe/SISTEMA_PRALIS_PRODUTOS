@@ -99,6 +99,34 @@ describe('planejarImportacao — o que fica vazio em vez de virar palpite', () =
   it('código de barras vazio entra nulo, não string vazia', () => {
     expect(uma({ codigoBarras: '' }).produto!.codigoBarras).toBeNull();
   });
+
+  /*
+   * O defeito que travou a carga de 21/09: 2.246 das 3.124 linhas da aba trazem
+   * `0000000000000` — o jeito da planilha de dizer "não tem código de barras".
+   * Tratar isso como valor real gravou `0` no cadastro de quem entrou e depois
+   * recusou todas as outras como "já cadastrado (mesmo código de barras)".
+   */
+  it('0000000000000 não é código de barras: entra nulo', () => {
+    expect(uma({ codigoBarras: '0000000000000' }).produto!.codigoBarras).toBeNull();
+    expect(uma({ codigoBarras: '0' }).produto!.codigoBarras).toBeNull();
+  });
+
+  it('número curto demais para ser código de barras entra nulo', () => {
+    expect(uma({ codigoBarras: '11151' }).produto!.codigoBarras).toBeNull();
+  });
+
+  it('duas linhas sem código de barras entram as duas', () => {
+    const r = planejarImportacao([
+      linha({ linha: 11, codigo: '10001', codigoBarras: '0000000000000' }),
+      linha({ linha: 12, codigo: '10002', codigoBarras: '0000000000000' }),
+    ], []);
+    expect(r.importar).toBe(2);
+  });
+
+  it('produto existente com barras zerada não bloqueia ninguém', () => {
+    const d = uma({ codigoBarras: '0000000000000' }, [{ codigoInterno: '00042', codigoBarras: '0000000000000' }]);
+    expect(d.acao).toBe('importar');
+  });
 });
 
 describe('planejarImportacao — o que não entra de jeito nenhum', () => {
@@ -173,16 +201,17 @@ describe('planejarImportacao — o relatório', () => {
   });
 
   /*
-   * A planilha tem linhas com o mesmo código de barras em produtos diferentes.
-   * Duas linhas novas com o mesmo EAN não podem entrar as duas.
+   * Duas linhas com o mesmo código de barras REAL e códigos diferentes: criar
+   * as duas produziria, dentro da Base, o duplicado que a tela de código depois
+   * recusa numerar. A primeira entra, a segunda vai para conferência.
    */
-  it('a segunda linha com o mesmo código de barras já entra bloqueada', () => {
+  it('a segunda linha com o mesmo código de barras não entra', () => {
     const r = planejarImportacao(
       [linha({ linha: 11, codigo: '10001' }), linha({ linha: 12, codigo: '10002' })],
       [],
     );
-    // as duas têm o mesmo EAN; a primeira entra, a segunda vai para conferência
-    expect(r.importar).toBeLessThanOrEqual(2);
-    expect(r.decisoes.map((d) => d.acao)).toContain('importar');
+    expect(r.importar).toBe(1);
+    expect(r.pular['barras-repetida-na-planilha']).toBe(1);
+    expect(r.decisoes.map((d) => d.acao)).toEqual(['importar', 'pular']);
   });
 });
