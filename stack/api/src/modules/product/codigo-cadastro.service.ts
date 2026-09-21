@@ -60,7 +60,7 @@ export interface DecisaoPedida {
   confirmacao: string;
 }
 
-const BALDES: BaldeCodigo[] = ['ja-correto', 'exato', 'conflito-sia', 'disputado', 'novo'];
+const BALDES: BaldeCodigo[] = ['ja-correto', 'exato', 'conflito-sia', 'disputado', 'fora-do-sia', 'novo'];
 
 const zerado = (): Record<BaldeCodigo, number> => Object.fromEntries(
   BALDES.map((b) => [b, 0]),
