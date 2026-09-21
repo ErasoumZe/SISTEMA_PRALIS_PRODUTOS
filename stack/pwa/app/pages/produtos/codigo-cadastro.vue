@@ -49,7 +49,7 @@ const BALDES: Array<{ id: BaldeCodigo; titulo: string; ajuda: string }> = [
   {
     id: 'novo',
     titulo: 'Sem código da rede',
-    ajuda: 'Não casa com o SIA e o código atual não é da faixa da rede — é cadastro antigo do Pralis. É o único balde onde cunhar faz sentido, e cunhar cria numeração nova PARA SEMPRE.',
+    ajuda: 'Não casa por código de barras e o código atual não é da faixa da rede. Quando o nome se parece com algum produto do SIA, a sugestão aparece com a % de parecença — confira o nome antes de clicar. Cunhar só quando nenhuma sugestão servir: cria numeração nova PARA SEMPRE.',
   },
   {
     id: 'ja-correto',
@@ -256,18 +256,29 @@ async function decidir(item: ItemCodigoCadastro, corpo: { codigo?: string; cunha
                 <v-btn
                   v-for="c in item.candidatos"
                   :key="`${c.loja}:${c.coditem}`"
-                  size="small" variant="tonal" color="primary"
+                  size="small" variant="tonal"
+                  :color="c.semelhanca === undefined ? 'primary' : 'warning'"
                   :loading="decidindo === item.productId"
                   :disabled="!fraseOk || item.balde === 'ja-correto' || item.balde === 'disputado'"
                   @click="decidir(item, { codigo: c.coditem })"
                 >
                   Adotar {{ c.coditem }}
+                  <!--
+                    A semelhança só aparece quando o candidato veio do NOME.
+                    Casamento por código de barras não é parecido, é igual — pôr
+                    um "100%" ali faria os dois parecerem a mesma coisa.
+                  -->
+                  <span v-if="c.semelhanca !== undefined" class="font-weight-bold ml-1">
+                    {{ c.semelhanca }}%
+                  </span>
                   <span class="text-medium-emphasis ml-1">· {{ c.loja }} · {{ c.descricao }}</span>
                 </v-btn>
 
                 <v-btn
                   v-if="item.balde === 'novo'"
-                  size="small" variant="tonal" color="warning"
+                  size="small"
+                  variant="flat"
+                  color="warning"
                   :loading="decidindo === item.productId"
                   :disabled="!fraseOk"
                   @click="decidir(item, { cunhar: true })"

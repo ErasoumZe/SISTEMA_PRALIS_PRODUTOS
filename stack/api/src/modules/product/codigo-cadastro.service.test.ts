@@ -194,8 +194,66 @@ describe('decidir', () => {
     const repo = new RepoFalso();
     await expect(montar(repo).decidir(JOSE, {
       productId: 'p1', cunhar: true, codigoAtualEsperado: '00034', confirmacao: FRASE,
-    })).rejects.toThrow(/par no SIA/i);
+    })).rejects.toThrow(/"exato"/);
     expect(repo.trocas).toEqual([]);
+  });
+
+  /**
+   * O caso TRIDENT: o produto não casa por código de barras com ninguém, ganha
+   * SUGESTÃO por nome — e ainda assim precisa poder ser cunhado, porque quem
+   * decide pode olhar as sugestões e concluir que nenhuma serve.
+   *
+   * Enquanto a guarda olhava `candidatos.length`, a sugestão trancava a
+   * cunhagem justamente nos produtos que mais precisam de número novo.
+   */
+  it('cunha mesmo havendo sugestão por nome, porque sugestão não é par', async () => {
+    const repo = new RepoFalso(
+      [produto({ nome: 'TRIDENT MENTA', codigoBarras: '7899999999999' })],
+      [par({ coditem: '12345', chaveBarras: '7890000000001', descricao: 'TRIDENT MENTA 8G' })],
+    );
+    const servico = montar(repo);
+
+    const alvo = (await servico.previa()).itens.find((i) => i.productId === 'p1')!;
+    expect(alvo.balde).toBe('novo');
+    expect(alvo.candidatos.map((c) => c.coditem)).toContain('12345');
+    expect(alvo.candidatos[0]!.semelhanca).toBeGreaterThan(55);
+
+    const r = await servico.decidir(JOSE, {
+      productId: 'p1', cunhar: true, codigoAtualEsperado: '00034', confirmacao: FRASE,
+    });
+    expect(r.codigo).toBe('13440');
+  });
+
+  /**
+   * Nenhum código para dois cadastros.
+   *
+   * O balde `disputado` só freia a adoção EM LOTE. Decidindo um a um, nada
+   * impedia dar a `b` o número que `a` já tem — e o banco não tem unicidade em
+   * `codigo_interno` para barrar embaixo.
+   */
+  it('recusa adotar código que outro cadastro já tem', async () => {
+    const repo = new RepoFalso([
+      produto({ id: 'a', nome: 'JÁ NUMERADO', codigoInterno: '10784', codigoBarras: '11151' }),
+      produto({ id: 'b', nome: 'OUTRO', codigoBarras: '11151' }),
+    ], [par({ chaveBarras: '11151', coditem: '10784' })]);
+
+    await expect(montar(repo).decidir(JOSE, {
+      productId: 'b', codigo: '10784', codigoAtualEsperado: '00034', confirmacao: FRASE,
+    })).rejects.toThrow(/já é do cadastro "JÁ NUMERADO"/);
+    expect(repo.trocas).toEqual([]);
+  });
+
+  /** A contrapartida: a sugestão também pode ser ACEITA, sem passar por cunhagem. */
+  it('aceita adotar o código sugerido por nome', async () => {
+    const repo = new RepoFalso(
+      [produto({ nome: 'TRIDENT MENTA', codigoBarras: '7899999999999' })],
+      [par({ coditem: '12345', chaveBarras: '7890000000001', descricao: 'TRIDENT MENTA 8G' })],
+    );
+    const r = await montar(repo).decidir(JOSE, {
+      productId: 'p1', codigo: '12345', codigoAtualEsperado: '00034', confirmacao: FRASE,
+    });
+    expect(r.codigo).toBe('12345');
+    expect(repo.cunhagens).toEqual([]);
   });
 
   it('recusa cunhar quando não há teto nenhum', async () => {

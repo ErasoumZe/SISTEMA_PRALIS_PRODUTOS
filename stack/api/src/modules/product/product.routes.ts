@@ -161,7 +161,9 @@ export async function productRoutes(app: FastifyInstance) {
     balde: baldeCodigo,
     codigoProposto: z.string().nullable(),
     motivo: z.string(),
-    candidatos: z.array(z.object({ loja: z.string(), coditem: z.string(), descricao: z.string() })),
+    candidatos: z.array(z.object({
+      loja: z.string(), coditem: z.string(), descricao: z.string(), semelhanca: z.number().optional(),
+    })),
   });
 
   a.get(

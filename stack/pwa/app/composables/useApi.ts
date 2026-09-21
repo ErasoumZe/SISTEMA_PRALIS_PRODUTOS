@@ -25,6 +25,8 @@ export interface CandidatoCodigo {
   loja: string;
   coditem: string;
   descricao: string;
+  /** Só nas sugestões por nome: 0..100 de parecença. */
+  semelhanca?: number;
 }
 
 export interface ItemCodigoCadastro {
