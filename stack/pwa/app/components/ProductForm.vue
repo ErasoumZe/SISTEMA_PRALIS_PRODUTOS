@@ -303,11 +303,16 @@ function onScanned(code: string) {
   form.codigoBarras = code;
 }
 
-// dropzone da foto (clique ou arrastar)
-const fileInput = ref<HTMLInputElement | null>(null);
+// No Android, um seletor sem `capture` pode oferecer apenas a galeria. Os dois
+// inputs deixam explícito se a pessoa quer a câmera traseira ou um arquivo salvo.
+const cameraInput = ref<HTMLInputElement | null>(null);
+const galleryInput = ref<HTMLInputElement | null>(null);
 function onPick(e: Event) {
-  const f = (e.target as HTMLInputElement).files?.[0];
+  const input = e.target as HTMLInputElement;
+  const f = input.files?.[0];
   if (f) onFoto(f);
+  // Permite selecionar/tirar novamente a mesma foto depois de uma tentativa.
+  input.value = '';
 }
 function onDrop(e: DragEvent) {
   const f = e.dataTransfer?.files?.[0];
@@ -760,21 +765,26 @@ onMounted(async () => {
           </v-col>
           <!-- foto: dropzone (clique ou arraste) -->
           <v-col cols="12" sm="7">
-            <div class="dropzone" :class="{ 'dropzone--full': form.fotoUrl }" @click="!form.fotoUrl && fileInput?.click()" @dragover.prevent @drop.prevent="onDrop">
-              <input ref="fileInput" type="file" accept="image/*" class="d-none" @change="onPick" >
+            <div class="dropzone" :class="{ 'dropzone--full': form.fotoUrl }" @dragover.prevent @drop.prevent="onDrop">
+              <input ref="cameraInput" type="file" accept="image/*" capture="environment" class="d-none" @change="onPick" >
+              <input ref="galleryInput" type="file" accept="image/*" class="d-none" @change="onPick" >
               <template v-if="form.fotoUrl">
                 <v-img :src="form.fotoUrl" height="120" cover class="rounded-lg" />
-                <div class="d-flex justify-center ga-2 mt-2">
-                  <v-btn size="small" variant="tonal" color="primary" prepend-icon="photo_camera" @click.stop="fileInput?.click()">Trocar</v-btn>
+                <div class="d-flex justify-center ga-2 mt-2 flex-wrap">
+                  <v-btn size="small" variant="tonal" color="primary" prepend-icon="photo_camera" :disabled="uploadingFoto" @click.stop="cameraInput?.click()">Tirar foto</v-btn>
+                  <v-btn size="small" variant="tonal" color="primary" prepend-icon="photo_library" :disabled="uploadingFoto" @click.stop="galleryInput?.click()">Galeria</v-btn>
                   <v-btn size="small" variant="text" color="error" prepend-icon="delete" @click.stop="form.fotoUrl = ''">Remover</v-btn>
                 </div>
               </template>
               <template v-else>
                 <v-progress-circular v-if="uploadingFoto" :model-value="fotoComFundoPralis ? progressoFotoIa : undefined" :indeterminate="!fotoComFundoPralis" color="primary" class="mb-2" />
                 <v-icon v-else size="38" color="primary" class="mb-2">cloud_upload</v-icon>
-                <div class="text-body-2 font-weight-medium">Selecione ou arraste a foto</div>
+                <div class="text-body-2 font-weight-medium">Adicione uma foto do produto</div>
                 <div class="text-caption text-medium-emphasis mb-2">PNG, JPG aceitos</div>
-                <v-btn size="small" color="primary" variant="flat" rounded="lg" :loading="uploadingFoto">Selecionar</v-btn>
+                <div class="d-flex justify-center ga-2 flex-wrap">
+                  <v-btn size="small" color="primary" variant="flat" rounded="lg" prepend-icon="photo_camera" :loading="uploadingFoto" @click.stop="cameraInput?.click()">Tirar foto</v-btn>
+                  <v-btn size="small" color="primary" variant="tonal" rounded="lg" prepend-icon="photo_library" :disabled="uploadingFoto" @click.stop="galleryInput?.click()">Galeria</v-btn>
+                </div>
               </template>
             </div>
             <v-switch v-model="fotoComFundoPralis" color="primary" density="compact" hide-details :disabled="uploadingFoto" label="Padronizar fundo com a IA Cicluz" class="mt-2" @click.stop />

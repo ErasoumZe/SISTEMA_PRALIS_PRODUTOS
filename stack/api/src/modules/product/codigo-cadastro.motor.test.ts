@@ -81,9 +81,46 @@ describe('reconciliarCodigoCadastro', () => {
     expect(p.balde).toBe('ja-correto');
   });
 
-  it('código que não existe no SIA continua sendo sem par', () => {
-    const p = uma([produto({ codigoBarras: null, codigoInterno: '99999' })], [par({ coditem: '10365' })]);
+  /*
+   * A mesma armadilha um passo adiante: o produto veio da planilha com código
+   * certo, mas o PDV ainda não o cadastrou. Medido em 21/09: 161 produtos
+   * nesse estado. Se caíssem em "sem par", a tela ofereceria cunhar 13138 por
+   * cima do 10365 que eles acabaram de receber.
+   */
+  it('código da faixa da rede que o SIA ainda não tem não é "sem par"', () => {
+    const p = uma(
+      [produto({ codigoBarras: null, codigoInterno: '10365' })],
+      // o SIA começa em 10000; 10365 está na faixa, mas o PDV não tem este item
+      [par({ coditem: '10000', chaveBarras: '9999999999999' })],
+    );
+    expect(p.balde).toBe('fora-do-sia');
+    expect(p.codigoProposto).toBeNull();
+    expect(p.motivo).toMatch(/PDV ainda não cadastrou/);
+  });
+
+  it('código abaixo da faixa da rede continua sendo sem par', () => {
+    const p = uma(
+      [produto({ codigoBarras: null, codigoInterno: '00141' })],
+      [par({ coditem: '10000', chaveBarras: '9999999999999' })],
+    );
     expect(p.balde).toBe('novo');
+  });
+
+  it('produto sem código nenhum é sem par', () => {
+    const p = uma(
+      [produto({ codigoBarras: null, codigoInterno: null })],
+      [par({ coditem: '10000', chaveBarras: '9999999999999' })],
+    );
+    expect(p.balde).toBe('novo');
+  });
+
+  /* O piso sai do próprio de-para, não de constante: se a rede renumerar, acompanha. */
+  it('o piso da faixa vem do menor coditem do SIA', () => {
+    const p = uma(
+      [produto({ codigoBarras: null, codigoInterno: '05000' })],
+      [par({ coditem: '04000', chaveBarras: '9999999999999' })],
+    );
+    expect(p.balde).toBe('fora-do-sia');
   });
 
   it('o casamento por barras ganha do código quando os dois existem', () => {

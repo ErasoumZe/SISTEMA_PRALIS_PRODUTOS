@@ -42,9 +42,14 @@ const BALDES: Array<{ id: BaldeCodigo; titulo: string; ajuda: string }> = [
     ajuda: 'Dois produtos do Pralis apontam para o mesmo código do PDV — quase sempre cadastro duplicado. Unifique na Central antes de numerar.',
   },
   {
+    id: 'fora-do-sia',
+    titulo: 'Falta no PDV',
+    ajuda: 'O produto já tem código da rede — veio da planilha — mas o PDV ainda não o cadastrou. Não há nada a fazer aqui: o código está certo, e cunhar um novo quebraria o alinhamento. Eles somem deste balde quando a loja cadastrar o produto no SIA e você reenviar o de-para.',
+  },
+  {
     id: 'novo',
-    titulo: 'Sem par no SIA',
-    ajuda: 'Nenhum produto do SIA tem este código de barras. Cunhar cria numeração nova PARA SEMPRE — só faça se o produto realmente não existe na rede.',
+    titulo: 'Sem código da rede',
+    ajuda: 'Não casa com o SIA e o código atual não é da faixa da rede — é cadastro antigo do Pralis. É o único balde onde cunhar faz sentido, e cunhar cria numeração nova PARA SEMPRE.',
   },
   {
     id: 'ja-correto',

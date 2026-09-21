@@ -151,7 +151,7 @@ export async function productRoutes(app: FastifyInstance) {
    * clique humano, item a item, com o código que a tela viu indo junto para
    * impedir que uma tela velha sobrescreva quem decidiu antes.
    */
-  const baldeCodigo = z.enum(['ja-correto', 'exato', 'conflito-sia', 'disputado', 'novo']);
+  const baldeCodigo = z.enum(['ja-correto', 'exato', 'conflito-sia', 'disputado', 'fora-do-sia', 'novo']);
   const itemPrevia = z.object({
     productId: z.string(),
     loja: z.string(),

@@ -44,7 +44,7 @@ export interface ProdutoParaReconciliar {
  * adotar os dois criaria código repetido, que é o defeito que nenhum índice
  * pega hoje.
  */
-export type BaldeCodigo = 'ja-correto' | 'exato' | 'conflito-sia' | 'disputado' | 'novo';
+export type BaldeCodigo = 'ja-correto' | 'exato' | 'conflito-sia' | 'disputado' | 'fora-do-sia' | 'novo';
 
 export interface PropostaCodigo {
   produto: ProdutoParaReconciliar;
@@ -113,6 +113,8 @@ const decidir = (
   produto: ProdutoParaReconciliar,
   porChave: Map<string, ParSia[]>,
   porCoditem: Map<string, ParSia[]>,
+  /** Menor coditem visto no SIA: onde começa a numeração da rede. */
+  pisoDaRede: number,
 ): PropostaCodigo => {
   const vistos = new Set<string>();
   const fortes: ParSia[] = [];
@@ -148,13 +150,34 @@ const decidir = (
         motivo: `O código ${formatarCodigoCadastro(produto.codigoInterno)} já é o do produto no SIA.`,
       };
     }
+    /*
+     * Sem par, mas o produto JÁ TEM um código dentro da faixa da rede.
+     *
+     * É o caso de quem veio da planilha e o PDV ainda não cadastrou: medido em
+     * 21/09, 161 produtos da MIX têm código que o SIA não conhece — `10365
+     * 5STAR 40G`, `10372 BATON BRANCO 16G`. O código deles está certo; o que
+     * falta é o produto existir no PDV.
+     *
+     * Eles não podem dividir balde com quem precisa de número novo. Oferecer
+     * cunhagem aqui trocaria 10365 por 13138 e quebraria o alinhamento que a
+     * importação acabou de construir.
+     */
+    if (pisoDaRede > 0 && Number(digitos(produto.codigoInterno)) >= pisoDaRede) {
+      return {
+        produto,
+        balde: 'fora-do-sia',
+        codigoProposto: null,
+        candidatos: [],
+        motivo: `Já tem o código ${formatarCodigoCadastro(produto.codigoInterno)}, mas o PDV ainda não cadastrou este produto.`,
+      };
+    }
     return fracos.length === 0
       ? {
         produto,
         balde: 'novo',
         codigoProposto: null,
         candidatos: [],
-        motivo: 'Nenhum produto do SIA tem este código de barras, e o código atual não existe no PDV.',
+        motivo: 'Nenhum produto do SIA tem este código de barras, e o código atual não é da faixa da rede.',
       }
       : {
         produto,
@@ -223,7 +246,16 @@ export const reconciliarCodigoCadastro = (
     porChave.set(chave, [...(porChave.get(chave) ?? []), par]);
   }
 
-  const propostas = produtos.map((produto) => decidir(produto, porChave, porCoditem));
+  /*
+   * O piso da faixa da rede sai do PRÓPRIO de-para — o menor `coditem` que o
+   * SIA usa. Nada de constante: se a rede renumerar, o piso acompanha.
+   */
+  const pisoDaRede = [...porCoditem.keys()].reduce((menor, c) => {
+    const n = Number(c);
+    return Number.isFinite(n) && (menor === 0 || n < menor) ? n : menor;
+  }, 0);
+
+  const propostas = produtos.map((produto) => decidir(produto, porChave, porCoditem, pisoDaRede));
 
   const quantosQuerem = new Map<string, number>();
   for (const p of propostas) {

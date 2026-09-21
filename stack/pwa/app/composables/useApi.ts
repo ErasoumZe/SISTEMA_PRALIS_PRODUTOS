@@ -18,7 +18,7 @@ export type ProdutosUnicos = VendasUnicos.ProdutosUnicos;
 export type ProdutosUnicosQuery = VendasUnicos.ProdutosUnicosQuery;
 
 /** Onde cada produto caiu na reconciliação do código de cadastro. */
-export type BaldeCodigo = 'ja-correto' | 'exato' | 'conflito-sia' | 'disputado' | 'novo';
+export type BaldeCodigo = 'ja-correto' | 'exato' | 'conflito-sia' | 'disputado' | 'fora-do-sia' | 'novo';
 
 /** Um produto do SIA que casou pelo código de barras. */
 export interface CandidatoCodigo {
