@@ -225,6 +225,9 @@ onMounted(() => {
             da planilha MIX. Adota sozinho só quando o código de barras casa com uma
             linha só; o resto fica para você decidir item a item.
           </p>
+          <v-btn variant="tonal" color="primary" prepend-icon="barcode" to="/produtos/giulia-sia" class="mr-2">
+            Giulia × SIA
+          </v-btn>
           <v-btn variant="tonal" color="primary" prepend-icon="pin" to="/produtos/codigo-cadastro">
             Abrir a reconciliação
           </v-btn>

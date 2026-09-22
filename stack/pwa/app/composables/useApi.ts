@@ -65,6 +65,20 @@ export interface PreviaCodigoCadastro {
   loteMaximo: number;
 }
 
+/** Prévia exclusiva: somente o código de barras liga um cadastro da Giulia ao SIA. */
+export interface PreviaGiuliaSia {
+  propostas: Array<{
+    produto: { id: string; loja: string; nome: string; codigoBarras: string | null; codigoInterno: string | null };
+    situacao: 'conciliar-sia' | 'novo-codigo' | 'pendente' | 'conflito-sia';
+    codigoProposto: string | null;
+    candidatos: Array<{ loja: string; coditem: string; descricao: string; ativo: string }>;
+    motivo: string;
+  }>;
+  linhasCatalogoSia: number; ultimoSiaAtivo: number; maiorBanco: number; teto: number;
+  resumo: { 'conciliar-sia': number; 'novo-codigo': number; pendente: number; 'conflito-sia': number };
+  confirmacao: string; loteMaximo: number;
+}
+
 /** Conferência de uma exportação do SIA antes de substituir o de-para. */
 export interface ResumoDePara {
   loja: string;
@@ -528,6 +542,14 @@ export function useApi() {
       unwrap($fetch<{ data: { codigo: string; fonte: string } }>(
         '/admin/produtos/codigo-cadastro/decidir',
         { ...base, method: 'POST', body },
+      )),
+
+    // ---- produtos da Giulia × SIA (somente código de barras) ----
+    giuliaSiaPrevia: () =>
+      unwrap($fetch<{ data: PreviaGiuliaSia }>('/admin/produtos/giulia-sia/previa', { ...base })),
+    giuliaSiaAplicar: (confirmacao: string) =>
+      unwrap($fetch<{ data: { aplicadas: number; conflitos: number; restantes: number } }>(
+        '/admin/produtos/giulia-sia/aplicar', { ...base, method: 'POST', body: { confirmacao } },
       )),
 
     // ---- importar da planilha MIX para a Base ----

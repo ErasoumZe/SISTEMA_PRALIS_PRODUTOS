@@ -6,6 +6,7 @@ import { ProductController } from './product.controller';
 import { ProductExportController } from './product-export.controller';
 import { ProductZerarController } from './product-zerar.controller';
 import { CodigoCadastroController } from './codigo-cadastro.controller';
+import { GiuliaSiaController } from './giulia-sia.controller';
 import { BALDES_EM_LOTE } from './codigo-cadastro.service';
 import { ImportarMixController } from './importar-mix.controller';
 import { CustoMerController } from './custo-mer.controller';
@@ -19,6 +20,7 @@ export async function productRoutes(app: FastifyInstance) {
   const exportController = container.resolve(ProductExportController);
   const zerarController = container.resolve(ProductZerarController);
   const codigoCadastroController = container.resolve(CodigoCadastroController);
+  const giuliaSiaController = container.resolve(GiuliaSiaController);
   const importarMixController = container.resolve(ImportarMixController);
   const custoMerController = container.resolve(CustoMerController);
   const historicalDuplicatesController = container.resolve(HistoricalDuplicatesController);
@@ -209,6 +211,32 @@ export async function productRoutes(app: FastifyInstance) {
       loja: z.string(), coditem: z.string(), descricao: z.string(), semelhanca: z.number().optional(),
     })),
   });
+
+  a.get(
+    '/admin/produtos/giulia-sia/previa',
+    {
+      schema: {
+        response: { 200: apiResponseSchema(z.object({
+          propostas: z.array(z.object({
+            produto: z.object({ id: z.string(), loja: z.string(), nome: z.string(), codigoBarras: z.string().nullable(), codigoInterno: z.string().nullable() }),
+            situacao: z.enum(['conciliar-sia', 'novo-codigo', 'pendente', 'conflito-sia']), codigoProposto: z.string().nullable(),
+            candidatos: z.array(z.object({ loja: z.string(), coditem: z.string(), descricao: z.string(), ativo: z.string() })), motivo: z.string(),
+          })),
+          linhasCatalogoSia: z.number(), ultimoSiaAtivo: z.number(), maiorBanco: z.number(), teto: z.number(),
+          resumo: z.object({ 'conciliar-sia': z.number(), 'novo-codigo': z.number(), pendente: z.number(), 'conflito-sia': z.number() }),
+          confirmacao: z.string(), loteMaximo: z.number(),
+        })) },
+        summary: 'Prévia exclusiva por código de barras dos produtos da Giulia (admin)', tags: ['ADMIN', 'PRODUTOS'],
+      },
+    }, giuliaSiaController.previa.bind(giuliaSiaController),
+  );
+
+  a.post(
+    '/admin/produtos/giulia-sia/aplicar',
+    {
+      schema: { body: z.object({ confirmacao: z.string() }), response: { 200: apiResponseSchema(z.object({ aplicadas: z.number(), conflitos: z.number(), restantes: z.number() })) }, summary: 'Aplicar reconciliação Giulia/SIA confirmada (admin)', tags: ['ADMIN', 'PRODUTOS'] },
+    }, giuliaSiaController.aplicar.bind(giuliaSiaController),
+  );
 
   a.get(
     '/admin/produtos/codigo-cadastro/previa',
