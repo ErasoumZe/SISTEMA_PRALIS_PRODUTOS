@@ -10,7 +10,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
   if (user.value && isLogin) return navigateTo('/');
 
   // rotas exclusivas de admin
-  const adminOnly = ['/dashboard', '/usuarios', '/produtos/historico-nomes'];
+  const adminOnly = ['/dashboard', '/usuarios', '/produtos/historico-nomes', '/produtos/duplicados-historicos'];
   if (user.value && user.value.role !== 'admin' && adminOnly.includes(to.path)) {
     return navigateTo('/');
   }

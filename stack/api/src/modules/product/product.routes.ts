@@ -9,6 +9,7 @@ import { CodigoCadastroController } from './codigo-cadastro.controller';
 import { BALDES_EM_LOTE } from './codigo-cadastro.service';
 import { ImportarMixController } from './importar-mix.controller';
 import { CustoMerController } from './custo-mer.controller';
+import { HistoricalDuplicatesController } from './historical-duplicates.controller';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { apiResponseSchema } from '@/config/api.replies';
 import { authMiddleware } from '@/middlewares/auth-handler';
@@ -20,6 +21,7 @@ export async function productRoutes(app: FastifyInstance) {
   const codigoCadastroController = container.resolve(CodigoCadastroController);
   const importarMixController = container.resolve(ImportarMixController);
   const custoMerController = container.resolve(CustoMerController);
+  const historicalDuplicatesController = container.resolve(HistoricalDuplicatesController);
   const a = app.withTypeProvider<ZodTypeProvider>();
 
   // todas as rotas exigem autenticação
@@ -34,6 +36,27 @@ export async function productRoutes(app: FastifyInstance) {
     espelhoLoja: z.enum(['desligado', 'sem-aba', 'espelhado', 'falhou']),
   }));
   const okReply = apiResponseSchema(z.any());
+
+  a.get(
+    '/admin/produtos/duplicados-historicos/previa',
+    { schema: { summary: 'Confrontar códigos históricos 00001–00428 contra SIA 10000–13126', tags: ['ADMIN', 'PRODUTOS'] } },
+    historicalDuplicatesController.previa.bind(historicalDuplicatesController),
+  );
+
+  a.post<{ Body: { perdedorId: string; vencedorId: string; codigoPerdedorEsperado: string; codigoVencedorEsperado: string; confirmacao: string } }>(
+    '/admin/produtos/duplicados-historicos/unificar',
+    {
+      schema: {
+        body: z.object({
+          perdedorId: z.string().min(1), vencedorId: z.string().min(1),
+          codigoPerdedorEsperado: z.string().min(1), codigoVencedorEsperado: z.string().min(1),
+          confirmacao: z.string().min(1),
+        }),
+        summary: 'Unificar um cadastro histórico em seu equivalente SIA (admin)', tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    historicalDuplicatesController.unificar.bind(historicalDuplicatesController),
+  );
 
   a.post<{ Body: ProductRequests.CreateProductRequest }>(
     '/products',

@@ -39,6 +39,7 @@ const nav = computed<NavItem[]>(() => {
   if (isAdmin.value) {
     items.push({ title: 'Dashboard', icon: 'dashboard', to: '/dashboard', section: 'Administração' });
     items.push({ title: 'Central de Produtos', icon: 'merge_type', to: '/produtos/central', section: 'Administração' });
+    items.push({ title: 'Duplicados históricos', icon: 'compare_arrows', to: '/produtos/duplicados-historicos', section: 'Administração' });
     items.push({ title: 'Histórico', icon: 'history', to: '/produtos/historico-nomes', section: 'Administração' });
   }
   // "Duplicados" não existe mais: a Central de Produtos faz o que ela fazia e
@@ -69,6 +70,7 @@ const titulo = computed(() => {
     '/produtos/reconciliacao': 'Conferir planilha',
     '/produtos/manutencao': 'Manutenção do catálogo',
     '/produtos/codigo-cadastro': 'Código de cadastro',
+    '/produtos/duplicados-historicos': 'Duplicados históricos',
     '/produtos/importar-mix': 'Importar da planilha',
     '/produtos/custo-discriminacao': 'Custo da discriminação',
     '/produtos/depara-sia': 'De-para do SIA',
@@ -86,6 +88,7 @@ const subtitulo = computed(() => {
     '/produtos/reconciliacao': 'O que o banco e a planilha discordam',
     '/produtos/manutencao': 'Ações que não têm volta',
     '/produtos/codigo-cadastro': 'A numeração vem do PDV',
+    '/produtos/duplicados-historicos': 'Unifique históricos no código SIA correto',
     '/produtos/importar-mix': 'O que existe na planilha e não no sistema',
     '/produtos/custo-discriminacao': 'O valor da compra mais recente',
     '/produtos/depara-sia': 'A régua da numeração da rede',

@@ -293,6 +293,19 @@ export interface Reconciliacao {
   nomeDivergente: Array<{ produtoId: string; linha: number; nomeNoBanco: string; nomeNaPlanilha: string }>;
 }
 
+export type TipoConfrontoHistorico = 'barras-exatas' | 'nome-exato' | 'revisar' | 'sem-par';
+export interface PreviaDuplicadosHistoricos {
+  resumo: Record<TipoConfrontoHistorico, number>;
+  tetoAtual: number;
+  confirmacao: string;
+  itens: Array<{
+    legado: { id: string; codigoInterno: string; nome: string; codigoBarras: string | null };
+    tipo: TipoConfrontoHistorico;
+    candidato: { id: string; codigoInterno: string; nome: string; codigoBarras: string | null } | null;
+    semelhanca: number | null;
+  }>;
+}
+
 /**
  * Cliente da API (envelope { message, data, details }). Tipado pelos schemas do @pralis/shared.
  */
@@ -361,6 +374,12 @@ export function useApi() {
 
     findByCodigoBarras: (codigoBarras: string) =>
       unwrap($fetch<{ data: Product[] }>('/products', { ...base, query: { codigoBarras } })),
+
+    duplicadosHistoricosPrevia: () =>
+      unwrap($fetch<{ data: PreviaDuplicadosHistoricos }>('/admin/produtos/duplicados-historicos/previa', { ...base })),
+    duplicadosHistoricosUnificar: (body: {
+      perdedorId: string; vencedorId: string; codigoPerdedorEsperado: string; codigoVencedorEsperado: string; confirmacao: string;
+    }) => $fetch('/admin/produtos/duplicados-historicos/unificar', { ...base, method: 'POST', body }),
 
     listGroupTaxRules: () =>
       unwrap($fetch<{ data: GroupTaxRule[] }>('/apoio/grupos-fiscais', { ...base })),
