@@ -442,7 +442,7 @@ function preco(p: Product): string | null {
         density="compact"
         variant="outlined"
         hide-details
-        placeholder="Buscar produto..."
+        placeholder="Buscar nome, código interno ou barras..."
         prepend-inner-icon="search"
         style="flex: 1 1 220px; max-width: 320px"
         @keyup.enter="load()"

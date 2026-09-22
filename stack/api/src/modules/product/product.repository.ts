@@ -321,8 +321,25 @@ export class ProductRepository {
     if (filter.tipo) conditions.push(eq(products.tipo, filter.tipo));
     if (filter.status) conditions.push(eq(products.status, filter.status));
     if (filter.q) {
-      const term = `%${filter.q}%`;
-      conditions.push(or(ilike(products.nome, term), ilike(products.marca, term), ilike(products.codigo, term))!);
+      const busca = filter.q.trim();
+      const term = `%${busca}%`;
+      /*
+       * A busca principal é a mesma caixa que a pessoa usa no balcão: nome,
+       * código interno e EAN. Barcode tem variantes (zeros à esquerda / EAN de
+       * balança), portanto entra por igualdade com as mesmas regras fiscais,
+       * não por texto parcial que poderia trazer outro produto por engano.
+       */
+      const barras = barcodeCandidates(busca);
+      const porBarras = barras.length > 1
+        ? inArray(products.codigoBarras, barras)
+        : eq(products.codigoBarras, barras[0] ?? busca);
+      conditions.push(or(
+        ilike(products.nome, term),
+        ilike(products.marca, term),
+        ilike(products.codigo, term),
+        ilike(products.codigoInterno, term),
+        porBarras,
+      )!);
     }
     /*
      * Igualdade, não `ilike`: código de barras não é texto de busca, é
