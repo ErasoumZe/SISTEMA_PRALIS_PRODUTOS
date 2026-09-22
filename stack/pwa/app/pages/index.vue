@@ -82,6 +82,11 @@ const tipoOpcoes = [
 ] as const;
 const setorFiltro = ref<string | null>(null);
 const grupoFiltro = ref<string | null>(null);
+const cadastradoPorFiltro = ref<string | null>(null);
+const selecionados = ref<Set<string>>(new Set());
+const dialogoExclusao = ref(false);
+const fraseExclusao = ref('');
+const excluindoLote = ref(false);
 /**
  * Faixas de códigos internos para consulta. Não alteram o cadastro: DELIVERY
  * (7xxxxx), códigos novos e itens sem código continuam preservados no sistema;
@@ -151,6 +156,7 @@ const rota = useRoute();
 }
 const setores = computed(() => [...new Set(products.value.map((p) => p.setorEstoque).filter((s): s is string => !!s))]);
 const grupos = computed(() => [...new Set(products.value.map((p) => p.grupo).filter((g): g is string => !!g))]);
+const cadastradosPor = computed(() => [...new Set(products.value.map((p) => p.createdByName).filter((s): s is string => !!s))].sort((a, b) => a.localeCompare(b, 'pt-BR')));
 
 // ordenação
 const ordenar = ref<'recentes' | 'antigos' | 'az' | 'za' | 'codigo_asc' | 'codigo_desc'>('recentes');
@@ -167,7 +173,7 @@ const ordenarOpcoes = [
 const mostrarFiltros = ref(false);
 const numFiltros = computed(
   () =>
-    [statusFiltro.value, tipoFiltro.value, setorFiltro.value, grupoFiltro.value, curvaAbcFiltro.value, faixaCodigoFiltro.value].filter(Boolean).length +
+    [statusFiltro.value, tipoFiltro.value, setorFiltro.value, grupoFiltro.value, cadastradoPorFiltro.value, curvaAbcFiltro.value, faixaCodigoFiltro.value].filter(Boolean).length +
     (ordenar.value !== 'recentes' ? 1 : 0),
 );
 const temFiltro = computed(() => numFiltros.value > 0 || !!search.value);
@@ -176,6 +182,7 @@ function limparFiltros() {
   tipoFiltro.value = null;
   setorFiltro.value = null;
   grupoFiltro.value = null;
+  cadastradoPorFiltro.value = null;
   faixaCodigoFiltro.value = null;
   curvaAbcFiltro.value = null;
   ordenar.value = 'recentes';
@@ -191,6 +198,7 @@ const filtrados = computed(() =>
     if (tipoFiltro.value && p.tipo !== tipoFiltro.value) return false;
     if (setorFiltro.value && p.setorEstoque !== setorFiltro.value) return false;
     if (grupoFiltro.value && p.grupo !== grupoFiltro.value) return false;
+    if (cadastradoPorFiltro.value && p.createdByName !== cadastradoPorFiltro.value) return false;
     if (faixaCodigoFiltro.value) {
       const faixa = FAIXAS_CODIGO[faixaCodigoFiltro.value];
       const codigo = Number(p.codigoInterno);
@@ -216,7 +224,7 @@ const totalPaginas = computed(() => Math.max(1, Math.ceil(ordenados.value.length
 const paginados = computed(() => ordenados.value.slice((page.value - 1) * PER_PAGE, page.value * PER_PAGE));
 
 // volta pra página 1 ao trocar filtro/ordem/busca/aba; mantém a página válida quando a lista muda
-watch([statusFiltro, tipoFiltro, setorFiltro, grupoFiltro, curvaAbcFiltro, faixaCodigoFiltro, ordenar, search, aba], () => { page.value = 1; });
+watch([statusFiltro, tipoFiltro, setorFiltro, grupoFiltro, cadastradoPorFiltro, curvaAbcFiltro, faixaCodigoFiltro, ordenar, search, aba], () => { page.value = 1; });
 watch(totalPaginas, (n) => { if (page.value > n) page.value = n; });
 
 /** Substitui a lista só se ela mudou; no polling, ignora resposta idêntica. */
@@ -275,6 +283,28 @@ async function remover(p: Product) {
     return;
   }
   await load();
+}
+
+function marcarSelecionado(id: string, marcado: boolean | null) {
+  const proximo = new Set(selecionados.value);
+  if (marcado) proximo.add(id); else proximo.delete(id);
+  selecionados.value = proximo;
+}
+function selecionarPagina() { selecionados.value = new Set([...selecionados.value, ...paginados.value.map((p) => p.id)]); }
+function limparSelecao() { selecionados.value = new Set(); }
+const fraseEsperadaExclusao = computed(() => `EXCLUIR ${selecionados.value.size} PRODUTOS`);
+async function excluirSelecionados() {
+  if (fraseExclusao.value.trim().toUpperCase() !== fraseEsperadaExclusao.value || !selecionados.value.size) return;
+  excluindoLote.value = true;
+  try {
+    const resposta = await api.deleteProductsBatch([...selecionados.value], fraseExclusao.value);
+    const { excluidos, falhas } = resposta.data;
+    selecionados.value = new Set(falhas.map((f) => f.id));
+    dialogoExclusao.value = false; fraseExclusao.value = '';
+    flash.value = { tipo: falhas.length ? 'warning' : 'success', texto: `${excluidos.length} excluído(s).${falhas.length ? ` ${falhas.length} não puderam ser excluídos.` : ''}` };
+    await load();
+  } catch (e) { flash.value = { tipo: 'error', texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível excluir os produtos selecionados.' }; }
+  finally { excluindoLote.value = false; }
 }
 
 function abrindoStatus(id: string): boolean {
@@ -393,6 +423,16 @@ function preco(p: Product): string | null {
         </v-card-text>
       </v-card>
     </v-dialog>
+    <v-dialog v-model="dialogoExclusao" max-width="520">
+      <v-card rounded="lg">
+        <v-card-title>Excluir {{ selecionados.size }} produto(s)?</v-card-title>
+        <v-card-text>
+          Esta ação remove os produtos selecionados do sistema e da planilha. Digite <strong>{{ fraseEsperadaExclusao }}</strong> para confirmar.
+          <v-text-field v-model="fraseExclusao" class="mt-4" :placeholder="fraseEsperadaExclusao" label="Frase de confirmação" hide-details />
+        </v-card-text>
+        <v-card-actions><v-spacer /><v-btn @click="dialogoExclusao = false">Cancelar</v-btn><v-btn color="error" :loading="excluindoLote" :disabled="fraseExclusao.trim().toUpperCase() !== fraseEsperadaExclusao" @click="excluirSelecionados">Excluir selecionados</v-btn></v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <PwaInstallCard />
 
@@ -432,6 +472,10 @@ function preco(p: Product): string | null {
         <v-btn value="card" aria-label="Ver em cards"><v-icon>grid_view</v-icon></v-btn>
         <v-btn value="lista" aria-label="Ver em lista"><v-icon>view_list</v-icon></v-btn>
       </v-btn-toggle>
+      <template v-if="isAdmin">
+        <v-btn v-if="selecionados.size" color="error" variant="tonal" prepend-icon="delete" @click="dialogoExclusao = true">Excluir {{ selecionados.size }}</v-btn>
+        <v-btn v-if="selecionados.size" size="small" variant="text" @click="limparSelecao">Limpar seleção</v-btn>
+      </template>
       <v-btn v-if="!isAdmin" variant="tonal" color="primary" prepend-icon="download" to="/importar">Importar da base</v-btn>
       <!-- só o admin cadastra produto novo (sempre na base geral) -->
       <v-btn v-if="isAdmin" color="primary" prepend-icon="add" to="/produtos/novo">Novo</v-btn>
@@ -491,6 +535,7 @@ function preco(p: Product): string | null {
           />
           <v-select v-model="setorFiltro" :items="setores" label="Setor" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="warehouse" class="filtro-select filtro-item" />
           <v-select v-model="grupoFiltro" :items="grupos" label="Grupo" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="sell" class="filtro-select filtro-item" />
+          <v-select v-if="isAdmin" v-model="cadastradoPorFiltro" :items="cadastradosPor" label="Cadastrado por" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="person" class="filtro-select filtro-item" />
           <v-btn
             v-for="(faixa, chave) in FAIXAS_CODIGO"
             :key="chave"
@@ -517,6 +562,9 @@ function preco(p: Product): string | null {
 
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
     <v-alert v-if="erroAbc" type="warning" variant="tonal" class="mb-4">{{ erroAbc }}</v-alert>
+    <v-alert v-if="isAdmin && selecionados.size" type="info" variant="tonal" class="mb-4">
+      {{ selecionados.size }} produto(s) selecionado(s). <v-btn size="small" variant="text" @click="selecionarPagina">Selecionar página atual</v-btn>
+    </v-alert>
     <v-alert v-if="curvaAbcFiltro && !carregandoAbc && !erroAbc && !classesAbcPorProduto.size" type="info" variant="tonal" class="mb-4">
       Não há produtos vinculados à Curva {{ curvaAbcFiltro }} nos últimos 12 meses para esta aba.
     </v-alert>
@@ -533,6 +581,7 @@ function preco(p: Product): string | null {
           <v-divider v-if="i > 0" />
           <v-list-item :to="`/produtos/${p.id}`" class="py-2">
             <template #prepend>
+              <v-checkbox v-if="isAdmin" :model-value="selecionados.has(p.id)" density="compact" hide-details class="mr-2" @click.stop @update:model-value="marcarSelecionado(p.id, $event)" />
               <v-avatar
                 size="44"
                 rounded="lg"
@@ -591,6 +640,7 @@ function preco(p: Product): string | null {
         <v-card border flat rounded="lg" class="h-100 product-card">
           <v-card-item>
             <div class="d-flex align-center justify-space-between ga-2">
+              <v-checkbox v-if="isAdmin" :model-value="selecionados.has(p.id)" density="compact" hide-details @click.stop @update:model-value="marcarSelecionado(p.id, $event)" />
               <div class="d-flex align-center ga-3" style="min-width: 0">
                 <v-avatar
                   size="46"

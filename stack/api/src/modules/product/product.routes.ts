@@ -128,6 +128,12 @@ export async function productRoutes(app: FastifyInstance) {
     controller.delete.bind(controller),
   );
 
+  a.post<{ Body: { ids: string[]; confirmacao: string } }>(
+    '/products/excluir-lote',
+    { schema: { body: z.object({ ids: z.array(z.string().min(1)).min(1).max(100), confirmacao: z.string().min(1) }), response: { 200: okReply }, summary: 'Excluir produtos selecionados (admin)', tags: ['PRODUCTS'] } },
+    controller.deleteBatch.bind(controller),
+  );
+
   // Só leitura. A resposta é o CSV cru, então a rota não declara `response`
   // (o schema de resposta padrão embrulharia o arquivo num envelope JSON).
   a.get(

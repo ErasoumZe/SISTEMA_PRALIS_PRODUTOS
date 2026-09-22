@@ -114,6 +114,11 @@ export class ProductController {
     return reply.status(200).send(buildResponse(null, 'Produto excluído com sucesso'));
   }
 
+  async deleteBatch(request: FastifyRequest<{ Body: { ids: string[]; confirmacao: string } }>, reply: FastifyReply) {
+    const result = await this.service.deleteBatch(requireUser(request), request.body.ids, request.body.confirmacao);
+    return reply.status(200).send(buildResponse(result, `${result.excluidos.length} produto(s) excluído(s).`));
+  }
+
   async importBase(request: FastifyRequest<{ Body: ProductRequests.ImportProductsRequest }>, reply: FastifyReply) {
     const result = await this.service.importFromBase(requireUser(request), request.body.baseIds);
     return reply

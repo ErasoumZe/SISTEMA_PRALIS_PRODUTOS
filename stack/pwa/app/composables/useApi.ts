@@ -356,6 +356,8 @@ export function useApi() {
 
     deleteProduct: (id: string) =>
       $fetch(`/products/${id}`, { ...base, method: 'DELETE' }),
+    deleteProductsBatch: (ids: string[], confirmacao: string) =>
+      $fetch<{ data: { excluidos: string[]; falhas: Array<{ id: string; erro: string }> } }>('/products/excluir-lote', { ...base, method: 'POST', body: { ids, confirmacao } }),
 
     uploadFoto: (file: File) => {
       const fd = new FormData();
