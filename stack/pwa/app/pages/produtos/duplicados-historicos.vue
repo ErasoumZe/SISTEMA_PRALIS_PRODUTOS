@@ -5,6 +5,7 @@ const api = useApi();
 const dados = ref<PreviaDuplicadosHistoricos | null>(null);
 const carregando = ref(true);
 const erro = ref('');
+const resultado = ref('');
 const agindo = ref<string | null>(null);
 const loteEmAndamento = ref<'nomes' | 'revisados' | null>(null);
 const confirmacao = ref('');
@@ -53,7 +54,7 @@ async function unificarNomesExatos() {
   loteEmAndamento.value = 'nomes';
   try {
     const resposta = await api.duplicadosHistoricosUnificarNomesExatos({ totalEsperado: nomesExatos.value, confirmacao: confirmacao.value });
-    if (resposta.data.falhas.length) erro.value = `${resposta.data.aplicados} unificados; ${resposta.data.falhas.length} ficaram para conferir.`;
+    resultado.value = `${resposta.data.aplicados} nome(s) exato(s) unificado(s).${resposta.data.falhas.length ? ` ${resposta.data.falhas.length} ficaram para conferir.` : ''}`;
     confirmacao.value = ''; await carregar();
   } catch (e) { erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não foi possível unificar os nomes exatos.'; }
   finally { loteEmAndamento.value = null; }
@@ -67,7 +68,7 @@ async function unificarSelecionados() {
       codigoPerdedorEsperado: item.legado.codigoInterno, codigoVencedorEsperado: item.candidato!.codigoInterno,
       confirmacao: confirmacao.value,
     })) });
-    if (resposta.data.falhas.length) erro.value = `${resposta.data.aplicados} unificados; ${resposta.data.falhas.length} ficaram para conferir.`;
+    resultado.value = `${resposta.data.aplicados} revisado(s) unificado(s).${resposta.data.falhas.length ? ` ${resposta.data.falhas.length} ficaram para conferir.` : ''}`;
     confirmacao.value = ''; await carregar();
   } catch (e) { erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não foi possível unificar os selecionados.'; }
   finally { loteEmAndamento.value = null; }
@@ -82,6 +83,7 @@ onMounted(carregar);
       Só código de barras único ou nome idêntico liberam unificação. Similaridade é apenas sugestão para revisão.
     </v-alert>
     <v-alert v-if="erro" type="error" closable class="mb-4" @click:close="erro = ''">{{ erro }}</v-alert>
+    <v-alert v-if="resultado" type="success" closable class="mb-4" @click:close="resultado = ''">{{ resultado }}</v-alert>
     <v-progress-linear v-if="carregando" indeterminate color="primary" class="mb-5" />
     <template v-else-if="dados">
       <v-row class="mb-2">
