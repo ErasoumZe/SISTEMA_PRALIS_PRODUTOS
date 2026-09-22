@@ -6,8 +6,10 @@ const dados = ref<PreviaDuplicadosHistoricos | null>(null);
 const carregando = ref(true);
 const erro = ref('');
 const agindo = ref<string | null>(null);
+const loteEmAndamento = ref<'nomes' | 'revisados' | null>(null);
 const confirmacao = ref('');
 const tipo = ref<TipoConfrontoHistorico | 'todos'>('todos');
+const selecionados = ref<Set<string>>(new Set());
 
 const ROTULO: Record<TipoConfrontoHistorico, string> = {
   'barras-exatas': 'Barras exatas', 'nome-exato': 'Nome exato', revisar: 'Revisar', 'sem-par': 'Sem par',
@@ -17,10 +19,13 @@ const COR: Record<TipoConfrontoHistorico, string> = {
 };
 const itens = computed(() => (dados.value?.itens ?? []).filter((i) => tipo.value === 'todos' || i.tipo === tipo.value));
 const podeUnificar = (t: TipoConfrontoHistorico) => t === 'barras-exatas' || t === 'nome-exato';
+const nomesExatos = computed(() => dados.value?.resumo['nome-exato'] ?? 0);
+const revisadosSelecionados = computed(() => (dados.value?.itens ?? []).filter((i) => i.tipo === 'revisar' && i.candidato && selecionados.value.has(i.legado.id)));
+const podeConfirmar = computed(() => !!dados.value && confirmacao.value.trim().toUpperCase() === dados.value.confirmacao);
 
 async function carregar() {
   carregando.value = true; erro.value = '';
-  try { dados.value = await api.duplicadosHistoricosPrevia(); }
+  try { dados.value = await api.duplicadosHistoricosPrevia(); selecionados.value = new Set(); }
   catch { erro.value = 'Não foi possível montar a prévia agora.'; }
   finally { carregando.value = false; }
 }
@@ -37,6 +42,35 @@ async function unificar(item: NonNullable<PreviaDuplicadosHistoricos['itens']>[n
     await carregar();
   } catch (e) { erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não foi possível unificar este par.'; }
   finally { agindo.value = null; }
+}
+function alternarSelecao(id: string, marcado: boolean | null) {
+  const proximo = new Set(selecionados.value);
+  if (marcado) proximo.add(id); else proximo.delete(id);
+  selecionados.value = proximo;
+}
+async function unificarNomesExatos() {
+  if (!podeConfirmar.value || !nomesExatos.value) return;
+  loteEmAndamento.value = 'nomes';
+  try {
+    const resposta = await api.duplicadosHistoricosUnificarNomesExatos({ totalEsperado: nomesExatos.value, confirmacao: confirmacao.value });
+    if (resposta.data.falhas.length) erro.value = `${resposta.data.aplicados} unificados; ${resposta.data.falhas.length} ficaram para conferir.`;
+    confirmacao.value = ''; await carregar();
+  } catch (e) { erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não foi possível unificar os nomes exatos.'; }
+  finally { loteEmAndamento.value = null; }
+}
+async function unificarSelecionados() {
+  if (!podeConfirmar.value || !revisadosSelecionados.value.length) return;
+  loteEmAndamento.value = 'revisados';
+  try {
+    const resposta = await api.duplicadosHistoricosUnificarRevisados({ itens: revisadosSelecionados.value.map((item) => ({
+      perdedorId: item.legado.id, vencedorId: item.candidato!.id,
+      codigoPerdedorEsperado: item.legado.codigoInterno, codigoVencedorEsperado: item.candidato!.codigoInterno,
+      confirmacao: confirmacao.value,
+    })) });
+    if (resposta.data.falhas.length) erro.value = `${resposta.data.aplicados} unificados; ${resposta.data.falhas.length} ficaram para conferir.`;
+    confirmacao.value = ''; await carregar();
+  } catch (e) { erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não foi possível unificar os selecionados.'; }
+  finally { loteEmAndamento.value = null; }
 }
 onMounted(carregar);
 </script>
@@ -62,6 +96,10 @@ onMounted(carregar);
         <div class="font-weight-bold mb-1">Confirmação para unificar um par seguro</div>
         <div class="text-body-2 text-medium-emphasis mb-3">O cadastro histórico é aposentado, auditado e aponta para o cadastro SIA. O código SIA é preservado.</div>
         <v-text-field v-model="confirmacao" :placeholder="dados.confirmacao" label="Digite a frase de confirmação" density="compact" hide-details />
+        <div class="d-flex ga-2 flex-wrap mt-4">
+          <v-btn color="primary" :loading="loteEmAndamento === 'nomes'" :disabled="!podeConfirmar || !nomesExatos" @click="unificarNomesExatos">Unificar todos os {{ nomesExatos }} nomes exatos</v-btn>
+          <v-btn color="warning" variant="tonal" :loading="loteEmAndamento === 'revisados'" :disabled="!podeConfirmar || !revisadosSelecionados.length" @click="unificarSelecionados">Unificar {{ revisadosSelecionados.length }} revisado(s) selecionado(s)</v-btn>
+        </div>
       </v-card>
       <div class="d-flex ga-2 flex-wrap mb-4">
         <v-btn :variant="tipo === 'todos' ? 'flat' : 'tonal'" color="primary" @click="tipo = 'todos'">Todos ({{ dados.itens.length }})</v-btn>
@@ -69,6 +107,7 @@ onMounted(carregar);
       </div>
       <v-card v-for="item in itens" :key="item.legado.id" variant="outlined" class="mb-3 pa-4">
         <div class="d-flex align-start justify-space-between ga-3 flex-wrap">
+          <v-checkbox v-if="item.tipo === 'revisar' && item.candidato" :model-value="selecionados.has(item.legado.id)" label="Revisado e confirmado" density="compact" hide-details @update:model-value="alternarSelecao(item.legado.id, $event)" />
           <div>
             <div class="text-caption text-medium-emphasis">Histórico {{ item.legado.codigoInterno }}</div>
             <div class="font-weight-bold">{{ item.legado.nome }}</div>

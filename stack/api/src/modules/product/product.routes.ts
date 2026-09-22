@@ -58,6 +58,18 @@ export async function productRoutes(app: FastifyInstance) {
     historicalDuplicatesController.unificar.bind(historicalDuplicatesController),
   );
 
+  a.post<{ Body: { totalEsperado: number; confirmacao: string } }>(
+    '/admin/produtos/duplicados-historicos/unificar-nomes-exatos',
+    { schema: { body: z.object({ totalEsperado: z.number().int().min(1).max(100), confirmacao: z.string().min(1) }), summary: 'Unificar em lote nomes históricos exatamente iguais (admin)', tags: ['ADMIN', 'PRODUTOS'] } },
+    historicalDuplicatesController.unificarNomesExatos.bind(historicalDuplicatesController),
+  );
+
+  a.post<{ Body: { itens: Array<{ perdedorId: string; vencedorId: string; codigoPerdedorEsperado: string; codigoVencedorEsperado: string; confirmacao: string }> } }>(
+    '/admin/produtos/duplicados-historicos/unificar-revisados',
+    { schema: { body: z.object({ itens: z.array(z.object({ perdedorId: z.string().min(1), vencedorId: z.string().min(1), codigoPerdedorEsperado: z.string().min(1), codigoVencedorEsperado: z.string().min(1), confirmacao: z.string().min(1) })).min(1).max(100) }), summary: 'Unificar em lote pares selecionados manualmente na revisão (admin)', tags: ['ADMIN', 'PRODUTOS'] } },
+    historicalDuplicatesController.unificarRevisados.bind(historicalDuplicatesController),
+  );
+
   a.post<{ Body: ProductRequests.CreateProductRequest }>(
     '/products',
     { schema: { body: ProductRequests.createProductSchema, response: { 201: productReply }, summary: 'Criar produto (na loja do usuário)', tags: ['PRODUCTS'] } },
