@@ -380,6 +380,11 @@ export function useApi() {
     duplicadosHistoricosUnificar: (body: {
       perdedorId: string; vencedorId: string; codigoPerdedorEsperado: string; codigoVencedorEsperado: string; confirmacao: string;
     }) => $fetch('/admin/produtos/duplicados-historicos/unificar', { ...base, method: 'POST', body }),
+    duplicadosHistoricosUnificarNomesExatos: (body: { totalEsperado: number; confirmacao: string }) =>
+      $fetch<{ data: { aplicados: number; falhas: Array<{ codigo: string; erro: string }> } }>('/admin/produtos/duplicados-historicos/unificar-nomes-exatos', { ...base, method: 'POST', body }),
+    duplicadosHistoricosUnificarRevisados: (body: { itens: Array<{
+      perdedorId: string; vencedorId: string; codigoPerdedorEsperado: string; codigoVencedorEsperado: string; confirmacao: string;
+    }> }) => $fetch<{ data: { aplicados: number; falhas: Array<{ codigo: string; erro: string }> } }>('/admin/produtos/duplicados-historicos/unificar-revisados', { ...base, method: 'POST', body }),
 
     listGroupTaxRules: () =>
       unwrap($fetch<{ data: GroupTaxRule[] }>('/apoio/grupos-fiscais', { ...base })),

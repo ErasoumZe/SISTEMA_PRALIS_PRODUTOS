@@ -27,6 +27,14 @@ export interface PreviaConfrontoHistorico {
   itens: ItemConfrontoHistorico[];
 }
 
+export interface PedidoUnificacaoHistorica {
+  perdedorId: string;
+  vencedorId: string;
+  codigoPerdedorEsperado: string;
+  codigoVencedorEsperado: string;
+  confirmacao: string;
+}
+
 @injectable()
 export class HistoricalDuplicatesService {
   constructor(@inject(ProductSheetService) private sheets: ProductSheetService) {}
@@ -59,7 +67,7 @@ export class HistoricalDuplicatesService {
     };
   }
 
-  async unificar(user: CurrentUser, pedido: { perdedorId: string; vencedorId: string; codigoPerdedorEsperado: string; codigoVencedorEsperado: string; confirmacao: string }) {
+  async unificar(user: CurrentUser, pedido: PedidoUnificacaoHistorica, permitirRevisar = false) {
     if (user.role !== 'admin') throw new AppError('Apenas administrador pode unificar cadastros.', 403, 'FORBIDDEN');
     if (pedido.confirmacao.trim().toUpperCase() !== CONFIRMACAO) throw new AppError(`Digite "${CONFIRMACAO}" para confirmar.`, 400);
 
@@ -75,7 +83,8 @@ export class HistoricalDuplicatesService {
 
       const previa = await this.previa();
       const par = previa.itens.find((i) => i.legado.id === perdedor.id && i.candidato?.id === vencedor.id);
-      if (!par || (par.tipo !== 'barras-exatas' && par.tipo !== 'nome-exato')) throw new AppError('Este par não tem evidência forte. Revise-o manualmente; a operação não aceita semelhança aproximada.', 422);
+      const permitido = par?.tipo === 'barras-exatas' || par?.tipo === 'nome-exato' || (permitirRevisar && par?.tipo === 'revisar');
+      if (!permitido) throw new AppError('Este par não pode ser unificado: precisa de evidência forte ou de seleção manual na aba Revisar.', 422);
 
       const [fiscal] = await tx.select().from(productFiscal).where(eq(productFiscal.productId, perdedor.id));
       const [transformacao] = await tx.select().from(productTransformacao).where(eq(productTransformacao.productId, perdedor.id));
@@ -97,5 +106,37 @@ export class HistoricalDuplicatesService {
     });
     for (const id of pendentes) { try { await this.sheets.registerPending(id); } catch { /* reenvio recupera */ } }
     return { unificado: true };
+  }
+
+  /**
+   * Lote de nomes idênticos: a prévia e o total esperado impedem que uma tela
+   * antiga una mais (ou menos) produtos do que a pessoa conferiu.
+   */
+  async unificarNomesExatos(user: CurrentUser, totalEsperado: number, confirmacao: string) {
+    if (user.role !== 'admin') throw new AppError('Apenas administrador pode unificar cadastros.', 403, 'FORBIDDEN');
+    if (confirmacao.trim().toUpperCase() !== CONFIRMACAO) throw new AppError(`Digite "${CONFIRMACAO}" para confirmar.`, 400);
+    const pares = (await this.previa()).itens.filter((item) => item.tipo === 'nome-exato' && item.candidato);
+    if (pares.length !== totalEsperado) throw new AppError(`A prévia mudou: agora há ${pares.length} nome(s) exato(s). Atualize a tela e confirme de novo.`, 409);
+    if (pares.length > 100) throw new AppError('O lote máximo é 100. A tela deve dividir o processamento.', 422);
+    const resultados = await Promise.allSettled(pares.map((item) => this.unificar(user, {
+      perdedorId: item.legado.id, vencedorId: item.candidato!.id,
+      codigoPerdedorEsperado: item.legado.codigoInterno, codigoVencedorEsperado: item.candidato!.codigoInterno,
+      confirmacao,
+    })));
+    const aplicados = resultados.filter((r) => r.status === 'fulfilled').length;
+    const falhas = resultados.flatMap((r, indice) => r.status === 'rejected' ? [{ codigo: pares[indice]!.legado.codigoInterno, erro: r.reason instanceof Error ? r.reason.message : 'Falha desconhecida' }] : []);
+    return { aplicados, falhas };
+  }
+
+  /** Lote explicitamente revisado por pessoa. Sem seleção, sem unificação por aproximação. */
+  async unificarRevisados(user: CurrentUser, pedidos: PedidoUnificacaoHistorica[]) {
+    if (user.role !== 'admin') throw new AppError('Apenas administrador pode unificar cadastros.', 403, 'FORBIDDEN');
+    if (pedidos.length < 1 || pedidos.length > 100) throw new AppError('Selecione entre 1 e 100 pares por vez.', 422);
+    const frase = pedidos[0]?.confirmacao ?? '';
+    if (pedidos.some((p) => p.confirmacao !== frase) || frase.trim().toUpperCase() !== CONFIRMACAO) throw new AppError(`Digite "${CONFIRMACAO}" para confirmar.`, 400);
+    const resultados = await Promise.allSettled(pedidos.map((pedido) => this.unificar(user, pedido, true)));
+    const aplicados = resultados.filter((r) => r.status === 'fulfilled').length;
+    const falhas = resultados.flatMap((r, indice) => r.status === 'rejected' ? [{ codigo: pedidos[indice]!.codigoPerdedorEsperado, erro: r.reason instanceof Error ? r.reason.message : 'Falha desconhecida' }] : []);
+    return { aplicados, falhas };
   }
 }

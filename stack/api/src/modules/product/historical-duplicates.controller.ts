@@ -27,4 +27,14 @@ export class HistoricalDuplicatesController {
     const dados = await this.service.unificar(this.admin(request), request.body);
     return reply.status(200).send(buildResponse(dados, 'Cadastro histórico unificado; o código SIA foi preservado.'));
   }
+
+  async unificarNomesExatos(request: FastifyRequest<{ Body: { totalEsperado: number; confirmacao: string } }>, reply: FastifyReply) {
+    const dados = await this.service.unificarNomesExatos(this.admin(request), request.body.totalEsperado, request.body.confirmacao);
+    return reply.status(200).send(buildResponse(dados, `${dados.aplicados} nome(s) exato(s) unificado(s).`));
+  }
+
+  async unificarRevisados(request: FastifyRequest<{ Body: { itens: Array<{ perdedorId: string; vencedorId: string; codigoPerdedorEsperado: string; codigoVencedorEsperado: string; confirmacao: string }> } }>, reply: FastifyReply) {
+    const dados = await this.service.unificarRevisados(this.admin(request), request.body.itens);
+    return reply.status(200).send(buildResponse(dados, `${dados.aplicados} par(es) revisado(s) unificado(s).`));
+  }
 }
