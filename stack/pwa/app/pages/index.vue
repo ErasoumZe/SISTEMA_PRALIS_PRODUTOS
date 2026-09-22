@@ -83,9 +83,9 @@ const tipoOpcoes = [
 const setorFiltro = ref<string | null>(null);
 const grupoFiltro = ref<string | null>(null);
 /**
- * Faixa dos códigos legados do SIA. É filtro de consulta, não altera o
- * cadastro: DELIVERY (7xxxxx), códigos novos e itens sem código continuam
- * preservados no sistema, apenas não aparecem enquanto ele estiver ativo.
+ * Faixas de códigos internos para consulta. Não alteram o cadastro: DELIVERY
+ * (7xxxxx), códigos novos e itens sem código continuam preservados no sistema;
+ * apenas não aparecem enquanto uma faixa estiver ativa.
  */
 type FaixaCodigoFiltro = 'historico' | 'sia' | null;
 const faixaCodigoFiltro = ref<FaixaCodigoFiltro>(null);
