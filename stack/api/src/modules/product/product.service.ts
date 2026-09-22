@@ -593,6 +593,22 @@ export class ProductService {
     return { espelhoLoja, creareDrive };
   }
 
+  /** Exclusão em lote continua usando a mesma regra segura de planilha de cada item. */
+  async deleteBatch(user: CurrentUser, ids: string[], confirmacao: string) {
+    if (user.role !== 'admin') throw new AppError('Apenas o administrador exclui produtos.', 403, 'ONLY_ADMIN_DELETE');
+    const unicos = [...new Set(ids)];
+    if (unicos.length < 1 || unicos.length > 100) throw new AppError('Selecione entre 1 e 100 produtos por vez.', 422);
+    const frase = `EXCLUIR ${unicos.length} PRODUTOS`;
+    if (confirmacao.trim().toUpperCase() !== frase) throw new AppError(`Digite "${frase}" para confirmar.`, 400);
+    const excluidos: string[] = [];
+    const falhas: Array<{ id: string; erro: string }> = [];
+    for (const id of unicos) {
+      try { await this.delete(user, id); excluidos.push(id); }
+      catch (erro) { falhas.push({ id, erro: erro instanceof Error ? erro.message : 'Falha ao excluir' }); }
+    }
+    return { excluidos, falhas };
+  }
+
   /** Importa produtos da BASE para a loja do usuário (pula os já importados/duplicados). */
   async importFromBase(
     user: CurrentUser,
