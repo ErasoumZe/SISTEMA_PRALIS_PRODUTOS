@@ -7,6 +7,7 @@ import { siaProdutoDePara } from '@/modules/creare/creare.table';
 import { products } from './product.table';
 import { CodigoCadastroRepository, type CodigoCadastroRepo } from './codigo-cadastro.repository';
 import { reconciliarGiuliaComSia, type ProdutoGiuliaSia, type PropostaGiuliaSia } from './giulia-sia.motor';
+import { PRIMEIRO_CODIGO_DE_ENTREGA } from './codigo-cadastro.motor';
 
 export const CONFIRMACAO_GIULIA_SIA = 'CONCILIAR GIULIA COM SIA';
 const LOTE_MAXIMO = 200;
@@ -23,15 +24,18 @@ export class GiuliaSiaService {
   }
 
   private async propostas() {
+    // A exportação completa também traz o catálogo de DELIVERY (700000+). Ele
+    // não pertence à Base e jamais pode decidir ou elevar a sequência dela.
+    const somenteCatalogo = sql`coditem ~ '^[0-9]+$' AND CAST(coditem AS BIGINT) < ${PRIMEIRO_CODIGO_DE_ENTREGA}`;
     const [produtos, pares, maiorBanco, ultimoAtivo] = await Promise.all([
       this.lerProdutos(),
-      db.select({ loja: siaProdutoDePara.loja, coditem: siaProdutoDePara.coditem, chaveBarras: siaProdutoDePara.chaveBarras, descricao: siaProdutoDePara.descricao, ativo: siaProdutoDePara.ativo }).from(siaProdutoDePara),
+      db.select({ loja: siaProdutoDePara.loja, coditem: siaProdutoDePara.coditem, chaveBarras: siaProdutoDePara.chaveBarras, descricao: siaProdutoDePara.descricao, ativo: siaProdutoDePara.ativo }).from(siaProdutoDePara).where(somenteCatalogo),
       this.codigos.maiorCodigo(),
-      db.execute(sql`SELECT COALESCE(MAX(CAST(coditem AS BIGINT)), 0) AS max FROM sia_produto_depara WHERE ativo = 'S' AND coditem ~ '^[0-9]+$'`),
+      db.execute(sql`SELECT COALESCE(MAX(CAST(coditem AS BIGINT)), 0) AS max FROM sia_produto_depara WHERE ativo = 'S' AND coditem ~ '^[0-9]+$' AND CAST(coditem AS BIGINT) < ${PRIMEIRO_CODIGO_DE_ENTREGA}`),
     ]);
     const ultimoSiaAtivo = Number((ultimoAtivo.rows?.[0] as { max?: string | number } | undefined)?.max ?? 0);
     const teto = Math.max(ultimoSiaAtivo, maiorBanco);
-    return { propostas: reconciliarGiuliaComSia(produtos, pares, teto), ultimoSiaAtivo, maiorBanco, teto };
+    return { propostas: reconciliarGiuliaComSia(produtos, pares, teto), linhasCatalogoSia: pares.length, ultimoSiaAtivo, maiorBanco, teto };
   }
 
   async previa() {

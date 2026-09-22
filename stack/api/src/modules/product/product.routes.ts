@@ -222,7 +222,7 @@ export async function productRoutes(app: FastifyInstance) {
             situacao: z.enum(['conciliar-sia', 'novo-codigo', 'pendente', 'conflito-sia']), codigoProposto: z.string().nullable(),
             candidatos: z.array(z.object({ loja: z.string(), coditem: z.string(), descricao: z.string(), ativo: z.string() })), motivo: z.string(),
           })),
-          ultimoSiaAtivo: z.number(), maiorBanco: z.number(), teto: z.number(),
+          linhasCatalogoSia: z.number(), ultimoSiaAtivo: z.number(), maiorBanco: z.number(), teto: z.number(),
           resumo: z.object({ 'conciliar-sia': z.number(), 'novo-codigo': z.number(), pendente: z.number(), 'conflito-sia': z.number() }),
           confirmacao: z.string(), loteMaximo: z.number(),
         })) },

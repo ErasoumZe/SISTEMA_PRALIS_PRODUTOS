@@ -74,7 +74,7 @@ export interface PreviaGiuliaSia {
     candidatos: Array<{ loja: string; coditem: string; descricao: string; ativo: string }>;
     motivo: string;
   }>;
-  ultimoSiaAtivo: number; maiorBanco: number; teto: number;
+  linhasCatalogoSia: number; ultimoSiaAtivo: number; maiorBanco: number; teto: number;
   resumo: { 'conciliar-sia': number; 'novo-codigo': number; pendente: number; 'conflito-sia': number };
   confirmacao: string; loteMaximo: number;
 }
