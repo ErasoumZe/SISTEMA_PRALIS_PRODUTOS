@@ -82,6 +82,14 @@ const tipoOpcoes = [
 ] as const;
 const setorFiltro = ref<string | null>(null);
 const grupoFiltro = ref<string | null>(null);
+/**
+ * Faixa dos códigos legados do SIA. É filtro de consulta, não altera o
+ * cadastro: DELIVERY (7xxxxx), códigos novos e itens sem código continuam
+ * preservados no sistema, apenas não aparecem enquanto ele estiver ativo.
+ */
+const faixaSiaFiltro = ref(false);
+const CODIGO_SIA_MIN = 10_000;
+const CODIGO_SIA_MAX = 13_126;
 type ClasseAbc = 'A' | 'B' | 'C';
 const curvaAbcFiltro = ref<ClasseAbc | null>(null);
 const curvaAbcOpcoes = [
@@ -156,7 +164,7 @@ const ordenarOpcoes = [
 const mostrarFiltros = ref(false);
 const numFiltros = computed(
   () =>
-    [statusFiltro.value, tipoFiltro.value, setorFiltro.value, grupoFiltro.value, curvaAbcFiltro.value].filter(Boolean).length +
+    [statusFiltro.value, tipoFiltro.value, setorFiltro.value, grupoFiltro.value, curvaAbcFiltro.value, faixaSiaFiltro.value].filter(Boolean).length +
     (ordenar.value !== 'recentes' ? 1 : 0),
 );
 const temFiltro = computed(() => numFiltros.value > 0 || !!search.value);
@@ -165,6 +173,7 @@ function limparFiltros() {
   tipoFiltro.value = null;
   setorFiltro.value = null;
   grupoFiltro.value = null;
+  faixaSiaFiltro.value = false;
   curvaAbcFiltro.value = null;
   ordenar.value = 'recentes';
   search.value = '';
@@ -179,6 +188,10 @@ const filtrados = computed(() =>
     if (tipoFiltro.value && p.tipo !== tipoFiltro.value) return false;
     if (setorFiltro.value && p.setorEstoque !== setorFiltro.value) return false;
     if (grupoFiltro.value && p.grupo !== grupoFiltro.value) return false;
+    if (faixaSiaFiltro.value) {
+      const codigo = Number(p.codigoInterno);
+      if (!Number.isInteger(codigo) || codigo < CODIGO_SIA_MIN || codigo > CODIGO_SIA_MAX) return false;
+    }
     if (curvaAbcFiltro.value && classesAbcPorProduto.value.get(p.id) !== curvaAbcFiltro.value) return false;
     return true;
   }),
@@ -199,7 +212,7 @@ const totalPaginas = computed(() => Math.max(1, Math.ceil(ordenados.value.length
 const paginados = computed(() => ordenados.value.slice((page.value - 1) * PER_PAGE, page.value * PER_PAGE));
 
 // volta pra página 1 ao trocar filtro/ordem/busca/aba; mantém a página válida quando a lista muda
-watch([statusFiltro, tipoFiltro, setorFiltro, grupoFiltro, curvaAbcFiltro, ordenar, search, aba], () => { page.value = 1; });
+watch([statusFiltro, tipoFiltro, setorFiltro, grupoFiltro, curvaAbcFiltro, faixaSiaFiltro, ordenar, search, aba], () => { page.value = 1; });
 watch(totalPaginas, (n) => { if (page.value > n) page.value = n; });
 
 /** Substitui a lista só se ela mudou; no polling, ignora resposta idêntica. */
@@ -474,6 +487,16 @@ function preco(p: Product): string | null {
           />
           <v-select v-model="setorFiltro" :items="setores" label="Setor" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="warehouse" class="filtro-select filtro-item" />
           <v-select v-model="grupoFiltro" :items="grupos" label="Grupo" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="sell" class="filtro-select filtro-item" />
+          <v-btn
+            size="small"
+            rounded="lg"
+            :variant="faixaSiaFiltro ? 'flat' : 'outlined'"
+            :color="faixaSiaFiltro ? 'primary' : 'grey-darken-1'"
+            prepend-icon="tag"
+            @click="faixaSiaFiltro = !faixaSiaFiltro"
+          >
+            Código 10000–13126
+          </v-btn>
           <v-select v-model="ordenar" :items="ordenarOpcoes" item-title="label" item-value="value" label="Ordenar" density="compact" variant="outlined" hide-details rounded="lg" prepend-inner-icon="swap_vert" class="filtro-select filtro-item" />
           <v-spacer class="d-none d-sm-block" />
           <v-btn v-if="temFiltro" size="small" variant="text" color="medium-emphasis" prepend-icon="close" class="align-self-start align-self-sm-center" @click="limparFiltros">Limpar</v-btn>
