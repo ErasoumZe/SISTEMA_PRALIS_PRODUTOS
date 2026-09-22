@@ -35,6 +35,8 @@ export interface PedidoUnificacaoHistorica {
   confirmacao: string;
 }
 
+type ResultadoLote = { aplicados: number; falhas: Array<{ codigo: string; erro: string }> };
+
 @injectable()
 export class HistoricalDuplicatesService {
   constructor(@inject(ProductSheetService) private sheets: ProductSheetService) {}
@@ -108,6 +110,43 @@ export class HistoricalDuplicatesService {
     return { unificado: true };
   }
 
+  /** Um clique, uma transação: ou o lote inteiro entra, ou nada entra. */
+  private async unificarLoteAtomico(user: CurrentUser, pedidos: PedidoUnificacaoHistorica[], permitirRevisar: boolean): Promise<ResultadoLote> {
+    const previa = await this.previa();
+    const pares = new Map(previa.itens.filter((i) => i.candidato).map((i) => [`${i.legado.id}:${i.candidato!.id}`, i]));
+    for (const pedido of pedidos) {
+      const par = pares.get(`${pedido.perdedorId}:${pedido.vencedorId}`);
+      const permitido = par?.tipo === 'barras-exatas' || par?.tipo === 'nome-exato' || (permitirRevisar && par?.tipo === 'revisar');
+      if (!permitido) throw new AppError(`O par ${pedido.codigoPerdedorEsperado} não está mais válido na prévia. Atualize a tela.`, 409);
+    }
+    const pendentes = new Set<string>();
+    await db.transaction(async (tx) => {
+      for (const pedido of pedidos) {
+        const encontrados = await tx.select().from(products).where(sql`${products.id} IN (${pedido.perdedorId}, ${pedido.vencedorId})`);
+        const perdedor = encontrados.find((p) => p.id === pedido.perdedorId);
+        const vencedor = encontrados.find((p) => p.id === pedido.vencedorId);
+        if (!perdedor || !vencedor || perdedor.loja !== 'BASE' || vencedor.loja !== 'BASE') throw new AppError('Um cadastro BASE do lote não foi encontrado.', 404);
+        if (perdedor.status === 'unificado' || perdedor.codigoInterno !== pedido.codigoPerdedorEsperado || vencedor.codigoInterno !== pedido.codigoVencedorEsperado) throw new AppError(`O par ${pedido.codigoPerdedorEsperado} mudou desde a prévia. Nada foi aplicado.`, 409);
+        if (!naFaixa(perdedor.codigoInterno, LEGADO) || !naFaixa(vencedor.codigoInterno, SIA)) throw new AppError('O lote contém código fora das faixas permitidas.', 422);
+        const [fiscal] = await tx.select().from(productFiscal).where(eq(productFiscal.productId, perdedor.id));
+        const [transformacao] = await tx.select().from(productTransformacao).where(eq(productTransformacao.productId, perdedor.id));
+        const promocoesPerdedor = await tx.select().from(promocoes).where(eq(promocoes.productId, perdedor.id));
+        const copias = await tx.select().from(products).where(eq(products.baseProductId, perdedor.id));
+        await tx.insert(productMerge).values({ loja: 'BASE', vencedorProductId: vencedor.id, perdedorProductId: perdedor.id, snapshot: { produto: perdedor, fiscal, transformacao, promocoes: promocoesPerdedor, copias }, confirmadoPor: user.name });
+        await tx.update(products).set({ status: 'unificado', unificadoEmProductId: vencedor.id }).where(eq(products.id, perdedor.id));
+        pendentes.add(vencedor.id); pendentes.add(perdedor.id);
+        for (const copia of copias) {
+          const [destino] = await tx.select({ id: products.id }).from(products).where(and(eq(products.baseProductId, vencedor.id), eq(products.loja, copia.loja))).limit(1);
+          if (destino) await tx.update(products).set({ status: 'unificado', unificadoEmProductId: destino.id }).where(eq(products.id, copia.id));
+          else await tx.update(products).set({ baseProductId: vencedor.id, codigoInterno: vencedor.codigoInterno }).where(eq(products.id, copia.id));
+          pendentes.add(copia.id);
+        }
+      }
+    });
+    for (const id of pendentes) { try { await this.sheets.registerPending(id); } catch { /* reenvio recupera */ } }
+    return { aplicados: pedidos.length, falhas: [] };
+  }
+
   /**
    * Lote de nomes idênticos: a prévia e o total esperado impedem que uma tela
    * antiga una mais (ou menos) produtos do que a pessoa conferiu.
@@ -118,14 +157,11 @@ export class HistoricalDuplicatesService {
     const pares = (await this.previa()).itens.filter((item) => item.tipo === 'nome-exato' && item.candidato);
     if (pares.length !== totalEsperado) throw new AppError(`A prévia mudou: agora há ${pares.length} nome(s) exato(s). Atualize a tela e confirme de novo.`, 409);
     if (pares.length > 100) throw new AppError('O lote máximo é 100. A tela deve dividir o processamento.', 422);
-    const resultados = await Promise.allSettled(pares.map((item) => this.unificar(user, {
+    return this.unificarLoteAtomico(user, pares.map((item) => ({
       perdedorId: item.legado.id, vencedorId: item.candidato!.id,
       codigoPerdedorEsperado: item.legado.codigoInterno, codigoVencedorEsperado: item.candidato!.codigoInterno,
       confirmacao,
-    })));
-    const aplicados = resultados.filter((r) => r.status === 'fulfilled').length;
-    const falhas = resultados.flatMap((r, indice) => r.status === 'rejected' ? [{ codigo: pares[indice]!.legado.codigoInterno, erro: r.reason instanceof Error ? r.reason.message : 'Falha desconhecida' }] : []);
-    return { aplicados, falhas };
+    })), false);
   }
 
   /** Lote explicitamente revisado por pessoa. Sem seleção, sem unificação por aproximação. */
@@ -134,9 +170,6 @@ export class HistoricalDuplicatesService {
     if (pedidos.length < 1 || pedidos.length > 100) throw new AppError('Selecione entre 1 e 100 pares por vez.', 422);
     const frase = pedidos[0]?.confirmacao ?? '';
     if (pedidos.some((p) => p.confirmacao !== frase) || frase.trim().toUpperCase() !== CONFIRMACAO) throw new AppError(`Digite "${CONFIRMACAO}" para confirmar.`, 400);
-    const resultados = await Promise.allSettled(pedidos.map((pedido) => this.unificar(user, pedido, true)));
-    const aplicados = resultados.filter((r) => r.status === 'fulfilled').length;
-    const falhas = resultados.flatMap((r, indice) => r.status === 'rejected' ? [{ codigo: pedidos[indice]!.codigoPerdedorEsperado, erro: r.reason instanceof Error ? r.reason.message : 'Falha desconhecida' }] : []);
-    return { aplicados, falhas };
+    return this.unificarLoteAtomico(user, pedidos, true);
   }
 }
