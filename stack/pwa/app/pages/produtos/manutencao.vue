@@ -12,6 +12,8 @@ const { user } = useAuth();
 const isAdmin = computed(() => user.value?.role === 'admin');
 
 const total = ref<number | null>(null);
+const apagaveis = ref<number | null>(null);
+const piloto = ref<{ codigoInterno: string; nome: string } | null>(null);
 const frase = ref('');
 const digitado = ref('');
 const baixouBackup = ref(false);
@@ -26,6 +28,8 @@ async function carregarPrevia() {
   try {
     const r = await api.zerarPrevia();
     total.value = r.total;
+    apagaveis.value = r.apagaveis;
+    piloto.value = r.piloto;
     frase.value = r.confirmacao;
   } catch (e) {
     erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui ler o total.';
@@ -42,7 +46,7 @@ async function carregarPrevia() {
 function baixarBackup() {
   // link direto, não fetch: é o navegador que salva o arquivo com o nome que o
   // servidor manda — mesmo caminho do CSV de vendas.
-  window.open(api.produtosCsvUrl(), '_blank');
+  window.open(api.produtosBackupXlsxUrl(), '_blank');
   baixouBackup.value = true;
 }
 
@@ -60,7 +64,7 @@ async function zerar() {
   resultado.value = '';
   try {
     const r = await api.zerarCatalogo(digitado.value, total.value);
-    resultado.value = `${r.apagados} produto(s) apagados. O catálogo está vazio — repovoe pela Central de Produtos.`;
+    resultado.value = `${r.apagados} produto(s) apagados. O piloto ${r.preservado.codigoInterno} (${r.preservado.nome}) foi preservado.`;
     digitado.value = '';
     await carregarPrevia();
   } catch (e) {
@@ -388,7 +392,7 @@ onMounted(() => {
         <v-card-title class="text-subtitle-1">Zerar o catálogo</v-card-title>
         <v-card-text>
           <p class="mb-4">
-            Apaga <strong>todos</strong> os produtos do sistema — base e lojas — junto com
+            Apaga todos os produtos do sistema, exceto o piloto Base <strong>13125</strong>, junto com
             fiscal, promoções e transformação de cada um.
             <strong>A planilha não é tocada</strong>: ela continua sendo a fonte para
             repovoar o catálogo pela Central de Produtos.
@@ -402,6 +406,10 @@ onMounted(() => {
             <v-btn variant="text" size="small" prepend-icon="refresh" @click="carregarPrevia">Recarregar</v-btn>
           </div>
 
+          <v-alert v-if="piloto" type="warning" variant="tonal" density="compact" class="mb-4">
+            Serão removidos {{ apagaveis }} produto(s). Será preservado somente {{ piloto.codigoInterno }} — {{ piloto.nome }}.
+          </v-alert>
+
           <!-- Passo 1: sem backup não há caminho para o passo 2. -->
           <v-btn
             :color="baixouBackup ? 'success' : 'primary'"
@@ -410,7 +418,7 @@ onMounted(() => {
             class="mb-4"
             @click="baixarBackup"
           >
-            {{ baixouBackup ? 'Backup baixado' : '1. Baixar backup em CSV' }}
+            {{ baixouBackup ? 'Backup XLSX baixado' : '1. Baixar backup completo em XLSX' }}
           </v-btn>
 
           <v-text-field
@@ -431,7 +439,7 @@ onMounted(() => {
             prepend-icon="delete_forever"
             @click="zerar"
           >
-            3. Zerar catálogo
+            3. Limpar e manter 13125
           </v-btn>
         </v-card-text>
       </v-card>
