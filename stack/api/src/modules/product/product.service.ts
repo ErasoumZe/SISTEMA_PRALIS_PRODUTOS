@@ -44,13 +44,12 @@ export type UpdatedProduct = ProductSchemas.ProductEntity & {
  */
 const CAMPOS_HERDADOS = [
   'nome', 'quantidade', 'medidaBase', 'codigoBarras', 'marca', 'embalagem', 'cDe',
-  'qtCad', 'medidaCompra', 'compraAproximada', 'codigoInterno', 'fotoUrl', 'grupo', 'tipo', 'status',
-  'habilitarAjuda', 'estoqueMin', 'estoqueMax', 'setorEstoque', 'custo',
-  'margemPontual', 'vVendaPontual', 'auto', 'localVenda1', 'localVenda2',
+  'qtCad', 'medidaCompra', 'compraAproximada', 'codigoInterno', 'fotoUrl', 'grupo', 'tipo',
+  'habilitarAjuda',
 ] as const satisfies readonly (keyof ProductSchemas.ProductEntity)[];
 
 /** Blocos inteiros que a loja herda como um todo (não campo a campo). */
-const BLOCOS_HERDADOS = ['fiscal', 'transformacao'] as const;
+const BLOCOS_HERDADOS = ['transformacao'] as const;
 
 /** Comparação estrutural — serve para escalares e para os blocos fiscal/transformação. */
 const mesmoValor = (a: unknown, b: unknown): boolean =>
@@ -704,11 +703,11 @@ export class ProductService {
       marca: p.marca, embalagem: p.embalagem, cDe: p.cDe, qtCad: p.qtCad, medidaCompra: p.medidaCompra,
       compraAproximada: p.compraAproximada,
       codigoInterno: p.codigoInterno, fotoUrl: p.fotoUrl, grupo: p.grupo, tipo: p.tipo, status: p.status,
-      habilitarAjuda: p.habilitarAjuda, estoqueMin: p.estoqueMin, estoqueMax: p.estoqueMax,
-      setorEstoque: p.setorEstoque, setorVenda1: p.setorVenda1, setorVenda2: p.setorVenda2,
-      custo: p.custo, margemPontual: p.margemPontual,
-      vVendaPontual: p.vVendaPontual, auto: p.auto, localVenda1: p.localVenda1, localVenda2: p.localVenda2,
-      promocoes: p.promocoes, transformacao: p.transformacao, fiscal: p.fiscal,
+      habilitarAjuda: p.habilitarAjuda, estoqueMin: null, estoqueMax: null,
+      setorEstoque: null, setorVenda1: null, setorVenda2: null,
+      custo: null, margemPontual: null,
+      vVendaPontual: null, auto: false, localVenda1: null, localVenda2: null,
+      promocoes: [], transformacao: p.transformacao, fiscal: null,
     };
   }
 }

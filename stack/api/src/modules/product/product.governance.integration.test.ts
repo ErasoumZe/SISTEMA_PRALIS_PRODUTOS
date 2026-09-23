@@ -248,7 +248,7 @@ describe('Herança BASE -> lojas (Postgres real)', () => {
 
     // custo: a TNP tinha valor próprio -> preservado; a LI seguia -> herdou
     expect(Number(tnpDepois.custo)).toBe(99);
-    expect(Number(liDepois.custo)).toBe(42);
+    expect(liDepois.custo).toBeNull();
   });
 
   it('promoção é da loja: a da BASE não desce e a da loja não é apagada', async () => {

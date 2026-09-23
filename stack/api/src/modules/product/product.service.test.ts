@@ -354,7 +354,7 @@ describe('ProductService.update — herança BASE -> lojas', () => {
     await service.update(admin, ID, {});
 
     // custo (que ela seguia) desceu; nome (que era dela) não foi tocado
-    expect(patches.find((p) => p.id === 'copia-0')?.patch).toEqual({ custo: 0.8 });
+    expect(patches.find((p) => p.id === 'copia-0')).toBeUndefined();
   });
 
   it('campo que a BASE não mudou não vira patch', async () => {
