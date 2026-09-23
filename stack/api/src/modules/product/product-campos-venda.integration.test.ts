@@ -8,7 +8,10 @@ let container: StartedPostgreSqlContainer;
 let repo: ProductRepository;
 let db: {
   execute: (query: unknown) => Promise<{ rows: Record<string, unknown>[] }>;
-  $client: { end: () => Promise<void> };
+  $client: {
+    end: () => Promise<void>;
+    on: (event: 'error', listener: (error: { code?: string }) => void) => void;
+  };
 };
 let sqlTag: typeof import('drizzle-orm')['sql'];
 
@@ -59,6 +62,15 @@ beforeAll(async () => {
 }, 300_000);
 
 afterAll(async () => {
+  /*
+   * O Pool pode receber o 57P01 no intervalo entre `end()` e a parada do
+   * container. É o encerramento normal do Postgres de teste, não uma falha da
+   * regra exercitada. Outros erros continuam sendo lançados para não mascarar
+   * uma conexão inválida.
+   */
+  db.$client.on('error', (error) => {
+    if (error.code !== '57P01') throw error;
+  });
   await db.$client.end();
   await container.stop();
 });
