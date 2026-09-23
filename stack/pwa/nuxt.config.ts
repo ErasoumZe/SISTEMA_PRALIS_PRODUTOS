@@ -102,13 +102,20 @@ export default defineNuxtConfig({
           cicluz: {
             dark: false,
             colors: {
+              // o roxo da marca não muda — é a essência da Cicluz
               primary: '#6515DD',
               secondary: '#35128C',
-              background: '#F4F6FA',
+              /*
+               * Os NEUTROS puxam para o roxo em vez de para o azul.
+               * `#F4F6FA` era um cinza-azulado genérico; `#F5F4F8` tem um sopro
+               * da matiz da marca. São poucos pontos de diferença e é o que faz
+               * a tela parecer escolhida em vez de herdada do framework.
+               */
+              background: '#F5F4F8',
               surface: '#FFFFFF',
-              'surface-variant': '#EEF1F6',
-              'on-surface': '#1F2733',
-              'on-background': '#1F2733',
+              'surface-variant': '#F0EFF5',
+              'on-surface': '#1C1B22',
+              'on-background': '#1C1B22',
               success: '#157F3C',
               error: '#C62828',
               warning: '#B7791F',
@@ -116,25 +123,40 @@ export default defineNuxtConfig({
               // aliases legados usados por componentes existentes; agora seguem Cicluz.
               bordo: '#35128C',
               laranja: '#6515DD',
-              bege: '#F0EBFF',
+              bege: '#F1ECFE',
             },
             variables: {
-              'border-color': '#5B6675',
-              'border-opacity': 0.16,
+              /*
+               * Fio mais claro: com a sombra fora dos cartões, a linha passou a
+               * ser o único separador — e separador que se nota demais vira
+               * grade. `0.16` de um cinza-azul desenhava caixa; `0.09` do
+               * próprio texto desenha limite.
+               */
+              'border-color': '#1C1B22',
+              'border-opacity': 0.09,
               'high-emphasis-opacity': 0.94,
-              'medium-emphasis-opacity': 0.68,
+              'medium-emphasis-opacity': 0.62,
             },
           },
         },
       },
+      /*
+       * `rounded: 'xl'` no cartão são 24px — arredondado de banner, não de
+       * conteúdo: o canto come o texto da primeira linha e a caixa parece uma
+       * pílula gorda. `lg` (8px) é apertado demais para um cartão grande. O
+       * meio-termo vem do CSS (`--cx-r-lg`, 14px), e aqui o cartão fica só com
+       * o que o Vuetify precisa saber: que ele é plano e tem fio.
+       */
       defaults: {
         global: { ripple: true },
-        VCard: { rounded: 'xl' },
+        VCard: { flat: true, border: true, rounded: 'lg' },
         VBtn: { rounded: 'lg', class: 'text-none', fontWeight: '600' },
         VTextField: { variant: 'outlined', rounded: 'lg' },
         VSelect: { variant: 'outlined', rounded: 'lg' },
         VTextarea: { variant: 'outlined', rounded: 'lg' },
         VChip: { rounded: 'lg' },
+        VList: { rounded: 'lg' },
+        VDialog: { rounded: 'lg' },
       },
     },
   },

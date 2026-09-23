@@ -1,27 +1,59 @@
-/* ===== CICLUZ — camada visual compartilhada ===== */
+/* ===== CICLUZ — camada visual compartilhada =====
+ *
+ * O roxo da marca não muda: `--cx-brand` e `--cx-brand-strong` são os mesmos
+ * desde sempre. O que mudou foram os NEUTROS e o peso visual.
+ *
+ * Três decisões sustentam o resto:
+ *
+ * 1. SUPERFÍCIE SE SEPARA POR FIO, NÃO POR SOMBRA. Antes todo `v-card` levava
+ *    sombra, e sombra em tudo achata a hierarquia: quando tudo flutua, nada
+ *    flutua. Agora o fio de 1px delimita o que está no plano da página, e a
+ *    sombra fica reservada para o que realmente paira — menu, diálogo, overlay.
+ *
+ * 2. OS NEUTROS PUXAM PARA O ROXO. Um cinza neutro puro parece herdado; um
+ *    cinza com um sopro da cor da marca parece escolhido. A diferença é de
+ *    poucos pontos de matiz e é o que faz a tela parecer desenhada.
+ *
+ * 3. O ROXO SÓ APARECE ONDE SIGNIFICA ALGO — estado ativo, foco, ação
+ *    primária. Fora disso, neutro. Cor gasta à toa deixa de comunicar.
+ */
 :root {
   color-scheme: light;
-  --cx-canvas: #f4f6fa;
-  --cx-surface: #ffffff;
-  --cx-surface-sunken: #f7f8fb;
-  --cx-ink: #1f2733;
-  --cx-ink-soft: #5b6675;
-  --cx-line: #e4e8ef;
-  --cx-line-soft: #eef1f6;
+
+  /* marca — intocada */
   --cx-brand: #6515dd;
   --cx-brand-strong: #35128c;
   --cx-brand-on: #ffffff;
-  --cx-brand-wash: #f0ebff;
+  --cx-brand-wash: #f1ecfe;
+
+  /* neutros com viés de roxo */
+  --cx-canvas: #f5f4f8;
+  --cx-surface: #ffffff;
+  --cx-surface-sunken: #fafafc;
+  --cx-ink: #1c1b22;
+  --cx-ink-soft: #6b6b78;
+  --cx-ink-faint: #9a99a6;
+  --cx-line: #e7e6ee;
+  --cx-line-soft: #f0eff5;
+
   --cx-positive: #157f3c;
   --cx-negative: #c62828;
+
   --cx-r-sm: 8px;
-  --cx-r-md: 12px;
-  --cx-r-lg: 16px;
-  --cx-r-xl: 22px;
-  --cx-e-1: 0 1px 2px rgb(15 23 42 / 0.05), 0 4px 12px -4px rgb(15 23 42 / 0.08);
-  --cx-e-2: 0 1px 3px rgb(15 23 42 / 0.06), 0 12px 28px -10px rgb(15 23 42 / 0.14);
-  --cx-e-3: 0 2px 6px rgb(15 23 42 / 0.07), 0 28px 60px -18px rgb(15 23 42 / 0.2);
-  --cx-focus: rgb(101 21 221 / 0.28);
+  --cx-r-md: 10px;
+  --cx-r-lg: 14px;
+  --cx-r-xl: 18px;
+
+  /*
+   * Sombras de coisa que PAIRA. Não vão em cartão de conteúdo.
+   * Opacidades baixas e raio grande: sombra dura parece adesivo.
+   */
+  --cx-e-1: 0 1px 2px rgb(28 27 34 / 0.04);
+  --cx-e-2: 0 4px 16px -4px rgb(28 27 34 / 0.1), 0 1px 3px rgb(28 27 34 / 0.05);
+  --cx-e-3: 0 24px 56px -16px rgb(28 27 34 / 0.2), 0 2px 8px rgb(28 27 34 / 0.06);
+
+  --cx-focus: rgb(101 21 221 / 0.35);
+  /* curva do iOS: sai rápido, chega devagar */
   --cx-ease: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
@@ -51,11 +83,34 @@ body {
   letter-spacing: -0.006em;
 }
 
-.v-application .text-h4,
+/*
+ * Título grande pede tracking negativo; texto pequeno pede o contrário.
+ * Aplicar um valor só para tudo é o que faz um título parecer esticado.
+ */
+.v-application .text-h1,
+.v-application .text-h2,
+.v-application .text-h3,
+.v-application .text-h4 {
+  letter-spacing: -0.026em;
+  line-height: 1.12;
+}
+
 .v-application .text-h5,
-.v-application .text-h6,
-.v-application .font-weight-bold {
+.v-application .text-h6 {
   letter-spacing: -0.018em;
+  line-height: 1.22;
+}
+
+.v-application .text-caption,
+.v-application .text-overline {
+  letter-spacing: 0.02em;
+}
+
+/* Número que se compara em coluna não pode dançar de linha em linha. */
+.tabular,
+.v-data-table td,
+.v-table td {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ===== Material Symbols (ícones) ===== */
@@ -72,9 +127,13 @@ body {
   font-feature-settings: 'liga';
 }
 
-.v-card.v-card--variant-elevated,
-.v-card.v-card--variant-flat {
-  box-shadow: var(--cx-e-1) !important;
+/* ===== superfícies ===== */
+
+/* Cartão de conteúdo: fio, sem sombra. */
+.v-application .v-card.v-card--variant-elevated,
+.v-application .v-card.v-card--variant-flat {
+  box-shadow: none !important;
+  border: 1px solid var(--cx-line);
 }
 
 .v-card.v-card--variant-outlined,
@@ -82,60 +141,132 @@ body {
   border-color: var(--cx-line) !important;
 }
 
-.v-field {
-  transition: box-shadow 120ms var(--cx-ease), border-color 120ms var(--cx-ease);
+/*
+ * O canto do cartão vem daqui, não da escala do Vuetify: `lg` são 8px (apertado
+ * num cartão grande) e `xl` são 24px (o canto começa a comer a primeira linha
+ * de texto). 14px é o ponto em que a caixa fica macia e o conteúdo continua
+ * respeitado.
+ */
+.v-application .v-card.rounded-lg {
+  border-radius: var(--cx-r-lg) !important;
 }
+
+/*
+ * O que de fato PAIRA recupera a sombra: diálogo e menu precisam descolar da
+ * página para ela parecer inalcançável enquanto estão abertos.
+ *
+ * A especificidade aqui é maior de propósito — `.v-application .v-card.v-card--variant-flat`
+ * acima também usa `!important`, e entre dois `!important` quem vence é o
+ * seletor mais específico, não o que vem depois.
+ */
+.v-application .v-overlay__content > .v-card.v-card,
+.v-application .v-overlay__content > .v-list.v-list,
+.v-application .v-overlay__content > .v-sheet.v-sheet {
+  box-shadow: var(--cx-e-3) !important;
+  border: 1px solid var(--cx-line);
+}
+
+/* ===== controles ===== */
+
+.v-field {
+  transition: box-shadow 140ms var(--cx-ease), border-color 140ms var(--cx-ease);
+}
+
+/*
+ * Anel de foco fino e colado na borda, em vez de brilho largo: o brilho
+ * empurrava visualmente os campos vizinhos e borrava a linha do campo.
+ */
 .v-field--focused {
   box-shadow: 0 0 0 3px var(--cx-focus);
 }
 
+.v-application :focus-visible {
+  outline: 2px solid var(--cx-brand);
+  outline-offset: 2px;
+}
+
 .v-btn {
   letter-spacing: 0 !important;
+  transition: background-color 140ms var(--cx-ease), transform 140ms var(--cx-ease);
 }
+
+/*
+ * Nada de brilho roxo embaixo do botão. Preenchimento chapado, e o retorno ao
+ * clique vem do próprio botão afundando um fio — é o gesto, não o halo.
+ */
 .v-btn--variant-flat.bg-primary {
-  box-shadow: 0 8px 18px rgb(101 21 221 / 0.22);
+  box-shadow: none;
 }
+
 .v-btn--variant-flat.bg-primary:hover {
   background: var(--cx-brand-strong) !important;
 }
+
+.v-btn:active {
+  transform: scale(0.985);
+}
+
+/* ===== tabelas ===== */
 
 .v-table,
 .v-data-table {
   color: var(--cx-ink);
 }
+
 .v-table thead th,
 .v-data-table thead th {
   background: var(--cx-surface-sunken) !important;
   color: var(--cx-ink-soft) !important;
   font-size: 0.72rem !important;
+  font-weight: 600 !important;
   letter-spacing: 0.06em !important;
   text-transform: uppercase;
+  border-bottom: 1px solid var(--cx-line) !important;
 }
+
+.v-table tbody tr:hover > td {
+  background: var(--cx-surface-sunken);
+}
+
+/* ===== miudezas ===== */
 
 ::selection {
   background: rgb(101 21 221 / 0.18);
 }
 
+/* Barra de rolagem discreta: fina, sem trilho, e só escurece ao toque. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgb(31 39 51 / 0.18) transparent;
+  scrollbar-color: rgb(28 27 34 / 0.16) transparent;
 }
+
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
-*::-webkit-scrollbar-thumb {
-  background: rgb(31 39 51 / 0.18);
-  border-radius: 8px;
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
+
+*::-webkit-scrollbar-thumb {
+  background: rgb(28 27 34 / 0.16);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
 *::-webkit-scrollbar-thumb:hover {
-  background: rgb(31 39 51 / 0.3);
+  background: rgb(28 27 34 / 0.3);
+  background-clip: content-box;
 }
 
 @media (max-width: 600px) {
   .v-container {
     max-width: 100% !important;
   }
+
+  /* alvo de toque mínimo: 44px é a medida que o dedo acerta sem mirar */
   .v-btn.v-btn--size-small {
     min-height: 44px;
   }

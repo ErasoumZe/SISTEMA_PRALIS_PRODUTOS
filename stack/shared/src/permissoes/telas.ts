@@ -67,6 +67,13 @@ export const TELAS: readonly Tela[] = [
     path: '/produtos/codigo-cadastro',
     secao: 'Catálogo',
     icone: 'pin',
+    /*
+     * Fora do menu por decisão do José em 23/09/2026: o trabalho de alinhar a
+     * numeração com o PDV terminou. A TELA continua inteira e sob permissão —
+     * some do menu, não do sistema —, porque apagá-la levaria junto o caminho
+     * de volta se a rede renumerar.
+     */
+    foraDoMenu: true,
   },
   {
     id: 'importar-mix',
@@ -83,6 +90,13 @@ export const TELAS: readonly Tela[] = [
     path: '/produtos/depara-sia',
     secao: 'Catálogo',
     icone: 'rule',
+    /*
+     * Fora do menu por decisão do José em 23/09/2026: o trabalho de alinhar a
+     * numeração com o PDV terminou. A TELA continua inteira e sob permissão —
+     * some do menu, não do sistema —, porque apagá-la levaria junto o caminho
+     * de volta se a rede renumerar.
+     */
+    foraDoMenu: true,
   },
   {
     id: 'custo-discriminacao',
@@ -91,6 +105,13 @@ export const TELAS: readonly Tela[] = [
     path: '/produtos/custo-discriminacao',
     secao: 'Catálogo',
     icone: 'payments',
+    /*
+     * Fora do menu por decisão do José em 23/09/2026: o trabalho de alinhar a
+     * numeração com o PDV terminou. A TELA continua inteira e sob permissão —
+     * some do menu, não do sistema —, porque apagá-la levaria junto o caminho
+     * de volta se a rede renumerar.
+     */
+    foraDoMenu: true,
   },
   {
     id: 'conferir-planilha',
