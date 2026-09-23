@@ -27,4 +27,18 @@ export class ProductExportController {
       .status(200)
       .send(csv);
   }
+
+  async exportarXlsx(request: FastifyRequest, reply: FastifyReply) {
+    const user = request.currentUser;
+    if (!user) throw new AppError('Não autenticado', 401, 'UNAUTHENTICATED');
+    if (user.role !== 'admin') throw new AppError('Acesso restrito a administradores.', 403, 'FORBIDDEN');
+    const arquivo = await this.service.gerarXlsx();
+    const data = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+    return reply
+      .header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('content-disposition', `attachment; filename="backup-completo-produtos-${data}.xlsx"`)
+      .header('cache-control', 'no-store')
+      .status(200)
+      .send(arquivo);
+  }
 }

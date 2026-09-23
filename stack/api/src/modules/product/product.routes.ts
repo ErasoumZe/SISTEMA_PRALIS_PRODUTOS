@@ -85,6 +85,12 @@ export async function productRoutes(app: FastifyInstance) {
     exportController.exportar.bind(exportController),
   );
 
+  a.get(
+    '/admin/produtos/backup.xlsx',
+    { schema: { summary: 'Backup XLSX completo de todos os produtos (admin)', tags: ['ADMIN', 'PRODUTOS'] } },
+    exportController.exportarXlsx.bind(exportController),
+  );
+
   /*
    * Zerar o catálogo. Duas travas de propósito:
    *  - a frase digitada, porque clique errado acontece;
@@ -98,7 +104,7 @@ export async function productRoutes(app: FastifyInstance) {
     '/admin/produtos/zerar/previa',
     {
       schema: {
-        response: { 200: apiResponseSchema(z.object({ total: z.number(), confirmacao: z.string() })) },
+        response: { 200: apiResponseSchema(z.object({ total: z.number(), apagaveis: z.number(), confirmacao: z.string(), piloto: z.object({ codigoInterno: z.string(), nome: z.string() }) })) },
         summary: 'Quantos produtos seriam apagados (admin)',
         tags: ['ADMIN', 'PRODUTOS'],
       },
@@ -114,7 +120,7 @@ export async function productRoutes(app: FastifyInstance) {
           confirmacao: z.string(),
           totalEsperado: z.number().int().nonnegative(),
         }),
-        response: { 200: apiResponseSchema(z.object({ apagados: z.number() })) },
+        response: { 200: apiResponseSchema(z.object({ apagados: z.number(), preservado: z.object({ codigoInterno: z.string(), nome: z.string() }) })) },
         summary: 'Apagar TODOS os produtos do catálogo (admin)',
         tags: ['ADMIN', 'PRODUTOS'],
       },

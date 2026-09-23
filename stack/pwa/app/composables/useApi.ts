@@ -350,6 +350,7 @@ export function useApi() {
      * de vendas. Serve de backup antes de zerar.
      */
     produtosCsvUrl: () => `${base.baseURL}/admin/produtos/export.csv`,
+    produtosBackupXlsxUrl: () => `${base.baseURL}/admin/produtos/backup.xlsx`,
 
     codigosPrevia: () =>
       unwrap($fetch<{ data: {
@@ -367,7 +368,7 @@ export function useApi() {
 
     /** Quantos seriam apagados e qual frase confirma. Não apaga nada. */
     zerarPrevia: () =>
-      unwrap($fetch<{ data: { total: number; confirmacao: string } }>(
+      unwrap($fetch<{ data: { total: number; apagaveis: number; confirmacao: string; piloto: { codigoInterno: string; nome: string } } }>(
         '/admin/produtos/zerar/previa', { ...base },
       )),
 
@@ -377,7 +378,7 @@ export function useApi() {
      * em vez de apagar mais do que foi decidido.
      */
     zerarCatalogo: (confirmacao: string, totalEsperado: number) =>
-      unwrap($fetch<{ data: { apagados: number } }>('/admin/produtos/zerar', {
+      unwrap($fetch<{ data: { apagados: number; preservado: { codigoInterno: string; nome: string } } }>('/admin/produtos/zerar', {
         ...base, method: 'POST', body: { confirmacao, totalEsperado },
       })),
 

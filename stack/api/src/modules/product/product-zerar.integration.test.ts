@@ -38,10 +38,10 @@ afterAll(async () => {
   await container?.stop();
 });
 
-const criarProduto = async (id: string, nome: string, loja = 'BASE') => {
+const criarProduto = async (id: string, nome: string, loja = 'BASE', codigoInterno: string | null = null) => {
   await db.execute(sqlTag`
-    INSERT INTO products (id, codigo, loja, nome, medida_base, tipo, status)
-    VALUES (${id}, ${`PR-${id.slice(0, 4)}`}, ${loja}, ${nome}, 'UN', 'revenda', 'ativo')
+    INSERT INTO products (id, codigo, loja, nome, medida_base, tipo, status, codigo_interno)
+    VALUES (${id}, ${`PR-${id.slice(0, 4)}`}, ${loja}, ${nome}, 'UN', 'revenda', 'ativo', ${codigoInterno})
   `);
 };
 
@@ -50,19 +50,23 @@ beforeEach(async () => {
 });
 
 describe('ProductZerarService', () => {
-  it('apaga todos os produtos e devolve quantos foram', async () => {
-    await criarProduto('11111111-1111-7111-8111-111111111111', 'PAO');
+  const PILOTO = '11111111-1111-7111-8111-111111111111';
+  const CONFIRMACAO = 'ZERAR CATALOGO E MANTER 13125';
+
+  it('preserva exclusivamente o piloto Base 13125 e devolve quantos removeu', async () => {
+    await criarProduto(PILOTO, 'BISCOITO PILOTO', 'BASE', '13125');
     await criarProduto('22222222-2222-7222-8222-222222222222', 'LEITE');
     await criarProduto('33333333-3333-7333-8333-333333333333', 'CAFE', 'LI');
 
     expect(await servico.contar()).toBe(3);
-    const r = await servico.zerar('ZERAR CATALOGO', 3);
+    const r = await servico.zerar(CONFIRMACAO, 3);
 
-    expect(r.apagados).toBe(3);
-    expect(await servico.contar()).toBe(0);
+    expect(r).toMatchObject({ apagados: 2, preservado: { codigoInterno: '13125', nome: 'BISCOITO PILOTO' } });
+    expect(await servico.contar()).toBe(1);
   });
 
   it('leva junto as tabelas filhas, por cascata', async () => {
+    await criarProduto(PILOTO, 'BISCOITO PILOTO', 'BASE', '13125');
     const id = '44444444-4444-7444-8444-444444444444';
     await criarProduto(id, 'QUEIJO');
     await db.execute(sqlTag`INSERT INTO product_fiscal (product_id, ncm) VALUES (${id}, '04061090')`);
@@ -71,7 +75,7 @@ describe('ProductZerarService', () => {
       VALUES ('55555555-5555-7555-8555-555555555555', ${id}, 'valor', 9.9)
     `);
 
-    await servico.zerar('ZERAR CATALOGO', 1);
+    await servico.zerar(CONFIRMACAO, 2);
 
     const fiscal = await db.execute(sqlTag`SELECT count(*)::int AS n FROM product_fiscal`);
     const promo = await db.execute(sqlTag`SELECT count(*)::int AS n FROM promocoes`);
@@ -80,19 +84,26 @@ describe('ProductZerarService', () => {
   });
 
   it('recusa sem a frase exata e NÃO apaga nada', async () => {
-    await criarProduto('66666666-6666-7666-8666-666666666666', 'PAO');
+    await criarProduto(PILOTO, 'BISCOITO PILOTO', 'BASE', '13125');
 
     await expect(servico.zerar('zerar', 1)).rejects.toMatchObject({ code: 'ZERAR_CONFIRMACAO_INVALIDA' });
     expect(await servico.contar()).toBe(1);
   });
 
   it('recusa quando o total mudou desde que a tela olhou', async () => {
+    await criarProduto(PILOTO, 'BISCOITO PILOTO', 'BASE', '13125');
     await criarProduto('77777777-7777-7777-8777-777777777777', 'PAO');
     await criarProduto('88888888-8888-7888-8888-888888888888', 'LEITE');
 
     // a tela tinha visto 1; alguém cadastrou outro no meio
-    await expect(servico.zerar('ZERAR CATALOGO', 1)).rejects.toMatchObject({ code: 'ZERAR_TOTAL_MUDOU' });
-    expect(await servico.contar()).toBe(2);
+    await expect(servico.zerar(CONFIRMACAO, 2)).rejects.toMatchObject({ code: 'ZERAR_TOTAL_MUDOU' });
+    expect(await servico.contar()).toBe(3);
+  });
+
+  it('bloqueia a limpeza se o piloto não existir na Base', async () => {
+    await criarProduto('99999999-9999-7999-8999-999999999999', 'SEM PILOTO');
+    await expect(servico.previa()).rejects.toMatchObject({ code: 'PILOTO_NAO_ENCONTRADO' });
+    expect(await servico.contar()).toBe(1);
   });
 
   it('não depende de planilha: o serviço não conhece o gateway do Sheets', () => {
