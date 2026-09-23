@@ -5,6 +5,14 @@ import { ProductRequests } from '@pralis/shared';
 
 const arquivo = path.resolve(process.cwd(), 'src/db/base-products.json');
 const base = JSON.parse(readFileSync(arquivo, 'utf8')) as unknown[];
+const packageJson = JSON.parse(readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8')) as {
+  scripts: Record<string, string>;
+};
+
+it('o boot de produção não executa seed e não recria catálogo apagado', () => {
+  expect(packageJson.scripts['start:prod']).not.toContain('seed-base');
+  expect(packageJson.scripts['seed:base']).toContain('seed-base.ts');
+});
 
 /**
  * O `start:prod` encadeia com `&&`:
