@@ -41,6 +41,7 @@ const nav = computed<NavItem[]>(() => {
     items.push({ title: 'Central de Produtos', icon: 'merge_type', to: '/produtos/central', section: 'Administração' });
     items.push({ title: 'Duplicados históricos', icon: 'compare_arrows', to: '/produtos/duplicados-historicos', section: 'Administração' });
     items.push({ title: 'Histórico', icon: 'history', to: '/produtos/historico-nomes', section: 'Administração' });
+    items.push({ title: 'Manutenção', icon: 'build', to: '/produtos/manutencao', section: 'Administração' });
   }
   // "Duplicados" não existe mais: a Central de Produtos faz o que ela fazia e
   // mais, sobre a base inteira em vez de só o catálogo vivo.
@@ -51,8 +52,6 @@ const nav = computed<NavItem[]>(() => {
    * o que se usa toda hora. Menu curto é menu que se lê.
    */
   if (isAdmin.value) items.push({ title: 'Usuários', icon: 'group', to: '/usuarios', section: 'Administração' });
-  // Manutenção também está temporariamente fora da navegação, inclusive para
-  // administradores. A rota não foi removida para não descartar a ferramenta.
   return items;
 });
 const sections = computed(() => [...new Set(nav.value.map((n) => n.section))]);
