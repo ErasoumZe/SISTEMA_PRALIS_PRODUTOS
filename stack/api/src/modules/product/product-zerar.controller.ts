@@ -17,10 +17,10 @@ export class ProductZerarController {
   /** Quantos seriam apagados. A tela precisa deste número para confirmar. */
   async previa(request: FastifyRequest, reply: FastifyReply) {
     this.exigirAdmin(request);
-    const total = await this.service.contar();
+    const previa = await this.service.previa();
     return reply.status(200).send(buildResponse(
-      { total, confirmacao: ProductZerarService.CONFIRMACAO },
-      `${total} produto(s) seriam apagados`,
+      { ...previa, confirmacao: ProductZerarService.CONFIRMACAO },
+      `${previa.apagaveis} produto(s) seriam apagados; ${previa.piloto.codigoInterno} será preservado`,
     ));
   }
 
@@ -31,6 +31,6 @@ export class ProductZerarController {
     this.exigirAdmin(request);
     const { confirmacao, totalEsperado } = request.body;
     const r = await this.service.zerar(confirmacao, totalEsperado);
-    return reply.status(200).send(buildResponse(r, `${r.apagados} produto(s) apagados do catálogo`));
+    return reply.status(200).send(buildResponse(r, `${r.apagados} produto(s) apagados; ${r.preservado.codigoInterno} foi preservado`));
   }
 }

@@ -310,6 +310,13 @@ export class ProductRepository {
     return completos.filter((p): p is ProductEntity => p !== null);
   }
 
+  /** Backup administrativo: inclui inclusive cadastros aposentados por unificação. */
+  async listAllForBackup(): Promise<ProductEntity[]> {
+    const linhas = await db.select({ id: products.id }).from(products);
+    const completos = await Promise.all(linhas.map((linha) => this.findById(linha.id)));
+    return completos.filter((p): p is ProductEntity => p !== null);
+  }
+
   async list(
     loja: Catalogo,
     filter: ProductRequests.ListProductQuery,

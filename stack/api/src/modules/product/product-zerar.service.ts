@@ -1,5 +1,5 @@
 import { injectable } from 'tsyringe';
-import { count } from 'drizzle-orm';
+import { and, count, eq, ne } from 'drizzle-orm';
 import { db } from '@/db/databases';
 import { products } from './product.table';
 import { AppError } from '@/config/api.replies';
@@ -25,11 +25,35 @@ import { AppError } from '@/config/api.replies';
 @injectable()
 export class ProductZerarService {
   /** Frase que o administrador precisa digitar. Clique só não basta. */
-  static readonly CONFIRMACAO = 'ZERAR CATALOGO';
+  static readonly CONFIRMACAO = 'ZERAR CATALOGO E MANTER 13125';
+  static readonly CODIGO_PILOTO = '13125';
+
+  private async piloto() {
+    const encontrados = await db.select({ id: products.id, nome: products.nome })
+      .from(products)
+      .where(and(eq(products.loja, 'BASE'), eq(products.codigoInterno, ProductZerarService.CODIGO_PILOTO)));
+    if (encontrados.length !== 1) {
+      throw new AppError(
+        `Limpeza bloqueada: é obrigatório existir exatamente um produto BASE com código interno ${ProductZerarService.CODIGO_PILOTO}; encontrados: ${encontrados.length}.`,
+        409,
+        'PILOTO_NAO_ENCONTRADO',
+      );
+    }
+    return encontrados[0]!;
+  }
 
   async contar(): Promise<number> {
     const [r] = await db.select({ total: count() }).from(products);
     return Number(r?.total ?? 0);
+  }
+
+  async previa(): Promise<{ total: number; apagaveis: number; piloto: { codigoInterno: string; nome: string } }> {
+    const [total, piloto] = await Promise.all([this.contar(), this.piloto()]);
+    return {
+      total,
+      apagaveis: Math.max(0, total - 1),
+      piloto: { codigoInterno: ProductZerarService.CODIGO_PILOTO, nome: piloto.nome },
+    };
   }
 
   /**
@@ -41,7 +65,7 @@ export class ProductZerarService {
    * melhor recusar e mostrar o número novo do que apagar mais do que a pessoa
    * decidiu apagar.
    */
-  async zerar(confirmacao: string, totalEsperado: number): Promise<{ apagados: number }> {
+  async zerar(confirmacao: string, totalEsperado: number): Promise<{ apagados: number; preservado: { codigoInterno: string; nome: string } }> {
     if (confirmacao.trim().toUpperCase() !== ProductZerarService.CONFIRMACAO) {
       throw new AppError(
         `Confirmação incorreta. Digite exatamente "${ProductZerarService.CONFIRMACAO}".`,
@@ -50,7 +74,7 @@ export class ProductZerarService {
       );
     }
 
-    const total = await this.contar();
+    const [total, piloto] = await Promise.all([this.contar(), this.piloto()]);
     if (total !== totalEsperado) {
       throw new AppError(
         `O catálogo tem ${total} produtos agora, e não ${totalEsperado} como a tela mostrava. `
@@ -60,9 +84,9 @@ export class ProductZerarService {
       );
     }
 
-    if (total === 0) return { apagados: 0 };
+    if (total <= 1) return { apagados: 0, preservado: { codigoInterno: ProductZerarService.CODIGO_PILOTO, nome: piloto.nome } };
 
-    const apagados = await db.delete(products).returning({ id: products.id });
-    return { apagados: apagados.length };
+    const apagados = await db.delete(products).where(ne(products.id, piloto.id)).returning({ id: products.id });
+    return { apagados: apagados.length, preservado: { codigoInterno: ProductZerarService.CODIGO_PILOTO, nome: piloto.nome } };
   }
 }
