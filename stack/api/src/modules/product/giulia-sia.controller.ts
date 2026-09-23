@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { exigirTela } from '@/modules/permissao/exigir-tela';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
 import { GiuliaSiaService } from './giulia-sia.service';
@@ -7,10 +8,7 @@ import { GiuliaSiaService } from './giulia-sia.service';
 export class GiuliaSiaController {
   constructor(@inject(GiuliaSiaService) private service: GiuliaSiaService) {}
   private admin(request: FastifyRequest) {
-    const user = request.currentUser;
-    if (!user) throw new AppError('Não autenticado', 401, 'UNAUTHENTICATED');
-    if (user.role !== 'admin') throw new AppError('Acesso restrito a administradores.', 403, 'FORBIDDEN');
-    return user;
+    return exigirTela(request.currentUser, 'giulia-sia');
   }
   async previa(request: FastifyRequest, reply: FastifyReply) {
     this.admin(request); const r = await this.service.previa();

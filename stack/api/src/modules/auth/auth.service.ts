@@ -2,6 +2,7 @@ import { randomInt } from 'node:crypto';
 import { inject, injectable } from 'tsyringe';
 import argon2 from 'argon2';
 import { AuthRepository } from './auth.repository';
+import { PermissaoService } from '@/modules/permissao/permissao.service';
 import { EmailService } from '@/modules/email/email.service';
 import { AppError } from '@/config/api.replies';
 import { env } from '@/config/env';
@@ -23,6 +24,8 @@ export interface PublicUser {
   loja: 'TNP' | 'LI' | 'HORA' | null; // null para admin
   role: 'admin' | 'user';
   isActive: boolean;
+  /** As telas que esta pessoa enxerga. So o `me` preenche: e ele que o menu le. */
+  telas?: string[];
 }
 
 @injectable()
@@ -30,6 +33,7 @@ export class AuthService {
   constructor(
     @inject(AuthRepository) private repo: AuthRepository,
     @inject(EmailService) private email: EmailService,
+    @inject(PermissaoService) private permissoes: PermissaoService,
   ) {}
 
   /** Cria a conta como NÃO verificada e envia o código por e-mail. Não loga ainda. */
@@ -114,10 +118,16 @@ export class AuthService {
     await this.repo.deleteSession(sessionId);
   }
 
+  /*
+   * O `me` e a UNICA porta por onde a tela descobre o que pode abrir: o menu e
+   * a guarda de rota leem daqui. Por isso as telas vem juntas na mesma resposta
+   * — uma segunda chamada deixaria uma janela em que o menu ja apareceu e as
+   * permissoes ainda nao chegaram.
+   */
   async me(userId: string): Promise<PublicUser> {
     const user = await this.repo.findById(userId);
     if (!user) throw new AppError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
-    return this.publicUser(user);
+    return { ...this.publicUser(user), telas: await this.permissoes.telasDoUsuario(userId) };
   }
 
   private publicUser(u: { id: string; name: string; email: string; loja: string | null; role: string; isActive: boolean }): PublicUser {

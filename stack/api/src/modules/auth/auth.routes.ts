@@ -15,6 +15,8 @@ export async function authRoutes(app: FastifyInstance) {
     z.object({
       id: z.string(), name: z.string(), email: z.string(),
       loja: z.string().nullable(), role: z.string(), isActive: z.boolean(),
+      /* As telas que esta pessoa enxerga: e o que monta o menu e a guarda de rota. */
+      telas: z.array(z.string()).optional(),
     }),
   );
   const emailReply = apiResponseSchema(z.object({ email: z.string() }));

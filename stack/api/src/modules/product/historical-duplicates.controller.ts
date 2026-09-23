@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { exigirTela } from '@/modules/permissao/exigir-tela';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
 import { HistoricalDuplicatesService } from './historical-duplicates.service';
@@ -8,10 +9,7 @@ export class HistoricalDuplicatesController {
   constructor(@inject(HistoricalDuplicatesService) private service: HistoricalDuplicatesService) {}
 
   private admin(request: FastifyRequest) {
-    const user = request.currentUser;
-    if (!user) throw new AppError('Não autenticado', 401, 'UNAUTHENTICATED');
-    if (user.role !== 'admin') throw new AppError('Acesso restrito a administradores.', 403, 'FORBIDDEN');
-    return user;
+    return exigirTela(request.currentUser, 'duplicados-historicos');
   }
 
   async previa(request: FastifyRequest, reply: FastifyReply) {

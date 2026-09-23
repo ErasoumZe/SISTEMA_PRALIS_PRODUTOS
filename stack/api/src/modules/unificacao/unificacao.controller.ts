@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { exigirTela } from '@/modules/permissao/exigir-tela';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
 import type { CurrentUser } from '@/types/fastify-jwt';
@@ -6,11 +7,8 @@ import { UnificacaoService } from './unificacao.service';
 import { UnificacaoGruposService, type FiltrosGrupos } from './unificacao.grupos.service';
 import { UnificacaoAplicarService } from './unificacao.aplicar.service';
 
-function exigirAdmin(request: FastifyRequest): CurrentUser {
-  const user = request.currentUser;
-  if (!user) throw new AppError('Não autenticado', 401, 'UNAUTHENTICATED');
-  if (user.role !== 'admin') throw new AppError('Acesso restrito a administradores.', 403, 'FORBIDDEN');
-  return user;
+function exigirAcesso(request: FastifyRequest): CurrentUser {
+  return exigirTela(request.currentUser, 'central-de-produtos');
 }
 
 @injectable()
@@ -23,7 +21,7 @@ export class UnificacaoController {
 
   /** Apaga o staging, recarrega as 5 fontes e reconstrói os grupos. */
   async carregar(request: FastifyRequest, reply: FastifyReply) {
-    exigirAdmin(request);
+    exigirAcesso(request);
     const staging = await this.service.carregar();
     const totais = await this.grupos.recalcular();
     return reply.status(200).send(buildResponse({ staging, totais }, 'Fontes carregadas e grupos recalculados'));
@@ -31,7 +29,7 @@ export class UnificacaoController {
 
   /** Reagrupa sem recarregar os arquivos. Preserva as decisões já tomadas. */
   async recalcular(request: FastifyRequest, reply: FastifyReply) {
-    exigirAdmin(request);
+    exigirAcesso(request);
     return reply.status(200).send(buildResponse(await this.grupos.recalcular(), 'Grupos recalculados'));
   }
 
@@ -43,7 +41,7 @@ export class UnificacaoController {
     request: FastifyRequest<{ Querystring: { somenteVendidos?: boolean } }>,
     reply: FastifyReply,
   ) {
-    exigirAdmin(request);
+    exigirAcesso(request);
     const [staging, totais] = await Promise.all([
       this.service.health(),
       this.grupos.totais({ somenteVendidos: request.query?.somenteVendidos }),
@@ -55,7 +53,7 @@ export class UnificacaoController {
     request: FastifyRequest<{ Querystring: FiltrosGrupos }>,
     reply: FastifyReply,
   ) {
-    exigirAdmin(request);
+    exigirAcesso(request);
     const pagina = await this.grupos.listar(request.query);
     return reply.status(200).send(buildResponse(pagina, 'Grupos de reconciliação'));
   }
@@ -65,7 +63,7 @@ export class UnificacaoController {
     request: FastifyRequest<{ Params: { id: string }; Body?: { forcar?: boolean; nome?: string } }>,
     reply: FastifyReply,
   ) {
-    const user = exigirAdmin(request);
+    const user = exigirAcesso(request);
     const r = await this.aplicar.unificar(
       user,
       request.params.id,
@@ -79,13 +77,13 @@ export class UnificacaoController {
     request: FastifyRequest<{ Params: { id: string }; Body: { acao: 'nao_e_o_mesmo' | 'ignorado' } }>,
     reply: FastifyReply,
   ) {
-    const user = exigirAdmin(request);
+    const user = exigirAcesso(request);
     await this.aplicar.marcar(user, request.params.id, request.body.acao);
     return reply.status(200).send(buildResponse(null, 'Decisão registrada'));
   }
 
   async reabrir(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
-    const user = exigirAdmin(request);
+    const user = exigirAcesso(request);
     await this.aplicar.reabrir(user, request.params.id);
     return reply.status(200).send(buildResponse(null, 'Grupo devolvido para a fila'));
   }
@@ -94,7 +92,7 @@ export class UnificacaoController {
     request: FastifyRequest<{ Params: { id: string }; Body: { grupo: string } }>,
     reply: FastifyReply,
   ) {
-    const user = exigirAdmin(request);
+    const user = exigirAcesso(request);
     await this.grupos.definirGrupo(user, request.params.id, request.body.grupo);
     return reply.status(200).send(buildResponse(null, 'Grupo de mercadoria definido'));
   }
@@ -111,7 +109,7 @@ export class UnificacaoController {
    * meia hora.
    */
   async pendentesAutomaticos(request: FastifyRequest, reply: FastifyReply) {
-    exigirAdmin(request);
+    exigirAcesso(request);
     const total = await this.grupos.contarAutomaticos();
     return reply.status(200).send(buildResponse({ total }, `${total} item(ns) no lote automático`));
   }
@@ -127,7 +125,7 @@ export class UnificacaoController {
     request: FastifyRequest<{ Querystring: FiltrosGrupos }>,
     reply: FastifyReply,
   ) {
-    exigirAdmin(request);
+    exigirAcesso(request);
     const total = await this.grupos.contarACriar(request.query ?? {});
     return reply.status(200).send(buildResponse({ total }, `${total} produto(s) a criar`));
   }
@@ -140,7 +138,7 @@ export class UnificacaoController {
     request: FastifyRequest<{ Body?: FiltrosGrupos & { limite?: number } }>,
     reply: FastifyReply,
   ) {
-    const user = exigirAdmin(request);
+    const user = exigirAcesso(request);
     const { limite, ...filtros } = request.body ?? {};
     const r = await this.aplicar.criarFaltantes(user, filtros, limite ?? 25);
     return reply.status(200).send(buildResponse(
@@ -155,7 +153,7 @@ export class UnificacaoController {
     request: FastifyRequest<{ Body?: { limite?: number } }>,
     reply: FastifyReply,
   ) {
-    const user = exigirAdmin(request);
+    const user = exigirAcesso(request);
     const ids = await this.grupos.idsAutomaticos(request.body?.limite ?? 25);
     const resultados: Array<{ id: string; modo?: string; erro?: string }> = [];
     for (const id of ids) {

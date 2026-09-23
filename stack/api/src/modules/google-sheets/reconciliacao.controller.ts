@@ -1,4 +1,5 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
+import { exigirTela } from '@/modules/permissao/exigir-tela';
 import { inject, injectable } from 'tsyringe';
 import { ReconciliacaoService } from './reconciliacao.service';
 import { AppError, buildResponse } from '@/config/api.replies';
@@ -7,10 +8,8 @@ import { AppError, buildResponse } from '@/config/api.replies';
  * Mesmo critério das outras rotas `/admin`: o relatório cruza o catálogo
  * INTEIRO da BASE com a planilha, então quem o lê vê o cadastro de todo mundo.
  */
-function exigirAdmin(request: FastifyRequest): void {
-  const user = request.currentUser;
-  if (!user) throw new AppError('Não autenticado', 401, 'UNAUTHENTICATED');
-  if (user.role !== 'admin') throw new AppError('Acesso restrito a administradores', 403, 'FORBIDDEN');
+function exigirAcesso(request: FastifyRequest): void {
+  exigirTela(request.currentUser, 'conferir-planilha');
 }
 
 @injectable()
@@ -27,7 +26,7 @@ export class ReconciliacaoController {
     request: FastifyRequest<{ Querystring: { limite?: number } }>,
     reply: FastifyReply,
   ) {
-    exigirAdmin(request);
+    exigirAcesso(request);
     const relatorio = await this.service.reconciliar({ limite: request.query.limite });
     return reply.status(200).send(buildResponse(relatorio, relatorio.mensagem));
   }

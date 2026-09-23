@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { exigirTela } from '@/modules/permissao/exigir-tela';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
 import { DeParaUploadService, LOJAS_DEPARA } from './depara-upload.service';
@@ -12,11 +13,8 @@ import type { CreareStore } from './creare.config';
 export class DeParaUploadController {
   constructor(@inject(DeParaUploadService) private service: DeParaUploadService) {}
 
-  private exigirAdmin(request: FastifyRequest) {
-    const user = request.currentUser;
-    if (!user) throw new AppError('Não autenticado', 401, 'UNAUTHENTICATED');
-    if (user.role !== 'admin') throw new AppError('Acesso restrito a administradores.', 403, 'FORBIDDEN');
-    return user;
+  private exigirAcesso(request: FastifyRequest) {
+    return exigirTela(request.currentUser, 'depara-sia');
   }
 
   /**
@@ -43,7 +41,7 @@ export class DeParaUploadController {
   }
 
   async previa(request: FastifyRequest, reply: FastifyReply) {
-    this.exigirAdmin(request);
+    this.exigirAcesso(request);
     const { loja, conteudo, nome } = await this.lerMultipart(request);
     const r = await this.service.previa(loja, conteudo, nome);
     const problemas = r.barrasAmbiguas.length + r.coditensRepetidos.length;
@@ -54,7 +52,7 @@ export class DeParaUploadController {
   }
 
   async aplicar(request: FastifyRequest, reply: FastifyReply) {
-    this.exigirAdmin(request);
+    this.exigirAcesso(request);
     const { loja, conteudo, nome, confirmacao } = await this.lerMultipart(request);
     const r = await this.service.aplicar(loja, conteudo, nome, confirmacao);
     return reply.status(200).send(buildResponse(

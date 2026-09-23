@@ -31,6 +31,32 @@ export type BaldeCodigo =
 /** Os baldes que podem ser adotados em lote — os de código lido, não sugerido. */
 export type BaldeEmLote = 'exato' | 'barras-tem-codigo';
 
+export interface PessoaPermissao {
+  userId: string;
+  nome: string;
+  email: string;
+  role: 'admin' | 'user';
+  loja: string | null;
+  ativo: boolean;
+  /** O admin principal: enxerga tudo e ninguém altera. */
+  adminRaiz: boolean;
+  /** Quem está olhando pode mexer nesta pessoa? */
+  gerenciavel: boolean;
+  /** Por que não, quando não. */
+  motivo: string | null;
+  telas: string[];
+}
+
+export interface PainelDePermissoes {
+  telas: Array<{
+    id: string; titulo: string; subtitulo: string; path: string;
+    secao: string; icone: string; foraDoMenu?: boolean; sempreLiberada?: boolean;
+  }>;
+  secoes: string[];
+  sempreLiberadas: string[];
+  pessoas: PessoaPermissao[];
+}
+
 /** Um produto do SIA que casou pelo código de barras. */
 export interface CandidatoCodigo {
   loja: string;
@@ -390,6 +416,17 @@ export function useApi() {
 
     findByCodigoBarras: (codigoBarras: string) =>
       unwrap($fetch<{ data: Product[] }>('/products', { ...base, query: { codigoBarras } })),
+
+    /** Quem enxerga cada tela — a grade inteira numa chamada só. */
+    permissoesPainel: () =>
+      unwrap($fetch<{ data: PainelDePermissoes }>('/admin/permissoes', { ...base })),
+
+    /** Liga ou desliga UMA tela para UMA pessoa. */
+    permissoesAlternar: (body: { userId: string; telaId: string; permitido: boolean }) =>
+      unwrap($fetch<{ data: { userId: string; telas: string[] } }>(
+        '/admin/permissoes/alternar',
+        { ...base, method: 'POST', body },
+      )),
 
     duplicadosHistoricosPrevia: () =>
       unwrap($fetch<{ data: PreviaDuplicadosHistoricos }>('/admin/produtos/duplicados-historicos/previa', { ...base })),

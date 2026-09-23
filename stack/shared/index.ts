@@ -17,3 +17,4 @@ export * as VendasUnicos from './src/vendas/vendas-unicos.schemas';
 export * as VendasRanking from './src/vendas/vendas-ranking.schemas';
 export * as VendasAbc from './src/vendas/vendas-abc.schemas';
 export * as VendasPulso from './src/vendas/vendas-pulso.schemas';
+export * as Telas from './src/permissoes/telas';

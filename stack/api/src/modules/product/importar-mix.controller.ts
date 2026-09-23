@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { exigirTela } from '@/modules/permissao/exigir-tela';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
 import { ImportarMixService } from './importar-mix.service';
@@ -8,15 +9,12 @@ import { ImportarMixService } from './importar-mix.service';
 export class ImportarMixController {
   constructor(@inject(ImportarMixService) private service: ImportarMixService) {}
 
-  private exigirAdmin(request: FastifyRequest) {
-    const user = request.currentUser;
-    if (!user) throw new AppError('Não autenticado', 401, 'UNAUTHENTICATED');
-    if (user.role !== 'admin') throw new AppError('Acesso restrito a administradores.', 403, 'FORBIDDEN');
-    return user;
+  private exigirAcesso(request: FastifyRequest) {
+    return exigirTela(request.currentUser, 'importar-mix');
   }
 
   async previa(request: FastifyRequest, reply: FastifyReply) {
-    this.exigirAdmin(request);
+    this.exigirAcesso(request);
     const previa = await this.service.previa();
     const forade = Object.values(previa.pular).reduce((a, b) => a + b, 0);
     const mensagem = previa.estado === 'ok'
@@ -26,7 +24,7 @@ export class ImportarMixController {
   }
 
   async importar(request: FastifyRequest<{ Body: { confirmacao: string } }>, reply: FastifyReply) {
-    const user = this.exigirAdmin(request);
+    const user = this.exigirAcesso(request);
     const r = await this.service.importar(user, request.body.confirmacao);
     const partes = [`${r.criados} produto(s) criado(s) na Base.`];
     if (r.falhas.length) partes.push(`${r.falhas.length} falharam.`);

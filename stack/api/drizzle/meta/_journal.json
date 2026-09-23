@@ -176,6 +176,13 @@
       "when": 1789744921806,
       "tag": "0024_sweet_bloodstorm",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790197738145,
+      "tag": "0025_curvy_victor_mancha",
+      "breakpoints": true
     }
   ]
 }
