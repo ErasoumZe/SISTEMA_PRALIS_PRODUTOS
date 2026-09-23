@@ -14,6 +14,13 @@ export interface CurrentUser {
   email: string;
   loja: 'TNP' | 'LI' | 'HORA' | null; // null para admin (sem loja; casa = BASE)
   role: 'admin' | 'user';
+  /**
+   * As telas que esta pessoa enxerga, resolvidas pelo `authMiddleware`.
+   *
+   * Opcional no tipo porque testes montam `CurrentUser` a mao; ausente conta
+   * como "nenhuma tela" na guarda, que e o lado seguro do engano.
+   */
+  telas?: string[];
 }
 
 declare module 'fastify' {

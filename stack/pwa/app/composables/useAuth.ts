@@ -5,6 +5,18 @@ type User = AuthSchemas.UserEntity;
 /** Estado e ações de autenticação (cookie httpOnly via API). */
 export function useAuth() {
   const user = useState<User | null>('auth-user', () => null);
+
+  /**
+   * A ÚNICA pergunta que o menu e a guarda de rota fazem.
+   *
+   * Enquanto `telas` não chegou (entre o login e o `me`), cai na regra antiga
+   * pelo papel — senão o menu piscaria vazio a cada carregamento.
+   */
+  const podeVer = (telaId: string): boolean => {
+    const telas = user.value?.telas;
+    if (!telas) return user.value?.role === 'admin' || telaId === 'produtos';
+    return telas.includes(telaId);
+  };
   const apiBase = useRuntimeConfig().public.apiBase as string;
   const base = { baseURL: apiBase, credentials: 'include' as const };
 
@@ -58,5 +70,6 @@ export function useAuth() {
     await navigateTo('/login');
   }
 
-  return { user, fetchMe, login, register, verify, resend, forgotPassword, resetPassword, logout };
+  return {
+    podeVer, user, fetchMe, login, register, verify, resend, forgotPassword, resetPassword, logout };
 }

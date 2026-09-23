@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useDisplay } from 'vuetify';
+import { Telas } from '@pralis/shared';
 
-const { user, logout } = useAuth();
+const { user, logout, podeVer } = useAuth();
 const route = useRoute();
 const { mdAndUp } = useDisplay();
 
@@ -22,79 +23,25 @@ onMounted(() => {
   if (!mdAndUp.value) drawer.value = false;
 });
 
-interface NavItem { title: string; icon: string; to: string; section: string }
-const nav = computed<NavItem[]>(() => {
-  const items: NavItem[] = [];
-  /*
-   * Dashboard SAIU do menu, como "Conferir planilha" saiu antes: o sistema já
-   * abre em Produtos, então ela era uma linha que nunca se clicava disputando
-   * espaço com o que se usa toda hora. A TELA continua inteira em `/dashboard`
-   * — produtos por loja, ativos x inativos e produtividade ainda respondem
-   * perguntas que nenhuma outra tela responde.
-   */
-  items.push({ title: 'Produtos', icon: 'inventory_2', to: '/', section: 'Geral' });
-  // Vendas está temporariamente fora da navegação para todos os perfis.
-  // As rotas e a ingestão permanecem intactas: a Central ainda depende da
-  // fonte de produtos vendidos nos últimos 12 meses.
-  if (isAdmin.value) {
-    items.push({ title: 'Dashboard', icon: 'dashboard', to: '/dashboard', section: 'Administração' });
-    items.push({ title: 'Central de Produtos', icon: 'merge_type', to: '/produtos/central', section: 'Administração' });
-    items.push({ title: 'Duplicados históricos', icon: 'compare_arrows', to: '/produtos/duplicados-historicos', section: 'Administração' });
-    items.push({ title: 'Histórico', icon: 'history', to: '/produtos/historico-nomes', section: 'Administração' });
-    items.push({ title: 'Manutenção', icon: 'build', to: '/produtos/manutencao', section: 'Administração' });
-  }
-  // "Duplicados" não existe mais: a Central de Produtos faz o que ela fazia e
-  // mais, sobre a base inteira em vez de só o catálogo vivo.
-  /*
-   * "Conferir planilha" SAIU do menu — a tela continua inteira, alcançada por
-   * um cartão em Manutenção. Ela é consulta de bastidor, não trabalho do dia:
-   * ocupando uma linha ao lado de Produtos e Vendas, competia por atenção com
-   * o que se usa toda hora. Menu curto é menu que se lê.
-   */
-  if (isAdmin.value) items.push({ title: 'Usuários', icon: 'group', to: '/usuarios', section: 'Administração' });
-  return items;
-});
-const sections = computed(() => [...new Set(nav.value.map((n) => n.section))]);
+/**
+ * O menu sai do CATÁLOGO DE TELAS, não de uma lista escrita aqui.
+ *
+ * A lista à mão tinha dois defeitos que esta tela sozinha não podia ver: telas
+ * inteiras ficavam fora dela (código de cadastro, de-para do SIA, importação —
+ * alcançadas só por URL decorada), e o que ela escondia por `isAdmin` não
+ * batia com o que a guarda de rota protegia. Agora as três leituras — menu,
+ * rota e servidor — respondem à mesma pergunta.
+ */
+const nav = computed(() => Telas.TELAS
+  .filter((t) => !t.foraDoMenu && podeVer(t.id))
+  .map((t) => ({ title: t.titulo, icon: t.icone, to: t.path, section: t.secao })));
 
-const titulo = computed(() => {
-  const map: Record<string, string> = {
-    '/': 'Produtos',
-    '/dashboard': 'Dashboard',
-    '/vendas': 'Relatório de vendas',
-    '/vendas/de-para': 'Produtos do PDV sem cadastro',
-    '/vendas/produtos': 'Produtos vendidos no período',
-    '/vendas/painel': 'Painel de setores',
-    '/produtos/central': 'Central de Produtos',
-    '/produtos/historico-nomes': 'Histórico de alterações',
-    '/produtos/reconciliacao': 'Conferir planilha',
-    '/produtos/manutencao': 'Manutenção do catálogo',
-    '/produtos/codigo-cadastro': 'Código de cadastro',
-    '/produtos/duplicados-historicos': 'Duplicados históricos',
-    '/produtos/importar-mix': 'Importar da planilha',
-    '/produtos/custo-discriminacao': 'Custo da discriminação',
-    '/produtos/depara-sia': 'De-para do SIA',
-    '/usuarios': 'Usuários',
-    '/importar': 'Importar da base',
-    '/produtos/novo': 'Novo produto',
-  };
-  return map[route.path] ?? (route.path.startsWith('/produtos/') ? 'Editar produto' : 'Cicluz');
-});
-const subtitulo = computed(() => {
-  const map: Record<string, string> = {
-    '/': 'Gerencie todos os produtos cadastrados',
-    '/dashboard': 'Visão geral do seu negócio',
-    '/usuarios': 'Gerencie os usuários do sistema',
-    '/produtos/reconciliacao': 'O que o banco e a planilha discordam',
-    '/produtos/manutencao': 'Ações que não têm volta',
-    '/produtos/codigo-cadastro': 'A numeração vem do PDV',
-    '/produtos/duplicados-historicos': 'Unifique históricos no código SIA correto',
-    '/produtos/importar-mix': 'O que existe na planilha e não no sistema',
-    '/produtos/custo-discriminacao': 'O valor da compra mais recente',
-    '/produtos/depara-sia': 'A régua da numeração da rede',
-    '/produtos/historico-nomes': 'Alterações de nome em tempo real',
-  };
-  return map[route.path] ?? '';
-});
+const sections = computed(() => Telas.SECOES.filter((sec) => nav.value.some((n) => n.section === sec)));
+
+const tela = computed(() => Telas.telaDoPath(route.path));
+const titulo = computed(() => tela.value?.titulo
+  ?? (route.path.startsWith('/produtos/') ? 'Editar produto' : 'Cicluz'));
+const subtitulo = computed(() => tela.value?.subtitulo ?? '');
 
 const iniciais = computed(() =>
   (user.value?.name ?? '?')

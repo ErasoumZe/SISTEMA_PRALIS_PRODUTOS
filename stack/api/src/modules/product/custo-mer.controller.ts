@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { exigirTela } from '@/modules/permissao/exigir-tela';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
 import { CustoMerService } from './custo-mer.service';
@@ -8,15 +9,12 @@ import { CustoMerService } from './custo-mer.service';
 export class CustoMerController {
   constructor(@inject(CustoMerService) private service: CustoMerService) {}
 
-  private exigirAdmin(request: FastifyRequest) {
-    const user = request.currentUser;
-    if (!user) throw new AppError('Não autenticado', 401, 'UNAUTHENTICATED');
-    if (user.role !== 'admin') throw new AppError('Acesso restrito a administradores.', 403, 'FORBIDDEN');
-    return user;
+  private exigirAcesso(request: FastifyRequest) {
+    return exigirTela(request.currentUser, 'custo-discriminacao');
   }
 
   async previa(request: FastifyRequest, reply: FastifyReply) {
-    this.exigirAdmin(request);
+    this.exigirAcesso(request);
     const previa = await this.service.previa();
     const mensagem = previa.estado === 'ok'
       ? `${previa.comCusto} produto(s) receberiam custo de ${previa.lancamentos} lançamento(s)`
@@ -25,7 +23,7 @@ export class CustoMerController {
   }
 
   async aplicar(request: FastifyRequest<{ Body: { confirmacao: string } }>, reply: FastifyReply) {
-    const user = this.exigirAdmin(request);
+    const user = this.exigirAcesso(request);
     const r = await this.service.aplicar(user, request.body.confirmacao);
     const partes = [`${r.aplicados} custo(s) atualizado(s).`];
     if (r.conflitos) partes.push(`${r.conflitos} mudaram no meio do caminho e ficaram de fora.`);
