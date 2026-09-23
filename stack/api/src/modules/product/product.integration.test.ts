@@ -89,23 +89,22 @@ describe('ProductRepository multi-loja (Postgres real via Testcontainers)', () =
     expect(await repo.findById(created.id)).toBeNull();
   });
   /*
-   * F03 da auditoria de 08/09/2026. O aviso de "codigo de barras ja
-   * cadastrado" chamava a listagem com `q`, e `q` procura em nome, marca e
-   * codigo do sistema — nunca em codigo de barras. O duplicado so aparecia por
-   * coincidencia, quando o numero calhava de bater com outro campo.
+   * A busca geral precisa localizar por nome, marca, codigo interno e codigo de
+   * barras. O filtro proprio de barras continua sendo a opcao exata para uma
+   * consulta que deve devolver apenas aquele cadastro.
    */
-  it('acha pelo codigo de barras, que a busca textual nao alcanca', async () => {
+  it('acha pelo codigo de barras na busca geral e no filtro exato', async () => {
     const criado = await repo.create(
       { ...payload, nome: 'AGUA COM GAS 500ML', codigoBarras: '7891000100103' },
       { loja: 'TNP', codigo: 'PR-BARRAS-01', createdByUserId: null, createdByName: 'Jose' },
     );
 
-    // a busca textual NAO acha: o numero nao esta em nome, marca nem codigo
+    // A busca geral tambem encontra o codigo de barras.
     const porTexto = await repo.list('TNP', { q: '7891000100103' });
-    expect(porTexto.find((p) => p.id === criado.id)).toBeUndefined();
+    expect(porTexto.map((p) => p.id)).toContain(criado.id);
 
-    // o filtro proprio acha — e SO ele. Sem o filtro a listagem devolveria
-    // tudo e um `toContain` acertaria por acaso; por isso um segundo produto.
+    // O filtro proprio restringe a busca ao codigo de barras exato. Por isso
+    // criamos um segundo produto antes de conferir o resultado.
     const outro = await repo.create(
       { ...payload, nome: 'CHA MATE 1L', codigoBarras: '7890000000009' },
       { loja: 'TNP', codigo: 'PR-BARRAS-01B', createdByUserId: null, createdByName: 'Jose' },
