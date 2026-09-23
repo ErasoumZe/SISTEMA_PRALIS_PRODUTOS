@@ -68,19 +68,7 @@ const CAMPOS_HERANCA: Array<{ campo: string; label: string }> = [
   { campo: 'fotoUrl', label: 'Foto' },
   { campo: 'grupo', label: 'Grupo' },
   { campo: 'tipo', label: 'Tipo' },
-  { campo: 'status', label: 'Status' },
   { campo: 'habilitarAjuda', label: 'Habilitar ajuda' },
-  { campo: 'estoqueMin', label: 'Estoque mínimo' },
-  { campo: 'estoqueMax', label: 'Estoque máximo' },
-  { campo: 'setorEstoque', label: 'Setor de estoque' },
-  { campo: 'custo', label: 'Custo' },
-  { campo: 'margemPontual', label: 'Margem' },
-  { campo: 'vVendaPontual', label: 'V. venda pontual' },
-  { campo: 'auto', label: 'Cálculo automático' },
-  { campo: 'setorVenda1', label: 'Setor de venda 1' },
-  { campo: 'setorVenda2', label: 'Setor de venda 2' },
-  { campo: 'localVenda1', label: 'Local de venda 1' },
-  { campo: 'localVenda2', label: 'Local de venda 2' },
 ];
 
 /**
@@ -159,13 +147,7 @@ function voltarAHerdar() {
     qtCad: base.qtCad, medidaCompra: base.medidaCompra ?? '',
     compraAproximada: base.compraAproximada ?? false, grupo: base.grupo ?? '',
     fotoUrl: base.fotoUrl ?? '', codigoBarras: base.codigoBarras ?? '',
-    status: base.status, habilitarAjuda: base.habilitarAjuda, tipo: base.tipo,
-    custo: base.custo ?? 0, margemPct: ProductRules.fracaoParaMargemPct(base.margemPontual),
-    auto: base.auto, vVendaPontual: base.vVendaPontual ?? 0,
-    estoqueMin: base.estoqueMin ?? 0, estoqueMax: base.estoqueMax ?? 0,
-    setorEstoque: base.setorEstoque ?? '',
-    setorVenda1: base.setorVenda1 ?? '',
-    setorVenda2: base.setorVenda2 ?? '',
+    habilitarAjuda: base.habilitarAjuda, tipo: base.tipo,
   });
 }
 
