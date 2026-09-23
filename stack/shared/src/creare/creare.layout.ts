@@ -1,4 +1,4 @@
-export type CreareFieldKind = 'alpha' | 'numeric' | 'date';
+export type CreareFieldKind = 'alpha' | 'numeric' | 'optionalNumeric' | 'date';
 
 export interface CreareDecimalPlaces {
   unitPrice: 2 | 3;
@@ -60,7 +60,9 @@ export const CREARE_PRODUCT_LAYOUT = [
   { name: 'extendedInternalCode', length: 9, kind: 'numeric' },
   { name: 'weighable', length: 1, kind: 'alpha' },
   { name: 'scaleKey', length: 3, kind: 'numeric' },
-  { name: 'cest', length: 7, kind: 'numeric' },
+  // CEST é numérico quando informado, mas o TXT homologado do Criare usa
+  // espaços quando não há CEST. Zero não é sinônimo de "não informado".
+  { name: 'cest', length: 7, kind: 'optionalNumeric' },
   { name: 'icmsReduction', length: 4, kind: 'numeric', decimals: 'icmsReduction' },
   { name: 'fullTaxRate', length: 5, kind: 'numeric', decimals: 'fullTaxRate' },
   { name: 'fcpRate', length: 4, kind: 'numeric', decimals: 'fcpRate' },

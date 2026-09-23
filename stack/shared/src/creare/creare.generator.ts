@@ -132,6 +132,9 @@ export function serializeCreareRecord(values: CreareValues, decimalPlaces: Crear
     try {
       if (field.kind === 'alpha') return formatCreareAlpha(values[field.name], field.length);
       if (field.kind === 'date') return validateDate(values[field.name], field.name);
+      if (field.kind === 'optionalNumeric' && (values[field.name] == null || values[field.name] === '')) {
+        return ' '.repeat(field.length);
+      }
       const configuredDecimals = 'decimals' in field ? field.decimals : 0;
       const decimals = typeof configuredDecimals === 'string'
         ? decimalPlaces[configuredDecimals]
@@ -288,7 +291,7 @@ export function valuesFromProduct(
     reserved: '',
     weighable,
     scaleKey: 0,
-    cest: optionalFixedDigits(fiscal.cest, 7, 'CEST'),
+    cest: fiscal.cest ? optionalFixedDigits(fiscal.cest, 7, 'CEST') : null,
     icmsReduction: fiscal.reducaoIcms ?? 0,
     fullTaxRate: fiscal.aliquotaCheia ?? 0,
     fcpRate: fiscal.aliquotaFcp ?? 0,

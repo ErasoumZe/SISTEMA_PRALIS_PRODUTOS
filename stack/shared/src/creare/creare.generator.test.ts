@@ -134,6 +134,13 @@ describe('formatadores Criare', () => {
     expect(() => formatCreareNumber(12345678901, 10)).toThrow(/nao cabe/);
     expect(() => formatCreareNumber(null, 10)).toThrow(/ausente/);
   });
+
+  it('mantém CEST vazio como espaços, como no arquivo homologado do Criare', () => {
+    const parsed = parseCreareRecord(generateCreareRecord(bread({
+      fiscal: { ...bread().fiscal!, cest: null },
+    }), config));
+    expect(parsed.cest).toBe('       ');
+  });
 });
 
 describe('gerador Criare estrito', () => {

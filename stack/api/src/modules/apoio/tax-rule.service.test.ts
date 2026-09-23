@@ -351,6 +351,40 @@ describe('TaxRuleService — cadastro de ECF por nome', () => {
     expect(r.ecf).toBeNull();
     expect(r.cstPisCofins).toBe('4');
   });
+
+  it('usa a fonte legada e o override por EAN quando a aba consolidada não existe', async () => {
+    const legado = Array<string>(31).fill('');
+    legado[0] = 'PRODUTO LEGADO'; // M, só para provar que a fonte não veio vazia
+    const gateway = {
+      async batchGetValues(_id: string, faixas: string[]) {
+        if (faixas.some((f) => f.includes('CADASTRO ECF'))) throw new Error('Unable to parse range');
+        if (faixas.some((f) => f.includes('M11:AQ5000'))) return [[legado], [[]]];
+        return faixas.map((faixa) => {
+          if (/AB4:AG79/.test(faixa)) {
+            return [['MER MERCEARIA - ALIMENTOS DIVERSOS', '1', 'TRIBUTADO INTEGRAL', '11,28%', '3,69%', 'Regra geral']];
+          }
+          if (/O4:Q20/.test(faixa)) return [['1', 'TRIBUTADO INTEGRAL', '11,28%']];
+          return [];
+        });
+      },
+      async getSheets() { return []; },
+      async batchUpdateValues() {},
+      async batchUpdate() {},
+    } as unknown as SheetsGateway;
+
+    const r = await new TaxRuleService(gateway).classificar({
+      grupo: 'MER MERCEARIA - ALIMENTOS DIVERSOS',
+      nome: 'FAROFA TRADICIONAL YOKI',
+      codigoBarras: '7891095911486',
+      loja: 'TNP',
+    });
+
+    expect(r.estado).toBe('completo');
+    expect(r.classificacao).toMatchObject({ ncm: '19019090', cstPisCofins: '1' });
+    expect(r.classificacao?.ecf).toMatchObject({
+      aliquotaEcfId: '10', categoria: 'ST. OUTROS (ALIQUOTA EFETIVA - ICMS)', cest: '1704600',
+    });
+  });
 });
 
 /**

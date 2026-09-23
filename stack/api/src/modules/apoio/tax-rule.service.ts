@@ -132,6 +132,8 @@ export interface RegistroEcf {
  */
 export interface FonteEcf {
   porNome: Map<string, RegistroEcf>;
+  /** Cadastro antigo também possui EAN; é uma chave mais forte que o nome. */
+  porBarras: Map<string, RegistroEcf>;
   /** Nomes com mais de uma linha. Escolher uma seria sortear imposto. */
   ambiguos: Set<string>;
   /** `true` quando a aba não pôde ser lida — falha temporária, não ausência. */
@@ -164,6 +166,23 @@ const code = (value: string) => value.replace(/\D/g, '').replace(/^0+(?=\d)/, ''
 
 /** Aba com o cadastro de ECF da TNP. Criada por `scripts/montar-aba-fiscal-ecf.ts`. */
 export const ABA_ECF = '(TNP) FISCAL - CADASTRO ECF';
+/** Fonte original do cadastro da TNP, usada quando a aba consolidada ainda não existe. */
+export const ECF_LEGACY_SPREADSHEET_ID = '1itKr_GIBE7u0xCpsfM3YtzhaIFqhpVnC4pGFSj0B2nA';
+export const ECF_LEGACY_TAB = 'MIX PRODUTOS LOJA E PRODUÇÃO ASSOCIAÇÃO';
+
+/**
+ * Produtos novos que ainda não existem no cadastro legado.
+ * Cada entrada exige EAN exato e evidência registrada; nunca é aproximação por nome.
+ */
+const ECF_TNP_OVERRIDES: Readonly<Record<string, RegistroEcf>> = {
+  '7891095911486': {
+    reducaoIcms: 0, aliquotaCheia: 0, aliquotaFcp: 0,
+    aliquotaPis: 0, aliquotaCofins: 0,
+    aliquotaEcf: 'SUBST TRIB', aliquotaEcfId: '10',
+    categoria: 'ST. OUTROS (ALIQUOTA EFETIVA - ICMS)',
+    icms: 0, cest: '1704600', ncm: '19019090', cstEcf: '99', pctNcm: 0,
+  },
+};
 
 /**
  * De qual aba sai o cadastro de ECF de cada loja.
@@ -434,10 +453,31 @@ export class TaxRuleService {
       );
       linhas = (lido ?? []) as string[][];
     } catch {
-      // falha de LEITURA, não ausência de registro: quem chama precisa saber a
-      // diferença para não marcar como "sem correspondência" o que só não pôde
-      // ser consultado agora
-      return { porNome: new Map(), ambiguos: new Set(), indisponivel: true };
+      if (aba !== ABA_ECF) {
+        return { porNome: new Map(), porBarras: new Map(), ambiguos: new Set(), indisponivel: true };
+      }
+      try {
+        /*
+         * A aba consolidada ainda não existe na planilha oficial atual. A fonte
+         * original tem os campos fiscais em M:AQ e os EANs em BV:BW. A conversão
+         * é somente em memória; nenhuma das planilhas é alterada.
+         */
+        const [fiscal = [], barras = []] = await this.sheets.batchGetValues(
+          ECF_LEGACY_SPREADSHEET_ID,
+          [a1(ECF_LEGACY_TAB, 'M11:AQ5000'), a1(ECF_LEGACY_TAB, 'BV11:BW5000')],
+          'FORMATTED_VALUE',
+        );
+        if (!fiscal.length) throw new Error('Cadastro fiscal legado vazio.');
+        linhas = fiscal.map((l, i) => [
+          String(l?.[13] ?? ''), String(l?.[0] ?? ''), String(l?.[0] ?? ''), 'CADASTRO ANTIGO',
+          String(l?.[16] ?? ''), String(l?.[17] ?? ''), String(l?.[18] ?? ''), String(l?.[19] ?? ''),
+          String(l?.[20] ?? ''), String(l?.[21] ?? ''), String(l?.[22] ?? ''), String(l?.[23] ?? ''),
+          String(l?.[24] ?? ''), String(l?.[25] ?? ''), String(l?.[26] ?? ''), String(l?.[27] ?? ''),
+          String(l?.[30] ?? ''), String(barras[i]?.[0] ?? ''), String(barras[i]?.[1] ?? ''),
+        ]);
+      } catch {
+        return { porNome: new Map(), porBarras: new Map(), ambiguos: new Set(), indisponivel: true };
+      }
     }
 
     /*
@@ -448,6 +488,8 @@ export class TaxRuleService {
     const vistos = new Set<string>();
     const ambiguos = new Set<string>();
     const mapa = new Map<string, RegistroEcf>();
+    const porBarras = new Map<string, RegistroEcf>();
+    const barrasAmbiguas = new Set<string>();
 
     for (const l of linhas) {
       const chave = chaveNomeEcf(String(l?.[1] ?? ''));
@@ -455,7 +497,7 @@ export class TaxRuleService {
       if (vistos.has(chave)) { ambiguos.add(chave); continue; }
       vistos.add(chave);
       const t = (i: number) => String(l?.[i] ?? '').trim() || null;
-      mapa.set(chave, {
+      const registro: RegistroEcf = {
         ncm: ncmCode(String(l?.[12] ?? '')) || null,
         cstEcf: t(7),
         pctNcm: parseCampoCreare(String(l?.[14] ?? ''), 2),
@@ -473,10 +515,18 @@ export class TaxRuleService {
         categoria: t(13),
         icms: parseCampoCreare(String(l?.[15] ?? ''), 2),
         cest: t(16),
-      });
+      };
+      mapa.set(chave, registro);
+      for (const valor of [l?.[17], l?.[18]]) {
+        const barras = code(String(valor ?? ''));
+        if (!barras || /^0+$/.test(barras)) continue;
+        if (porBarras.has(barras)) { barrasAmbiguas.add(barras); porBarras.delete(barras); }
+        else if (!barrasAmbiguas.has(barras)) porBarras.set(barras, registro);
+      }
     }
     for (const chave of ambiguos) mapa.delete(chave);
-    return { porNome: mapa, ambiguos, indisponivel: false };
+    for (const [barras, registro] of Object.entries(ECF_TNP_OVERRIDES)) porBarras.set(code(barras), registro);
+    return { porNome: mapa, porBarras, ambiguos, indisponivel: false };
   }
 
   async list(): Promise<GroupTaxRule[]> { return (await this.load()).groups; }
@@ -627,11 +677,14 @@ export class TaxRuleService {
     const fonteSia = this.siaDa(cache, loja);
     const linhaSia = candidates.map((candidate) => fonteSia?.get(candidate)).find(Boolean);
     const fonte = this.fonteDa(cache, loja);
+    const ecfPorBarras = candidates.map((candidate) => fonte?.porBarras.get(candidate)).find(Boolean);
     const ecf = linhaSia
       ? this.registroDoSia(linhaSia)
-      : nome && fonte
+      : ecfPorBarras
+        ? ecfPorBarras
+        : nome && fonte
         ? fonte.porNome.get(chaveNomeEcf(nome)) ?? null
         : null;
-    return { ...groupRule, cstPisCofins: cst, icmsRe: product?.icmsRe ?? groupRule.icmsRe, tributacaoSimples: cstRule?.tributacao || groupRule.tributacaoSimples, aliquotaSimples: cstRule?.aliquota ?? groupRule.aliquotaSimples, ncm: product?.ncm ?? null, codigoFiscal: product?.codigo ?? null, produtoFiscal: product?.nome ?? null, cstReforma: reform?.cst || null, cClassTrib: reform?.cClassTrib || null, aliquotaIbs: reform?.ibs ?? null, aliquotaCbs: reform?.cbs ?? null, origem: product ? (matchIndex === 0 ? 'produto' : 'plu_balanca') : 'grupo', ecf };
+    return { ...groupRule, cstPisCofins: cst, icmsRe: product?.icmsRe ?? groupRule.icmsRe, tributacaoSimples: cstRule?.tributacao || groupRule.tributacaoSimples, aliquotaSimples: cstRule?.aliquota ?? groupRule.aliquotaSimples, ncm: product?.ncm ?? ecf?.ncm ?? null, codigoFiscal: product?.codigo ?? null, produtoFiscal: product?.nome ?? null, cstReforma: reform?.cst || null, cClassTrib: reform?.cClassTrib || null, aliquotaIbs: reform?.ibs ?? null, aliquotaCbs: reform?.cbs ?? null, origem: product ? (matchIndex === 0 ? 'produto' : 'plu_balanca') : 'grupo', ecf };
   }
 }

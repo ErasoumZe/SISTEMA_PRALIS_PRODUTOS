@@ -12,7 +12,7 @@ import {
 } from './google-sheets.client';
 import {
   mapProductToCells, inputColumnsFor,
-  type CellMap, type SheetFooterColumns,
+  type CellMap, type SheetCell, type SheetFooterColumns,
 } from './product-sheet.mapper';
 import {
   lerLeiaute, traduzirParaPlanilhaNova, colunaDoCampo, type LeiauteNovo,
@@ -30,6 +30,35 @@ import {
  */
 
 type Product = ProductSchemas.ProductEntity;
+
+/** Campos cujo espelho não pode ser dado como concluído sem uma releitura. */
+interface CriticalWrite {
+  range: string;
+  expected: unknown;
+  label: string;
+}
+
+const numericValue = (value: unknown): number | null => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const percentage = raw.endsWith('%');
+  const source = raw.replace(/%/g, '').replace(/\s/g, '');
+  const canonical = source.includes(',') && source.includes('.')
+    ? source.replace(/\./g, '').replace(',', '.')
+    : source.replace(',', '.');
+  if (!/^[+-]?\d+(\.\d+)?$/.test(canonical)) return null;
+  const parsed = Number(canonical);
+  return Number.isFinite(parsed) ? (percentage ? parsed / 100 : parsed) : null;
+};
+
+const sameCriticalValue = (expected: unknown, actual: unknown): boolean => {
+  if (typeof expected === 'number') {
+    const observed = numericValue(actual);
+    return observed !== null && Math.abs(expected - observed) < 1e-9;
+  }
+  return String(expected ?? '').trim() === String(actual ?? '').trim();
+};
 
 /**
  * Resultado de uma tentativa de sincronização (o que a API devolve para a tela).
@@ -374,6 +403,7 @@ export class ProductSheetService {
         if (existentes.length > 0) {
           const raw: ValueRange[] = [];
           const userEntered: ValueRange[] = [];
+          const critical: CriticalWrite[] = [];
           // uma leitura só para o lote inteiro: as fórmulas de cada linha alvo
           const calculadas = await this.calculadasPorLinha(
             aba, existentes.map(({ product }) => linhaPorId.get(product.baseProductId!)!),
@@ -385,13 +415,11 @@ export class ProductSheetService {
             );
             raw.push(...ranges.raw);
             userEntered.push(...ranges.userEntered);
+            critical.push(...ranges.critical);
           }
 
           try {
-            if (userEntered.length) {
-              await this.sheets.batchUpdateValues(this.spreadsheetId, userEntered, 'USER_ENTERED');
-            }
-            if (raw.length) await this.sheets.batchUpdateValues(this.spreadsheetId, raw, 'RAW');
+            await this.gravarEConfirmar(raw, userEntered, critical);
 
             await Promise.all(existentes.map(async ({ product, index }) => {
               const linha = linhaPorId.get(product.baseProductId!)!;
@@ -1141,7 +1169,7 @@ export class ProductSheetService {
      * enquanto as outras 1.187 linhas seguiam calculando.
      */
     calculadas: ReadonlySet<string> = new Set(),
-  ): { raw: ValueRange[]; userEntered: ValueRange[] } {
+  ): { raw: ValueRange[]; userEntered: ValueRange[]; critical: CriticalWrite[] } {
     const { footer } = layout;
     const cells: CellMap = mapProductToCells(product, {
       defaultLojas: env.GOOGLE_SHEETS_DEFAULT_LOJAS,
@@ -1176,7 +1204,57 @@ export class ProductSheetService {
       else userEntered.push({ range, values: [['']] }); // limpa
     }
 
-    return { raw, userEntered };
+    /*
+     * O Google pode aceitar uma escrita sem ela se refletir na célula esperada
+     * (aba errada, fórmula/automação posterior ou destino divergente). Esses
+     * cinco campos são os que mudam a importação SIA; sem releitura, o toast
+     * "sincronizado" mascarava exatamente custo/estoque diferentes do banco.
+     */
+    const criticalSources: Array<[string, SheetCell]> = [
+      ['código interno', cells.AC],
+      ['estoque mínimo', cells.AE],
+      ['estoque máximo', cells.AG],
+      ['custo', cells.AJ],
+      ['venda pontual', cells.AM],
+    ];
+    const critical: CriticalWrite[] = criticalSources.flatMap(([label, source]) => {
+      if (source.kind === 'empty') return [];
+      if (!source) return [];
+      const target = Object.entries(paraEscrever).find(([, cell]) => cell === source)?.[0];
+      if (!target || calculadas.has(target)) return [];
+      return [{
+        label,
+        range: a1(this.sheetName, `${target}${linha}`),
+        expected: source.value,
+      }];
+    });
+
+    return { raw, userEntered, critical };
+  }
+
+  /** Grava e confirma os campos críticos antes de declarar a planilha sincronizada. */
+  private async gravarEConfirmar(
+    raw: readonly ValueRange[],
+    userEntered: readonly ValueRange[],
+    critical: readonly CriticalWrite[],
+  ): Promise<void> {
+    if (userEntered.length) {
+      await this.sheets.batchUpdateValues(this.spreadsheetId, [...userEntered], 'USER_ENTERED');
+    }
+    if (raw.length) await this.sheets.batchUpdateValues(this.spreadsheetId, [...raw], 'RAW');
+    if (critical.length === 0) return;
+
+    const observed = await this.sheets.batchGetValues(
+      this.spreadsheetId,
+      critical.map((entry) => entry.range),
+      'FORMATTED_VALUE',
+    );
+    const divergent = critical.filter((entry, index) =>
+      !sameCriticalValue(entry.expected, observed[index]?.[0]?.[0]),
+    );
+    if (divergent.length) {
+      throw new Error(`Planilha não confirmou: ${divergent.map((entry) => entry.label).join(', ')}.`);
+    }
   }
 
   /**
@@ -1219,10 +1297,7 @@ export class ProductSheetService {
     const calculadas = layout.novo
       ? (await this.calculadasPorLinha(aba, [linha])).get(linha) ?? new Set<string>()
       : new Set<string>();
-    const { raw, userEntered } = this.rangesParaGravar(product, linha, layout, calculadas);
-    if (userEntered.length) {
-      await this.sheets.batchUpdateValues(this.spreadsheetId, userEntered, 'USER_ENTERED');
-    }
-    if (raw.length) await this.sheets.batchUpdateValues(this.spreadsheetId, raw, 'RAW');
+    const { raw, userEntered, critical } = this.rangesParaGravar(product, linha, layout, calculadas);
+    await this.gravarEConfirmar(raw, userEntered, critical);
   }
 }

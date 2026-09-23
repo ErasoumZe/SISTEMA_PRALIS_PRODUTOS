@@ -138,3 +138,53 @@ A versão trazida para o repositório é a cópia atual fornecida em 03/09/2026.
 Antes de substituir o arquivo da Lisboa, guarde uma cópia do que estiver rodando
 na máquina e compare os dois; não houve acesso remoto ao servidor para confirmar
 que aquela cópia é idêntica.
+
+## Observador da planilha a cada minuto
+
+O fluxo novo fica separado do robô diário acima. Ele lê a aba combinada, monta
+um registro por produto e por loja e grava um TXT somente quando o registro
+completo mudou desde a última exportação:
+
+```powershell
+# uma leitura, sem ficar em execução
+.\teste-creare\ROBO-CREARE-PLANILHA.ps1 -UmaVez
+
+# processo contínuo; relê a cada 60 segundos
+.\teste-creare\ROBO-CREARE-PLANILHA.ps1
+
+# diagnóstico/reprocessamento de um produto
+.\teste-creare\ROBO-CREARE-PLANILHA.ps1 -UmaVez -Produto 'FAROFA TRADICIONAL YOKI' -Forcar
+```
+
+Arquivos envolvidos:
+
+- `teste-creare/ROBO-CREARE-PLANILHA.ps1`: inicializador local;
+- `teste-creare/creare-planilha.config.json`: planilha, saída e de-paras por loja;
+- `teste-creare/creare-planilha-bot.ts`: leitura, validação, estado e geração;
+- `teste-creare/.creare-planilha-state.json`: hash do último registro exportado;
+- `teste-creare/ultimo-diagnostico.json`: produtos recusados e campos faltantes.
+
+### Regra de cadastro completo
+
+O TXT só é criado quando a linha tem, para a loja: código de barras, código
+interno, custo, preço, NCM, ID da alíquota ECF, CST PIS/COFINS, unidade e os
+de-paras numéricos de grupo e categoria. O arquivo é escrito primeiro em um
+temporário e renomeado no fim; uma leitura interrompida não deixa TXT parcial.
+
+Para a TNP, o robô consulta também o cadastro legado informado na configuração.
+Ele copia o fiscal por EAN exato e aprende o código de grupo apenas quando todos
+os EANs cruzados concordam. `groupCodes`, `categoryCodes` e `productOverrides`
+continuam disponíveis para exceções documentadas. Não use códigos da TNP na LI:
+grupo, categoria e alíquota ECF são cadastros locais do SIA.
+
+Promoção preenchida permanece bloqueada nesta versão. A planilha descreve
+recorrência por dias e horários, enquanto o layout do Criare exige duas datas
+`DD/MM/AA`; sem uma regra de conversão homologada, inventar datas poderia manter
+um desconto ativo fora da janela pretendida.
+
+### Primeira execução e alterações
+
+A primeira execução normal cria a linha de base e não exporta o catálogo
+inteiro. Depois dela, mudanças em nome, EAN, status, preço, custo, estoque ou
+fiscal alteram o registro e geram outro arquivo. `-Forcar` ignora o hash somente
+para a seleção pedida; ainda exige cadastro completo.

@@ -32,3 +32,8 @@ credentials*.json
 # a máquina da loja (218 MB, com .git e node_modules). Ele não pertence a este
 # monorepo: sem esta linha, um `git add -A` distraído o traria inteiro para cá.
 automacao/bot/
+
+# saída e estado local do observador Sheets -> Criare; o código da pasta fica versionado
+automacao/robo-sia/teste-creare/*.txt
+automacao/robo-sia/teste-creare/.creare-planilha-state.json
+automacao/robo-sia/teste-creare/ultimo-diagnostico.json

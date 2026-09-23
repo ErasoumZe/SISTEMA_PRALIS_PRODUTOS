@@ -783,8 +783,10 @@ describe('ProductSheetService — importação em lote no leiaute novo', () => {
       .set('G5', 'MARCAS')
       .set('L5', 'CUSTO')
       .set('M5', 'ESTOQUE MIN')
+      .set('N5', 'ESTOQUE MAX')
       .set('O5', 'CUSTO')
       .set('P5', 'ESTOQUE MIN')
+      .set('Q5', 'ESTOQUE MAX')
       .set('Z5', 'ID')
       .set('D11', 'PAO FRANCES')
       .set('Z11', ID);
@@ -793,8 +795,8 @@ describe('ProductSheetService — importação em lote no leiaute novo', () => {
   it('localiza uma vez a linha da BASE e escreve cada loja somente na sua faixa', async () => {
     const sheets = planilhaNovaComBase();
     const { rows, repo: syncRepo } = fakeSyncRepo();
-    const tnp = produto({ id: OUTRO_ID, loja: 'TNP', baseProductId: ID, custo: 1.25, estoqueMin: 7 });
-    const li = produto({ id: TERCEIRO_ID, loja: 'LI', baseProductId: ID, custo: 2.5, estoqueMin: 9 });
+    const tnp = produto({ id: OUTRO_ID, loja: 'TNP', baseProductId: ID, custo: 1.25, estoqueMin: 7, estoqueMax: 20 });
+    const li = produto({ id: TERCEIRO_ID, loja: 'LI', baseProductId: ID, custo: 2.5, estoqueMin: 9, estoqueMax: 30 });
     const service = new ProductSheetService(fakeProductRepo(tnp, li), syncRepo, sheets);
 
     const res = await service.syncStoreProducts([tnp, li]);
@@ -805,13 +807,15 @@ describe('ProductSheetService — importação em lote no leiaute novo', () => {
     ]);
     expect(sheets.get('L11')).toBe('1.25'); // TNP - CADASTRO
     expect(sheets.get('M11')).toBe('7');
+    expect(sheets.get('N11')).toBe('20'); // quantidade exata, sem subtrair uma unidade
     expect(sheets.get('O11')).toBe('2.5'); // LI - CADASTRO
     expect(sheets.get('P11')).toBe('9');
+    expect(sheets.get('Q11')).toBe('30');
     expect(rows.get(OUTRO_ID)).toMatchObject({ status: 'synced', rowNumber: 11 });
     expect(rows.get(TERCEIRO_ID)).toMatchObject({ status: 'synced', rowNumber: 11 });
-    // Layout (linhas 5 e 3), coluna ID e as fórmulas das linhas alvo: quatro
-    // leituras para o lote inteiro; nenhuma se repete por produto.
-    expect(sheets.chamadas.batchGet).toBe(4);
+    // Layout (linhas 5 e 3), coluna ID, fórmulas e releitura de confirmação:
+    // cinco leituras para o lote inteiro; nenhuma se repete por produto.
+    expect(sheets.chamadas.batchGet).toBe(5);
   });
 
   it('não grava valor por cima de coluna que a planilha calcula', async () => {
