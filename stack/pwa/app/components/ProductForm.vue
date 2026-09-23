@@ -522,7 +522,7 @@ function buildPromocoes() {
 
 function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
   const revenda = form.tipo === 'revenda';
-  return {
+  const payload: ProductRequests.CreateProductRequest = {
     nome: form.nome,
     quantidade: Number(form.quantidade) || 0,
     medidaBase: form.medidaBase as ProductRequests.CreateProductRequest['medidaBase'],
@@ -541,20 +541,8 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
     tipo: form.tipo,
     status: form.status,
     habilitarAjuda: form.habilitarAjuda,
-    // UX-02: estoque/setor/custo/margem/valor são do PRODUTO (revenda E transformação)
-    estoqueMin: Number(form.estoqueMin) || null,
-    estoqueMax: Number(form.estoqueMax) || null,
-    setorEstoque: form.setorEstoque || null,
-    setorVenda1: form.setorVenda1 || null,
-    setorVenda2: form.setorVenda2 || null,
-    custo: Number(form.custo) || null,
-    margemPontual: ProductRules.margemPctParaFracao(form.margemPct),
-    vVendaPontual: Number(form.vVendaPontual) || null,
-    auto: form.auto,
-    localVenda1: form.localVenda1 || null,
-    localVenda2: form.localVenda2 || null,
-    // promoção continua só para revenda (será movida para a tela do gerente — UX-06)
-    promocoes: revenda ? buildPromocoes() : [],
+    // Promoção é da loja (será movida para a tela do gerente — UX-06).
+    promocoes: modoLoja.value && revenda ? buildPromocoes() : [],
     transformacao: revenda
       ? null
       : {
@@ -567,6 +555,45 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
     fiscal: buildFiscal(),
     forcar,
   };
+
+  /*
+   * Estoque, custo, preço e local de venda pertencem exclusivamente à LOJA.
+   *
+   * A Base não exibe esses campos, mas cadastros legados podem tê-los gravados.
+   * Reenviá-los numa simples troca de nome fazia uma Base com estoque antigo
+   * inválido ficar impossível de corrigir, porque a API aplicava a validação
+   * de estoque a um campo que o administrador nem conseguia ver. Omitir estes
+   * campos na Base preserva os valores existentes e deixa a atualização dos
+   * dados gerais seguir para as lojas normalmente.
+   */
+  if (!modoLoja.value) {
+    delete payload.estoqueMin;
+    delete payload.estoqueMax;
+    delete payload.setorEstoque;
+    delete payload.setorVenda1;
+    delete payload.setorVenda2;
+    delete payload.custo;
+    delete payload.margemPontual;
+    delete payload.vVendaPontual;
+    delete payload.auto;
+    delete payload.localVenda1;
+    delete payload.localVenda2;
+  } else {
+    // UX-02: estoque/setor/custo/margem/valor são do produto na loja.
+    payload.estoqueMin = Number(form.estoqueMin) || null;
+    payload.estoqueMax = Number(form.estoqueMax) || null;
+    payload.setorEstoque = form.setorEstoque || null;
+    payload.setorVenda1 = form.setorVenda1 || null;
+    payload.setorVenda2 = form.setorVenda2 || null;
+    payload.custo = Number(form.custo) || null;
+    payload.margemPontual = ProductRules.margemPctParaFracao(form.margemPct);
+    payload.vVendaPontual = Number(form.vVendaPontual) || null;
+    payload.auto = form.auto;
+    payload.localVenda1 = form.localVenda1 || null;
+    payload.localVenda2 = form.localVenda2 || null;
+  }
+
+  return payload;
 }
 
 const duplicado = ref('');
