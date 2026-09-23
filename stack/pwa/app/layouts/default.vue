@@ -154,9 +154,15 @@ const iniciais = computed(() =>
 </template>
 
 <style scoped>
+/*
+ * Lateral e barra do topo em vidro: translúcidas sobre a tela, com desfoque e
+ * saturação. É o que dá profundidade sem sombra — o conteúdo passa POR TRÁS
+ * delas ao rolar, em vez de sumir atrás de uma parede opaca.
+ */
 .nav-drawer {
   border-right: 1px solid var(--cx-line) !important;
-  background: rgb(255 255 255 / 0.94) !important;
+  background: rgb(255 255 255 / 0.82) !important;
+  backdrop-filter: saturate(180%) blur(20px);
 }
 .app-bar-border {
   border-bottom: 1px solid var(--cx-line) !important;
@@ -213,12 +219,38 @@ const iniciais = computed(() =>
   font-weight: 600;
   font-size: 0.92rem;
 }
+/*
+ * A pílula do item ativo é RECUADA da borda da lateral. Colada na borda ela
+ * vira faixa e se confunde com a divisa da barra; recuada, lê-se como um
+ * objeto selecionado dentro da lista.
+ */
 .nav-item {
-  min-height: 44px;
+  min-height: 42px;
+  margin-inline: 8px;
+  border-radius: var(--cx-r-md);
+  transition: background 140ms var(--cx-ease), color 140ms var(--cx-ease);
+}
+.nav-item:hover:not(.v-list-item--active) {
+  background: var(--cx-surface-sunken);
 }
 .nav-item.v-list-item--active {
   background: var(--cx-brand-wash);
   color: var(--cx-brand-strong);
+}
+/* o ícone acompanha o texto: ícone cinza ao lado de texto roxo parece defeito */
+.nav-item.v-list-item--active :deep(.v-icon) {
+  color: var(--cx-brand);
+}
+/* rótulo de seção: pequeno, espaçado e discreto — é placa, não item */
+.nav-drawer :deep(.v-list-subheader) {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cx-ink-faint);
+  min-height: 34px;
+  padding-inline-start: 20px !important;
+  opacity: 1;
 }
 .app-main {
   min-width: 0;
