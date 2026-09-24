@@ -397,7 +397,7 @@ function preco(p: Product): string | null {
 </script>
 
 <template>
-  <div>
+  <div class="cx-page catalog-page">
     <v-snackbar
       v-model="mostrarFlash"
       :color="flash?.tipo ?? 'success'"
@@ -436,15 +436,16 @@ function preco(p: Product): string | null {
 
     <PwaInstallCard />
 
-    <div class="d-flex align-center mb-4 ga-3 flex-wrap">
+    <div class="cx-toolbar catalog-toolbar mb-4" role="search" aria-label="Buscar e filtrar produtos">
       <v-text-field
         v-model="search"
         density="compact"
         variant="outlined"
         hide-details
-        placeholder="Buscar nome, código interno ou barras..."
+        aria-label="Buscar produto por nome, código interno ou código de barras"
+        placeholder="Buscar nome ou código..."
         prepend-inner-icon="search"
-        style="flex: 1 1 220px; max-width: 320px"
+        class="catalog-toolbar__search"
         @keyup.enter="load()"
       />
       <!--
@@ -455,35 +456,46 @@ function preco(p: Product): string | null {
         :variant="somenteVendidos ? 'flat' : 'outlined'"
         :color="somenteVendidos ? 'primary' : 'grey-darken-1'"
         label
+        :aria-pressed="somenteVendidos"
+        class="catalog-toolbar__sold"
         @click="somenteVendidos = !somenteVendidos; load()"
       >
         <v-icon start size="18">{{ somenteVendidos ? 'check' : 'sell' }}</v-icon>
         Só os que já vendi
       </v-chip>
-      <v-spacer />
-      <!-- botão que mostra/esconde o painel de filtros (estilo marketplace) -->
-      <v-btn variant="outlined" color="grey-darken-2" rounded="lg" @click="mostrarFiltros = !mostrarFiltros">
-        <v-icon start>tune</v-icon>
-        Filtros
-        <v-chip v-if="numFiltros" size="x-small" color="primary" class="ml-2 font-weight-bold">{{ numFiltros }}</v-chip>
-        <v-icon end size="18">{{ mostrarFiltros ? 'expand_less' : 'expand_more' }}</v-icon>
-      </v-btn>
-      <v-btn-toggle v-model="modo" mandatory density="compact" variant="outlined" divided>
-        <v-btn value="card" aria-label="Ver em cards"><v-icon>grid_view</v-icon></v-btn>
-        <v-btn value="lista" aria-label="Ver em lista"><v-icon>view_list</v-icon></v-btn>
-      </v-btn-toggle>
-      <template v-if="isAdmin">
-        <v-btn v-if="selecionados.size" color="error" variant="tonal" prepend-icon="delete" @click="dialogoExclusao = true">Excluir {{ selecionados.size }}</v-btn>
-        <v-btn v-if="selecionados.size" size="small" variant="text" @click="limparSelecao">Limpar seleção</v-btn>
-      </template>
-      <v-btn v-if="!isAdmin" variant="tonal" color="primary" prepend-icon="download" to="/importar">Importar da base</v-btn>
-      <!-- só o admin cadastra produto novo (sempre na base geral) -->
-      <v-btn v-if="isAdmin" color="primary" prepend-icon="add" to="/produtos/novo">Novo</v-btn>
+      <v-spacer class="d-none d-lg-flex" />
+      <div class="catalog-toolbar__actions">
+        <!-- botão que mostra/esconde o painel de filtros (estilo marketplace) -->
+        <v-btn variant="outlined" color="grey-darken-2" rounded="lg" @click="mostrarFiltros = !mostrarFiltros">
+          <v-icon start>tune</v-icon>
+          Filtros
+          <v-chip v-if="numFiltros" size="x-small" color="primary" class="ml-2 font-weight-bold">{{ numFiltros }}</v-chip>
+          <v-icon end size="18">{{ mostrarFiltros ? 'expand_less' : 'expand_more' }}</v-icon>
+        </v-btn>
+        <v-btn-toggle v-model="modo" mandatory density="compact" variant="outlined" divided>
+          <v-btn value="card" aria-label="Ver em cards"><v-icon>grid_view</v-icon></v-btn>
+          <v-btn value="lista" aria-label="Ver em lista"><v-icon>view_list</v-icon></v-btn>
+        </v-btn-toggle>
+        <template v-if="isAdmin">
+          <v-btn v-if="selecionados.size" color="error" variant="tonal" prepend-icon="delete" @click="dialogoExclusao = true">Excluir {{ selecionados.size }}</v-btn>
+          <v-btn v-if="selecionados.size" size="small" variant="text" @click="limparSelecao">Limpar seleção</v-btn>
+        </template>
+        <v-btn v-if="!isAdmin" variant="tonal" color="primary" prepend-icon="download" to="/importar">Importar da base</v-btn>
+        <!-- só o admin cadastra produto novo (sempre na base geral) -->
+        <v-btn v-if="isAdmin" color="primary" prepend-icon="add" to="/produtos/novo">Novo</v-btn>
+      </div>
     </div>
 
     <!-- painel de filtros (abre/fecha) -->
     <v-expand-transition>
-      <v-card v-show="mostrarFiltros" flat border rounded="lg" class="pa-3 mb-4">
+      <v-card v-show="mostrarFiltros" flat border rounded="lg" class="catalog-filters pa-4 mb-4">
+        <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-4">
+          <div>
+            <div class="cx-section-label">REFINAR RESULTADOS</div>
+            <div class="text-body-2 cx-muted mt-1">Combine os filtros para encontrar o produto certo.</div>
+          </div>
+          <v-btn v-if="temFiltro" size="small" variant="text" color="primary" prepend-icon="filter_alt_off" @click="limparFiltros">Limpar filtros</v-btn>
+        </div>
         <div class="d-flex flex-column flex-sm-row flex-sm-wrap align-stretch align-sm-center ga-3">
           <!-- Status -->
           <div class="d-flex align-center ga-2 flex-wrap">
@@ -549,14 +561,12 @@ function preco(p: Product): string | null {
             {{ faixa.label }}
           </v-btn>
           <v-select v-model="ordenar" :items="ordenarOpcoes" item-title="label" item-value="value" label="Ordenar" density="compact" variant="outlined" hide-details rounded="lg" prepend-inner-icon="swap_vert" class="filtro-select filtro-item" />
-          <v-spacer class="d-none d-sm-block" />
-          <v-btn v-if="temFiltro" size="small" variant="text" color="medium-emphasis" prepend-icon="close" class="align-self-start align-self-sm-center" @click="limparFiltros">Limpar</v-btn>
         </div>
       </v-card>
     </v-expand-transition>
 
     <!-- Admin: alterna entre o catálogo Geral (Base) e o de cada loja -->
-    <v-tabs v-if="isAdmin" v-model="aba" color="primary" density="compact" class="mb-4">
+    <v-tabs v-if="isAdmin" v-model="aba" color="primary" density="compact" class="catalog-tabs mb-4" aria-label="Catálogos por loja">
       <v-tab v-for="t in abas" :key="t.key" :value="t.key">{{ t.label }}</v-tab>
     </v-tabs>
 
@@ -575,7 +585,7 @@ function preco(p: Product): string | null {
       LISTA: foto, nome, preço, código interno e status — o que o José pediu.
       Uma linha por produto, para caber mais gente na tela que os cards.
     -->
-    <v-card v-if="paginados.length && modo === 'lista'" flat border rounded="lg" class="mb-2">
+    <v-card v-if="paginados.length && modo === 'lista'" flat border rounded="lg" class="catalog-list mb-2">
       <v-list lines="two" density="comfortable">
         <template v-for="(p, i) in paginados" :key="p.id">
           <v-divider v-if="i > 0" />
@@ -639,9 +649,9 @@ function preco(p: Product): string | null {
       <v-col v-for="p in paginados" :key="p.id" cols="12" sm="6" md="4">
         <v-card border flat rounded="lg" class="h-100 product-card">
           <v-card-item>
-            <div class="d-flex align-center justify-space-between ga-2">
+            <div class="product-card__header">
               <v-checkbox v-if="isAdmin" :model-value="selecionados.has(p.id)" density="compact" hide-details @click.stop @update:model-value="marcarSelecionado(p.id, $event)" />
-              <div class="d-flex align-center ga-3" style="min-width: 0">
+              <div class="product-card__identity">
                 <v-avatar
                   size="46"
                   rounded="lg"
@@ -657,9 +667,9 @@ function preco(p: Product): string | null {
                   <v-img v-if="p.fotoUrl" :src="p.fotoUrl" cover />
                   <v-icon v-else color="primary">inventory_2</v-icon>
                 </v-avatar>
-                <div style="min-width: 0">
-                  <div class="text-subtitle-1 font-weight-bold text-truncate">{{ p.nome }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ p.codigoInterno || '—' }}</div>
+                <div class="product-card__name-wrap">
+                  <div class="product-card__name" :title="p.nome">{{ p.nome }}</div>
+                  <div class="product-card__code">{{ p.codigoInterno || '—' }}</div>
                 </div>
               </div>
               <v-btn
@@ -667,7 +677,7 @@ function preco(p: Product): string | null {
                 variant="tonal"
                 size="small"
                 rounded="pill"
-                class="font-weight-medium flex-shrink-0"
+                class="product-card__status font-weight-medium flex-shrink-0"
                 :loading="abrindoStatus(p.id)"
                 :aria-label="`${p.status === 'ativo' ? 'Inativar' : 'Ativar'} ${p.nome}`"
                 @click.stop="alternarStatus(p)"
@@ -677,31 +687,31 @@ function preco(p: Product): string | null {
             </div>
           </v-card-item>
           <v-divider />
-          <v-card-text>
-            <div class="d-flex justify-space-between align-center text-body-2 mb-2">
-              <span class="text-medium-emphasis">TIPO</span>
+          <v-card-text class="product-card__details">
+            <div class="product-card__detail">
+              <span class="product-card__label">Tipo</span>
               <v-chip size="x-small" variant="tonal" class="font-weight-medium" :color="p.tipo === 'revenda' ? 'primary' : 'secondary'">
                 {{ p.tipo === 'revenda' ? 'Revenda' : 'Transformação' }}
               </v-chip>
             </div>
-            <div class="d-flex justify-space-between text-body-2 mb-1">
-              <span class="text-medium-emphasis">GRAMATURA</span>
+            <div class="product-card__detail">
+              <span class="product-card__label">Gramatura</span>
               <span>{{ p.quantidade }} {{ p.medidaBase }}</span>
             </div>
-            <div class="d-flex justify-space-between text-body-2 mb-1">
-              <span class="text-medium-emphasis">MARCA</span>
-              <span>{{ p.marca || '—' }}</span>
+            <div class="product-card__detail">
+              <span class="product-card__label">Marca</span>
+              <span class="product-card__value">{{ p.marca || '—' }}</span>
             </div>
-            <div v-if="preco(p)" class="d-flex justify-space-between text-body-2 mb-1">
-              <span class="text-medium-emphasis">V. VENDA</span>
-              <span class="font-weight-bold">R$ {{ preco(p) }}</span>
+            <div v-if="preco(p)" class="product-card__detail">
+              <span class="product-card__label">Venda</span>
+              <span class="font-weight-bold tabular">R$ {{ preco(p) }}</span>
             </div>
             <div v-if="p.createdByName" class="text-caption text-medium-emphasis mt-2">
               <v-icon size="13">person</v-icon> cadastrado por {{ p.createdByName }}
             </div>
           </v-card-text>
           <v-divider />
-          <v-card-actions>
+          <v-card-actions class="product-card__actions">
             <!-- editar: admin e colaborador; excluir: só admin -->
             <v-btn size="small" variant="text" :to="`/produtos/${p.id}`" prepend-icon="edit">Editar</v-btn>
             <v-spacer />
@@ -724,11 +734,11 @@ function preco(p: Product): string | null {
       flat
       border
       rounded="lg"
-      class="pa-12 text-center text-medium-emphasis"
+      class="cx-empty text-medium-emphasis"
     >
-      <v-icon size="48" class="mb-2">inventory_2</v-icon>
+      <span class="cx-empty__icon"><v-icon size="32">inventory_2</v-icon></span>
       <!-- "cadastrado" é o verbo do admin; a loja não cadastra, ela importa -->
-      <div>
+      <div class="cx-empty__title">
         {{ temFiltro
           ? 'Nenhum produto com esses filtros.'
           : (isAdmin ? 'Nenhum produto cadastrado ainda.' : 'Nenhum produto importado ainda.') }}
@@ -738,7 +748,7 @@ function preco(p: Product): string | null {
         aba por vez. Sem esta linha, clicar em "Inativos" e cair numa lista
         vazia parece defeito — e não é: o produto está em outra aba.
       -->
-      <div v-if="temFiltro && isAdmin" class="text-caption mt-1">
+      <div v-if="temFiltro && isAdmin" class="cx-empty__description">
         Você está vendo a aba <strong>{{ abas.find((a) => a.key === aba)?.label ?? aba }}</strong>.
         Produtos com esses filtros podem estar em outra loja.
       </div>
@@ -754,7 +764,7 @@ function preco(p: Product): string | null {
     </v-card>
 
     <!-- paginação (10 por página) -->
-    <div v-if="filtrados.length" class="d-flex align-center justify-space-between mt-4 flex-wrap ga-2">
+    <div v-if="filtrados.length" class="catalog-pagination d-flex align-center justify-space-between mt-4 flex-wrap ga-2">
       <div class="text-caption text-medium-emphasis">
         {{ filtrados.length }} produto(s) · página {{ page }} de {{ totalPaginas }}
       </div>
@@ -772,6 +782,33 @@ function preco(p: Product): string | null {
 </template>
 
 <style scoped>
+.catalog-toolbar__search {
+  flex: 1 1 310px;
+  min-width: 220px;
+  max-width: 560px;
+}
+.catalog-toolbar__sold {
+  min-height: 40px;
+}
+.catalog-toolbar__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--cx-space-2);
+  margin-left: auto;
+}
+.catalog-filters {
+  background: var(--cx-surface-sunken);
+}
+.catalog-tabs {
+  border-bottom: 1px solid var(--cx-line);
+}
+.catalog-list {
+  overflow: hidden;
+}
+.catalog-pagination {
+  min-height: 52px;
+}
 /* selects do filtro: largura total no mobile, limitada no desktop */
 .filtro-item {
   width: 100%;
@@ -783,33 +820,78 @@ function preco(p: Product): string | null {
     max-width: 230px;
   }
 }
-/* filtros setor/grupo no mesmo padrão compacto das pílulas */
+/* Mantém a altura nativa do Vuetify: campos de 32px cortavam os rótulos. */
 .filtro-select :deep(.v-field) {
-  min-height: 32px;
-  font-size: 0.82rem;
-}
-.filtro-select :deep(.v-field__input) {
-  min-height: 32px;
-  padding-top: 0;
-  padding-bottom: 0;
-  --v-input-control-height: 32px;
-}
-.filtro-select :deep(.v-field__prepend-inner),
-.filtro-select :deep(.v-field__append-inner) {
-  padding-top: 4px;
-}
-.filtro-select :deep(.v-field-label) {
-  top: 6px;
-  font-size: 0.82rem;
+  font-size: var(--cx-text-sm);
 }
 .product-card {
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  overflow: hidden;
+  transition: border-color 160ms var(--cx-ease);
 }
 .product-card:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    0 2px 6px rgba(29, 29, 31, 0.06),
-    0 12px 28px rgba(29, 29, 31, 0.08) !important;
+  border-color: color-mix(in srgb, var(--cx-brand) 30%, var(--cx-line)) !important;
+}
+.product-card__header,
+.product-card__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-space-3);
+  min-width: 0;
+}
+.product-card__header {
+  gap: var(--cx-space-2);
+  flex-wrap: wrap;
+}
+.product-card__identity {
+  flex: 1 1 calc(100% - 48px);
+}
+.product-card__name-wrap {
+  min-width: 0;
+}
+.product-card__name {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--cx-ink);
+  font-size: var(--cx-text-md);
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  line-height: 1.3;
+}
+.product-card__code {
+  margin-top: var(--cx-space-1);
+  color: var(--cx-ink-soft);
+  font-size: var(--cx-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.product-card__status {
+  margin-left: auto;
+}
+.product-card__details {
+  display: grid;
+  gap: var(--cx-space-2);
+  padding-block: var(--cx-space-4);
+}
+.product-card__detail {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--cx-space-3);
+  font-size: var(--cx-text-sm);
+}
+.product-card__label {
+  flex-shrink: 0;
+  color: var(--cx-ink-soft);
+}
+.product-card__value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.product-card__actions {
+  min-height: 52px;
+  padding-inline: var(--cx-space-3);
 }
 .foto-clicavel {
   cursor: zoom-in;
@@ -817,5 +899,39 @@ function preco(p: Product): string | null {
 }
 .foto-clicavel:focus-visible {
   outline: 2px solid var(--cx-brand);
+}
+@media (max-width: 600px) {
+  .catalog-toolbar__search {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .catalog-toolbar__actions {
+    width: 100%;
+    margin-left: 0;
+  }
+  .catalog-toolbar__actions :deep(.v-btn-toggle) {
+    margin-left: auto;
+  }
+  .catalog-list :deep(.v-list-item) {
+    grid-template-areas:
+      "prepend content"
+      "append append";
+    grid-template-columns: max-content minmax(0, 1fr);
+    row-gap: var(--cx-space-2);
+    padding-block: var(--cx-space-3) !important;
+  }
+  .catalog-list :deep(.v-list-item__append) {
+    justify-self: end;
+  }
+  .catalog-list :deep(.v-list-item-title) {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+  }
+  .catalog-pagination {
+    justify-content: center !important;
+  }
 }
 </style>
