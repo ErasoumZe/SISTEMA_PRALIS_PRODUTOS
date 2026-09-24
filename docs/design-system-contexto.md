@@ -10,4 +10,12 @@ Base: `main` após a PR #90 (`a4c2070`). O tema Vuetify, Noto Sans, Material Sym
 - Na primeira PR, mudar somente a fundação visual e a tela Produtos. Busca, filtros, seleção, edição, status e exclusão preservam os mesmos fluxos.
 - Conferir a página em 360 px, tablet e desktop, inclusive foco de teclado e movimento reduzido.
 
-Próxima etapa: formulário de produto Base/TNP/LI e telas administrativas, após revisão da primeira entrega.
+## Segunda entrega — formulário Base/TNP/LI
+
+- Baseada na `main` após o merge da PR #91 (`1aee40a`).
+- Reorganizar apenas a hierarquia visual do formulário compartilhado: introdução, seções Produto, Revenda/Transformação, Fiscal e Promoção, além dos subtítulos internos e da área de ações.
+- Preservar campos, condições Base/loja, regras fiscais, valores, validações, foto, botões e chamadas de gravação.
+- Usar os tokens existentes, sem criar outro tema ou dependência. Em telas pequenas, seletores e ações se adaptam à largura disponível.
+- Conferência visual local com dados simulados do produto 13125 em 360 px, 768 px e desktop. A opção de promoção foi ajustada para quebrar o texto em 360 px; sem rolagem horizontal nesses breakpoints. Nenhum dado de produção foi alterado nessa conferência.
+
+Próxima etapa: telas administrativas e fluxos de importação, após revisão desta entrega.
