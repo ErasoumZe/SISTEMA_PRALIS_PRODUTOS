@@ -18,4 +18,12 @@ Base: `main` após a PR #90 (`a4c2070`). O tema Vuetify, Noto Sans, Material Sym
 - Usar os tokens existentes, sem criar outro tema ou dependência. Em telas pequenas, seletores e ações se adaptam à largura disponível.
 - Conferência visual local com dados simulados do produto 13125 em 360 px, 768 px e desktop. A opção de promoção foi ajustada para quebrar o texto em 360 px; sem rolagem horizontal nesses breakpoints. Nenhum dado de produção foi alterado nessa conferência.
 
-Próxima etapa: telas administrativas e fluxos de importação, após revisão desta entrega.
+## Terceira entrega — Dashboard e Central de Produtos
+
+- Baseada na `main` após o merge da PR #92 (`b5bafa2`).
+- Alinhar a visão administrativa aos tokens compartilhados: superfícies claras, bordas discretas, tipografia e espaçamento consistentes. Preservar métricas, gráficos, atualização e links.
+- Reorganizar a Central em introdução, indicadores, filtros e cartões de conciliação. Os filtros de situação usam botões com estado pressionado para acesso por teclado, mantendo os mesmos valores e ações.
+- Não alterar carregamento, classificação, unificação, descarte ou persistência.
+- Conferência visual local com dados simulados em desktop, 768 px e 360 px, sem rolagem horizontal. Foram corrigidos o contraste da ação “Ignorar” e a capitalização da data do Dashboard. O preview não acessou produção.
+
+Próxima etapa: demais telas administrativas e fluxos de importação, após revisão desta entrega.

@@ -195,15 +195,16 @@ onMounted(() => void carregar());
 </script>
 
 <template>
-  <div class="central mx-auto">
-    <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-5">
+  <div class="central cx-page mx-auto">
+    <div class="central__intro">
       <div>
-        <h1 class="text-h4 font-weight-bold">Central de Produtos</h1>
-        <p class="text-body-2 text-medium-emphasis mt-1 mb-0">
+        <div class="cx-section-label">CATÁLOGO · CONCILIAÇÃO</div>
+        <h1>Central de Produtos</h1>
+        <p>
           Todas as fontes históricas, a Base do sistema e a planilha oficial em uma única lista.
         </p>
       </div>
-      <div class="d-flex flex-wrap ga-2">
+      <div class="central__top-actions">
         <v-btn variant="tonal" prepend-icon="history" to="/produtos/historico-nomes">
           Histórico de nomes
         </v-btn>
@@ -223,28 +224,28 @@ onMounted(() => void carregar());
     </v-alert>
 
     <v-row v-if="totais" dense class="mb-4">
-      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
-        <div class="text-caption text-medium-emphasis">{{ escopo === 'vendidos' ? 'Vendidos únicos (12 meses)' : 'Produtos únicos de todas as fontes' }}</div>
-        <div class="text-h5 font-weight-bold">{{ totais.grupos.toLocaleString('pt-BR') }}</div>
+      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="central__metric">
+        <div class="central__metric-label">{{ escopo === 'vendidos' ? 'Vendidos únicos (12 meses)' : 'Produtos únicos de todas as fontes' }}</div>
+        <div class="central__metric-value">{{ totais.grupos.toLocaleString('pt-BR') }}</div>
       </v-card></v-col>
-      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
-        <div class="text-caption text-medium-emphasis">Já na Base</div>
-        <div class="text-h5 font-weight-bold text-success">{{ totais.jaNoPralis.toLocaleString('pt-BR') }}</div>
+      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="central__metric">
+        <div class="central__metric-label">Já na Base</div>
+        <div class="central__metric-value central__metric-value--positive">{{ totais.jaNoPralis.toLocaleString('pt-BR') }}</div>
       </v-card></v-col>
-      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
-        <div class="text-caption text-medium-emphasis">Vinculados à Base</div>
-        <div class="text-h5 font-weight-bold text-success">{{ totais.unificados.toLocaleString('pt-BR') }}</div>
+      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="central__metric">
+        <div class="central__metric-label">Vinculados à Base</div>
+        <div class="central__metric-value central__metric-value--positive">{{ totais.unificados.toLocaleString('pt-BR') }}</div>
       </v-card></v-col>
-      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="pa-4">
-        <div class="text-caption text-medium-emphasis">Descartados</div>
-        <div class="text-h5 font-weight-bold text-medium-emphasis">
+      <v-col cols="6" md="3"><v-card flat border rounded="lg" class="central__metric">
+        <div class="central__metric-label">Descartados</div>
+        <div class="central__metric-value central__metric-value--muted">
           {{ totais.descartados.toLocaleString('pt-BR') }}
         </div>
       </v-card></v-col>
     </v-row>
 
-    <v-card v-if="staging" flat border rounded="lg" class="pa-3 mb-4">
-      <div class="text-caption text-medium-emphasis mb-2">Fontes incluídas na última atualização</div>
+    <v-card v-if="staging" flat border rounded="lg" class="central__sources mb-4">
+      <div class="cx-section-label mb-2">FONTES DA ÚLTIMA ATUALIZAÇÃO</div>
       <div class="d-flex flex-wrap ga-2">
         <v-chip v-for="fonte in staging.fontes" :key="fonte.fonte" size="small" variant="tonal">
           {{ FONTES[fonte.fonte] || fonte.fonte }} · {{ fonte.linhas.toLocaleString('pt-BR') }}
@@ -252,33 +253,34 @@ onMounted(() => void carregar());
       </div>
     </v-card>
 
-    <v-card flat border rounded="lg" class="pa-3 mb-4">
-      <v-btn-toggle v-model="escopo" mandatory color="primary" variant="outlined" density="comfortable" class="mb-3 flex-wrap">
+    <v-card flat border rounded="lg" class="central__toolbar mb-4">
+      <div class="central__toolbar-label">Universo de produtos</div>
+      <v-btn-toggle v-model="escopo" mandatory color="primary" variant="outlined" density="comfortable" class="central__scope mb-4 flex-wrap">
         <v-btn value="todos">Todos os cadastros</v-btn>
         <v-btn value="vendidos">Já vendidos · 12 meses</v-btn>
       </v-btn-toggle>
-      <div class="d-flex flex-wrap ga-3 align-center">
+      <div class="central__fields">
         <v-text-field v-model="busca" prepend-inner-icon="search" label="Buscar produto ou código" hide-details clearable density="compact" class="busca" />
         <v-select v-model="loja" :items="[{ title: 'TNP', value: 'TNP' }, { title: 'Lisboa', value: 'LI' }]" label="Loja" hide-details clearable density="compact" class="loja" />
       </div>
-      <div class="d-flex flex-wrap ga-2 mt-3">
-        <v-chip :variant="visao === 'todos' ? 'flat' : 'tonal'" color="primary" @click="visao = 'todos'">Todos</v-chip>
-        <v-chip :variant="visao === 'pendentes' ? 'flat' : 'tonal'" color="primary" @click="visao = 'pendentes'">Pendentes</v-chip>
-        <v-chip :variant="visao === 'exatos' ? 'flat' : 'tonal'" color="success" @click="visao = 'exatos'">Correspondência exata</v-chip>
-        <v-chip :variant="visao === 'revisar' ? 'flat' : 'tonal'" color="warning" @click="visao = 'revisar'">Precisa analisar</v-chip>
-        <v-chip :variant="visao === 'unificados' ? 'flat' : 'tonal'" color="success" @click="visao = 'unificados'">Viraram cadastro</v-chip>
-        <v-chip :variant="visao === 'descartados' ? 'flat' : 'tonal'" @click="visao = 'descartados'">Descartados</v-chip>
+      <div class="central__views" aria-label="Situação da conciliação">
+        <v-btn size="small" :aria-pressed="visao === 'todos'" :variant="visao === 'todos' ? 'flat' : 'tonal'" color="primary" @click="visao = 'todos'">Todos</v-btn>
+        <v-btn size="small" :aria-pressed="visao === 'pendentes'" :variant="visao === 'pendentes' ? 'flat' : 'tonal'" color="primary" @click="visao = 'pendentes'">Pendentes</v-btn>
+        <v-btn size="small" :aria-pressed="visao === 'exatos'" :variant="visao === 'exatos' ? 'flat' : 'tonal'" color="success" @click="visao = 'exatos'">Correspondência exata</v-btn>
+        <v-btn size="small" :aria-pressed="visao === 'revisar'" :variant="visao === 'revisar' ? 'flat' : 'tonal'" color="warning" @click="visao = 'revisar'">Precisa analisar</v-btn>
+        <v-btn size="small" :aria-pressed="visao === 'unificados'" :variant="visao === 'unificados' ? 'flat' : 'tonal'" color="success" @click="visao = 'unificados'">Viraram cadastro</v-btn>
+        <v-btn size="small" :aria-pressed="visao === 'descartados'" :variant="visao === 'descartados' ? 'flat' : 'tonal'" @click="visao = 'descartados'">Descartados</v-btn>
       </div>
     </v-card>
 
     <v-progress-linear v-if="carregando" indeterminate color="primary" class="mb-3" />
     <v-alert v-if="!carregando && dados?.grupos.length === 0" type="info" variant="tonal">Nenhum produto encontrado com estes filtros.</v-alert>
 
-    <v-card v-for="grupo in dados?.grupos || []" :key="grupo.id" flat border rounded="lg" class="pa-4 mb-3">
+    <v-card v-for="grupo in dados?.grupos || []" :key="grupo.id" flat border rounded="lg" class="central__item mb-3">
       <div class="d-flex flex-wrap align-start justify-space-between ga-3">
         <div>
-          <div class="text-h6 font-weight-bold">{{ grupo.candidato.nome || '(sem nome)' }}</div>
-          <div class="text-body-2 text-medium-emphasis mt-1">
+          <div class="central__item-title">{{ grupo.candidato.nome || '(sem nome)' }}</div>
+          <div class="central__item-meta">
             Código {{ codigoPrincipal(grupo) }}
             <span v-if="itemVendido(grupo)?.raw?.ultimaVenda"> · Última venda {{ itemVendido(grupo)?.raw?.ultimaVenda }}</span>
           </div>
@@ -299,12 +301,12 @@ onMounted(() => void carregar());
         Nomes encontrados: {{ nomesDoGrupo(grupo).join(' · ') }}
       </div>
 
-      <div v-if="!grupo.decisao" class="d-flex flex-wrap ga-2">
+      <div v-if="!grupo.decisao" class="central__item-actions">
         <v-btn color="primary" :loading="agindo === grupo.id" :disabled="!nomesEscolhidos[grupo.id]" @click="unificar(grupo)">
           {{ grupo.flagJaNoPralis ? 'Vincular e atualizar na Base' : 'Adicionar à Base Geral' }}
         </v-btn>
         <v-btn variant="text" :disabled="!!agindo" @click="marcar(grupo, 'nao_e_o_mesmo')">Não é o mesmo produto</v-btn>
-        <v-btn variant="text" color="grey" :disabled="!!agindo" @click="marcar(grupo, 'ignorado')">Ignorar</v-btn>
+        <v-btn variant="text" :disabled="!!agindo" @click="marcar(grupo, 'ignorado')">Ignorar</v-btn>
       </div>
       <div v-else class="text-body-2" :class="criouCadastro(grupo) ? 'text-success' : 'text-medium-emphasis'">
         {{ DECISAO[grupo.decisao!] || grupo.decisao }}<span v-if="grupo.decididoPor"> · por {{ grupo.decididoPor }}</span>
@@ -318,8 +320,51 @@ onMounted(() => void carregar());
 </template>
 
 <style scoped>
-.central { max-width: 1180px; }
-.busca { min-width: 280px; flex: 1 1 420px; }
-.loja { max-width: 220px; min-width: 180px; }
+.central { max-width: 1180px; min-width: 0; }
+.central__intro {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--cx-space-4);
+  margin-bottom: var(--cx-space-6);
+}
+.central__intro h1 {
+  margin: var(--cx-space-1) 0;
+  color: var(--cx-ink);
+  font-size: var(--cx-text-title);
+  font-weight: 750;
+  letter-spacing: -.025em;
+}
+.central__intro p { max-width: 72ch; margin: 0; color: var(--cx-ink-soft); font-size: var(--cx-text-sm); line-height: 1.5; }
+.central__top-actions { display: flex; flex-wrap: wrap; gap: var(--cx-space-2); }
+.central__metric { height: 100%; min-height: 106px; padding: var(--cx-space-4); }
+.central__metric-label { min-height: 2.7em; color: var(--cx-ink-soft); font-size: var(--cx-text-xs); line-height: 1.35; }
+.central__metric-value { margin-top: var(--cx-space-2); color: var(--cx-ink); font-size: 1.6rem; font-weight: 750; letter-spacing: -.025em; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.central__metric-value--positive { color: var(--cx-positive); }
+.central__metric-value--muted { color: var(--cx-ink-soft); }
+.central__sources, .central__toolbar, .central__item { padding: var(--cx-space-5); }
+.central__sources { background: var(--cx-surface-sunken); }
+.central__toolbar-label { margin-bottom: var(--cx-space-3); color: var(--cx-ink); font-size: var(--cx-text-sm); font-weight: 700; }
+.central__fields { display: flex; align-items: center; flex-wrap: wrap; gap: var(--cx-space-3); }
+.central__views { display: flex; align-items: center; flex-wrap: wrap; gap: var(--cx-space-2); margin-top: var(--cx-space-4); padding-top: var(--cx-space-4); border-top: 1px solid var(--cx-line-soft); }
+.central__views :deep(.v-btn) { min-height: 36px; text-transform: none; }
+.central__item-title { color: var(--cx-ink); font-size: var(--cx-text-lg); font-weight: 700; line-height: 1.35; }
+.central__item-meta { margin-top: var(--cx-space-1); color: var(--cx-ink-soft); font-size: var(--cx-text-sm); }
+.central__item-actions { display: flex; flex-wrap: wrap; gap: var(--cx-space-2); padding-top: var(--cx-space-3); border-top: 1px solid var(--cx-line-soft); }
+.busca { min-width: 0; flex: 1 1 350px; }
+.loja { max-width: 220px; min-width: 180px; flex: 1 1 180px; }
 .nome { max-width: 680px; }
+@media (max-width: 600px) {
+  .central__top-actions { width: 100%; }
+  .central__top-actions :deep(.v-btn) { flex: 1 1 auto; min-height: 44px; }
+  .central__metric { min-height: 116px; padding: var(--cx-space-3); }
+  .central__sources, .central__toolbar, .central__item { padding: var(--cx-space-4); }
+  .central__scope { width: 100%; height: auto; }
+  .central__scope :deep(.v-btn) { flex: 1 1 0; min-width: 0; height: auto; min-height: 44px; padding: var(--cx-space-2); }
+  .central__scope :deep(.v-btn__content) { white-space: normal; text-align: center; line-height: 1.2; }
+  .loja { max-width: none; }
+  .central__views :deep(.v-btn) { min-height: 44px; }
+  .central__item-actions :deep(.v-btn) { flex: 1 1 auto; min-height: 44px; white-space: normal; }
+}
 </style>
