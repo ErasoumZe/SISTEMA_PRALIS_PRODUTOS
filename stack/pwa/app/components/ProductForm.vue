@@ -686,10 +686,14 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div style="max-width: 760px; margin: 0 auto">
-    <div class="d-flex align-center mb-4">
-      <v-btn icon="arrow_back" variant="text" to="/" />
-      <h1 class="text-h5 font-weight-bold ml-2">{{ productId ? 'Editar produto' : 'Novo produto' }}</h1>
+  <div class="product-form cx-page">
+    <div class="product-form__intro">
+      <v-btn icon="arrow_back" variant="text" to="/" aria-label="Voltar para produtos" />
+      <div>
+        <div class="cx-section-label">CATÁLOGO DE PRODUTOS</div>
+        <h1>{{ productId ? 'Editar produto' : 'Novo produto' }}</h1>
+        <p>Dados do cadastro, operação da loja e informações fiscais em um só lugar.</p>
+      </div>
     </div>
 
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
@@ -702,7 +706,7 @@ onMounted(async () => {
     </v-alert>
 
     <!-- HERANÇA: o que ainda segue a base e o que esta loja passou a mandar -->
-    <v-card v-if="produtoBase" flat border rounded="lg" class="mb-4">
+    <v-card v-if="produtoBase" flat border rounded="lg" class="product-form__notice mb-4">
       <v-card-text class="d-flex align-center flex-wrap ga-2">
         <template v-if="camposEditadosNaLoja.length === 0">
           <span class="text-body-2">
@@ -745,8 +749,11 @@ onMounted(async () => {
     </v-alert>
 
     <!-- PRODUTO (cadastro inicial + geral unificados — UX-03) -->
-    <v-card flat border rounded="lg" class="mb-4">
-      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">PRODUTO</v-card-title>
+    <v-card flat border rounded="lg" class="product-form__card mb-4">
+      <v-card-title class="product-form__card-heading">
+        <span class="product-form__icon"><v-icon icon="inventory_2" size="20" /></span>
+        <span class="product-form__heading-copy"><strong>Produto</strong><small>Identificação e apresentação no catálogo</small></span>
+      </v-card-title>
       <v-card-text>
         <!--
           Na loja, tudo aqui e leitura: o que o produto E vem da BASE. O status
@@ -849,7 +856,7 @@ onMounted(async () => {
           </v-col>
 
           <!-- COMO SE COMPRA (UX-04) -->
-          <v-col cols="12"><v-divider class="mb-2" /><div class="text-caption text-medium-emphasis mb-1" style="letter-spacing: 0.5px">COMO SE COMPRA</div></v-col>
+          <v-col cols="12"><div class="product-form__subheading"><strong>Como se compra</strong><span>Embalagem e unidade de compra</span></div></v-col>
           <v-col cols="6" sm="3">
             <v-select v-model="form.embalagem" :items="EMBALAGENS" label="Embalagem" variant="outlined" density="comfortable" clearable :hint="ajuda('embalagem')" />
           </v-col>
@@ -897,10 +904,13 @@ onMounted(async () => {
     </v-card>
 
     <!-- REVENDA OU TRANSFORMAÇÃO (seletor único — UX-01) -->
-    <v-card flat border rounded="lg" class="mb-4">
-      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">REVENDA OU TRANSFORMAÇÃO</v-card-title>
+    <v-card flat border rounded="lg" class="product-form__card mb-4">
+      <v-card-title class="product-form__card-heading">
+        <span class="product-form__icon"><v-icon icon="category" size="20" /></span>
+        <span class="product-form__heading-copy"><strong>Revenda ou transformação</strong><small>Classificação e operação do produto</small></span>
+      </v-card-title>
       <v-card-text>
-        <v-btn-toggle v-model="form.tipo" :disabled="modoLoja" mandatory color="primary" divided class="mb-4">
+        <v-btn-toggle v-model="form.tipo" :disabled="modoLoja" mandatory color="primary" divided class="product-form__toggle mb-4">
           <v-btn value="revenda">Revenda</v-btn>
           <v-btn value="transformacao">Transformação</v-btn>
         </v-btn-toggle>
@@ -937,7 +947,7 @@ onMounted(async () => {
             no grupo: quem preenche estoque, custo e preço é a loja que importar.
           -->
           <template v-if="modoLoja">
-          <v-col cols="12"><v-divider class="my-2" /><div class="text-subtitle-2 font-weight-bold">DESTA LOJA</div></v-col>
+          <v-col cols="12"><div class="product-form__subheading"><strong>Desta loja</strong><span>Estoque, pontos de venda e preço</span></div></v-col>
           <v-col cols="12" sm="6">
             <v-select v-model="form.setorEstoque" :items="SETORES" label="Setor de estoque" variant="outlined" density="comfortable" clearable :hint="ajuda('setorEstoque')" />
           </v-col>
@@ -992,7 +1002,7 @@ onMounted(async () => {
 
           <!-- exclusivo de transformação — é da BASE: define o que o produto é -->
           <template v-if="form.tipo === 'transformacao'">
-            <v-col cols="12"><v-divider class="my-1" /><div class="text-subtitle-2 font-weight-bold mt-1">TRANSFORMAÇÃO</div></v-col>
+            <v-col cols="12"><div class="product-form__subheading"><strong>Transformação</strong><span>Quantidade, unidade e receituário</span></div></v-col>
             <v-col cols="6" sm="4">
               <v-select v-model="form.precisao" :items="['EXATOS', 'APROXIMADOS']" label="Precisão" variant="outlined" density="comfortable" :hint="ajuda('precisao')" />
             </v-col>
@@ -1017,9 +1027,10 @@ onMounted(async () => {
     </v-card>
 
     <!-- FISCAL — da LOJA: so aparece depois que o produto foi importado -->
-    <v-card v-if="modoLoja" flat border rounded="lg" class="mb-4">
-      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">
-        FISCAL
+    <v-card v-if="modoLoja" flat border rounded="lg" class="product-form__card mb-4">
+      <v-card-title class="product-form__card-heading">
+        <span class="product-form__icon"><v-icon icon="receipt_long" size="20" /></span>
+        <span class="product-form__heading-copy"><strong>Fiscal</strong><small>Classificação e situação da fonte fiscal</small></span>
         <!--
           O estado vem ao lado do título de propósito: "cadastro salvo" e
           "fiscal resolvido" eram indistinguíveis, e a pessoa saía achando que
@@ -1030,7 +1041,7 @@ onMounted(async () => {
           v-if="estadoFiscal"
           size="small"
           label
-          class="ml-2"
+          class="product-form__fiscal-status"
           :color="estadoFiscal.cor"
           :prepend-icon="estadoFiscal.icone"
         >
@@ -1077,12 +1088,15 @@ onMounted(async () => {
     </v-card>
 
     <!-- PROMOÇÃO — da LOJA (UX-05; vira tela do gerente no UX-06) -->
-    <v-card v-if="modoLoja && form.tipo === 'revenda'" flat border rounded="lg" class="mb-4">
-      <v-card-title class="text-subtitle-1 font-weight-bold bg-grey-lighten-4">PROMOÇÃO</v-card-title>
+    <v-card v-if="modoLoja && form.tipo === 'revenda'" flat border rounded="lg" class="product-form__card mb-4">
+      <v-card-title class="product-form__card-heading">
+        <span class="product-form__icon"><v-icon icon="sell" size="20" /></span>
+        <span class="product-form__heading-copy"><strong>Promoção</strong><small>Condições e período de oferta</small></span>
+      </v-card-title>
       <v-card-text>
         <v-row dense>
           <v-col cols="12">
-            <v-btn-toggle v-model="form.promoTipo" mandatory color="primary" divided density="comfortable">
+            <v-btn-toggle v-model="form.promoTipo" mandatory color="primary" divided density="comfortable" class="product-form__toggle">
               <v-btn value="nenhum">Sem promoção</v-btn>
               <v-btn value="valor">Valor fixo</v-btn>
               <v-btn value="desconto">Desconto %</v-btn>
@@ -1108,7 +1122,7 @@ onMounted(async () => {
       </v-card-text>
     </v-card>
 
-    <div class="d-flex justify-end ga-2">
+    <div class="product-form__actions">
       <v-btn variant="text" to="/">Cancelar</v-btn>
       <v-btn color="primary" :loading="saving" prepend-icon="save" @click="salvar(false)">Salvar produto</v-btn>
     </div>
@@ -1119,22 +1133,158 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.product-form {
+  max-width: 860px;
+  margin: 0 auto;
+  padding-bottom: var(--cx-space-8);
+}
+.product-form__intro {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--cx-space-2);
+  margin-bottom: var(--cx-space-6);
+}
+.product-form__intro > div {
+  min-width: 0;
+  padding-top: var(--cx-space-1);
+}
+.product-form__intro h1 {
+  margin: var(--cx-space-1) 0;
+  color: var(--cx-ink);
+  font-size: var(--cx-text-title);
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+}
+.product-form__intro p {
+  margin: 0;
+  color: var(--cx-ink-soft);
+  font-size: var(--cx-text-sm);
+  line-height: 1.5;
+}
+.product-form__notice {
+  background: var(--cx-surface-sunken);
+}
+.product-form__card-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--cx-space-3);
+  min-height: 84px;
+  padding: var(--cx-space-4) var(--cx-space-5);
+  border-bottom: 1px solid var(--cx-line-soft);
+  white-space: normal;
+}
+.product-form__icon {
+  display: inline-flex;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--cx-r-md);
+  background: var(--cx-brand-wash);
+  color: var(--cx-brand);
+}
+.product-form__heading-copy {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.product-form__heading-copy strong {
+  color: var(--cx-ink);
+  font-size: var(--cx-text-md);
+  font-weight: 700;
+  line-height: 1.35;
+}
+.product-form__heading-copy small {
+  color: var(--cx-ink-soft);
+  font-size: var(--cx-text-xs);
+  line-height: 1.4;
+}
+.product-form__fiscal-status {
+  margin-left: auto;
+}
+.product-form__card :deep(.v-card-text) {
+  padding: var(--cx-space-5);
+}
+.product-form__subheading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--cx-space-1) var(--cx-space-3);
+  margin: var(--cx-space-3) 0 var(--cx-space-2);
+  padding-top: var(--cx-space-5);
+  border-top: 1px solid var(--cx-line-soft);
+}
+.product-form__subheading strong {
+  color: var(--cx-ink);
+  font-size: var(--cx-text-sm);
+  font-weight: 700;
+}
+.product-form__subheading span {
+  color: var(--cx-ink-soft);
+  font-size: var(--cx-text-xs);
+}
+.product-form__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--cx-space-2);
+  padding-top: var(--cx-space-2);
+}
 .dropzone {
-  border: 2px dashed rgba(92, 58, 52, 0.28);
-  border-radius: 14px;
+  border: 1px dashed var(--cx-line);
+  border-radius: var(--cx-r-lg);
   padding: 22px 16px;
   text-align: center;
-  cursor: pointer;
   background: var(--cx-surface-sunken);
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition: border-color 140ms var(--cx-ease), background 140ms var(--cx-ease);
 }
+.dropzone:focus-within,
 .dropzone:hover {
   border-color: var(--cx-brand);
   background: var(--cx-brand-wash);
 }
 .dropzone--full {
-  cursor: default;
   padding: 12px;
+}
+@media (max-width: 600px) {
+  .product-form__intro {
+    margin-bottom: var(--cx-space-5);
+  }
+  .product-form__card-heading {
+    gap: var(--cx-space-2);
+    padding: var(--cx-space-4);
+  }
+  .product-form__card :deep(.v-card-text) {
+    padding: var(--cx-space-4);
+  }
+  .product-form__toggle {
+    display: flex;
+    width: 100%;
+    height: auto;
+  }
+  .product-form__toggle :deep(.v-btn) {
+    flex: 1 1 0;
+    min-width: 0;
+    height: auto;
+    min-height: 44px;
+    padding: var(--cx-space-2);
+    white-space: normal;
+  }
+  .product-form__toggle :deep(.v-btn__content) {
+    white-space: normal;
+    text-align: center;
+    line-height: 1.2;
+  }
+  .product-form__actions :deep(.v-btn) {
+    flex: 1 1 auto;
+    min-height: 48px;
+  }
 }
 /*
  * A frase de "como se compra" e longa por natureza — ela repete a descricao
