@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ApexOptions } from 'apexcharts';
 import { VendasDatas } from '@pralis/shared';
-import type { VendasReport, VendasRankingResposta, AbcProdutos, Pulso } from '~/composables/useApi';
+import type { VendasReport, VendasRankingResposta, DetalhePdv, AbcProdutos, Pulso } from '~/composables/useApi';
 
 const api = useApi();
 const { user } = useAuth();
@@ -21,15 +21,70 @@ const iso = VendasDatas.dataLocalISO;
 const loja = ref<'TNP' | 'LI'>(
   user.value?.loja === 'LI' ? 'LI' : 'TNP',
 );
-const inicio = ref(iso(VendasDatas.diasAntes(hoje, 29)));
-const fim = ref(iso(hoje));
+const route = useRoute();
+const router = useRouter();
+const q = (k: string) => (typeof route.query[k] === 'string' ? String(route.query[k]) : '');
+
+const inicio = ref(q('inicio') || iso(VendasDatas.diasAntes(hoje, 29)));
+const fim = ref(q('fim') || iso(hoje));
+
+/**
+ * HORA é opcional e só vale onde existe hora de verdade: o detalhe do PDV.
+ *
+ * As duas fontes do relatório diário só têm DATA. Aceitar hora aqui e aplicá-la
+ * ao relatório seria fabricar um recorte que a fonte não sustenta; por isso o
+ * relatório declara `granularidade: 'dia'` e a tela avisa quando há hora
+ * digitada. Quando o robô passar a enviar itens, o detalhe do PDV a honra.
+ */
+const horaInicio = ref(q('hi'));
+const horaFim = ref(q('hf'));
+const comHora = computed(() => !!horaInicio.value || !!horaFim.value);
+const inicioComHora = computed(() => `${inicio.value}T${horaInicio.value || '00:00'}`);
+const fimComHora = computed(() => `${fim.value}T${horaFim.value || '23:59'}`);
+
+/**
+ * Filtros por CADASTRO, válidos para a área inteira — com um limite declarado:
+ * alcançam só o que sai de ITENS (faturamento, quantidade, produtos, ABC).
+ * Número de vendas, pagamentos e ranking de PDV vêm do fechamento de caixa,
+ * que não tem itens; filtrar isso por setor exigiria rateio, e rateio é
+ * número inventado. A tela diz isso em vez de esconder.
+ */
+const filtroSetor = ref<string | null>(q('setor') || null);
+const filtroGrupo = ref<string | null>(q('grupo') || null);
+const filtroProduto = ref(q('produto'));
+/** O texto de produto viaja com atraso: cada letra digitada não pode virar uma consulta. */
+const filtroProdutoAplicado = ref(filtroProduto.value);
+let esperaProduto: ReturnType<typeof setTimeout> | null = null;
+watch(filtroProduto, (v) => {
+  if (esperaProduto) clearTimeout(esperaProduto);
+  esperaProduto = setTimeout(() => { filtroProdutoAplicado.value = v.trim(); }, 400);
+});
+const filtrosQuery = computed(() => ({
+  ...(filtroSetor.value ? { setor: filtroSetor.value } : {}),
+  ...(filtroGrupo.value ? { grupo: filtroGrupo.value } : {}),
+  ...(filtroProdutoAplicado.value ? { produto: filtroProdutoAplicado.value } : {}),
+}));
+const filtrosAtivos = computed(() => Object.keys(filtrosQuery.value).length > 0);
+function limparFiltros() { filtroSetor.value = null; filtroGrupo.value = null; filtroProduto.value = ''; filtroProdutoAplicado.value = ''; }
+
+/**
+ * Período, hora e filtros vivem na URL. É o que faz "voltar" voltar para o
+ * mesmo recorte e o que leva o recorte junto para as outras visões de vendas.
+ */
+const queryAtual = computed(() => ({
+  inicio: inicio.value, fim: fim.value,
+  ...(horaInicio.value ? { hi: horaInicio.value } : {}),
+  ...(horaFim.value ? { hf: horaFim.value } : {}),
+  ...filtrosQuery.value,
+}));
+watch(queryAtual, (nova) => { router.replace({ query: { ...route.query, ...nova } }); }, { deep: true });
 
 const dados = ref<VendasReport | null>(null);
 const carregando = ref(false);
 const erro = ref('');
 
 /** Aba visível. As três dividem o MESMO período — o filtro fica acima delas. */
-const aba = ref<'visao' | 'ranking' | 'abc' | 'relatorios' | 'graficos'>('visao');
+const aba = ref<'visao' | 'ranking' | 'abc' | 'graficos'>('visao');
 
 /**
  * Atalhos de período.
@@ -62,6 +117,7 @@ async function carregar() {
   erro.value = '';
   try {
     dados.value = await api.vendasReport({
+      ...filtrosQuery.value,
       // usuário de loja não manda `loja`: quem decide é o servidor
       ...(isAdmin.value ? { loja: loja.value } : {}),
       inicio: inicio.value,
@@ -103,7 +159,7 @@ const NOME_DA_FONTE: Record<string, string> = {
 };
 
 onMounted(() => { carregar(); carregarPulso(); });
-watch([loja, inicio, fim], carregar);
+watch([loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado], carregar);
 
 const semMovimento = computed(() =>
   !!dados.value && dados.value.resumo.faturamento === 0 && dados.value.resumo.numeroVendas === 0);
@@ -127,10 +183,10 @@ const resumoCards = computed(() => {
   // produto; número de vendas e ticket vêm do FECHAMENTO de caixa. São duas
   // fontes e podem divergir — sem dizer isso, o usuário lê como erro de conta.
   return [
-    { label: 'Faturamento', origem: 'vendas por produto', valor: brl(r.faturamento), icon: 'payments', cor: '#6515DD' },
-    { label: 'Quantidade vendida', origem: 'vendas por produto', valor: num(r.quantidade), icon: 'inventory_2', cor: '#3B82F6' },
-    { label: 'Nº de vendas', origem: 'fechamento de caixa', valor: num(r.numeroVendas), icon: 'receipt_long', cor: '#35128C' },
-    { label: 'Ticket médio', origem: 'fechamento de caixa', valor: brl(r.ticketMedio), icon: 'trending_up', cor: '#34A853' },
+    { label: 'Faturamento', origem: 'vendas por produto', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)' },
+    { label: 'Quantidade vendida', origem: 'vendas por produto', valor: num(r.quantidade), icon: 'inventory_2', cor: 'var(--cx-sales-volume)' },
+    { label: 'Nº de vendas', origem: 'fechamento de caixa', valor: num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)' },
+    { label: 'Ticket médio', origem: 'fechamento de caixa', valor: brl(r.ticketMedio), icon: 'trending_up', cor: 'var(--cx-sales-volume)' },
   ];
 });
 
@@ -156,8 +212,6 @@ const colunasComMovimento = computed(() => {
   const linhas = dados.value?.pagamentos ?? [];
   return COLUNAS_PAGAMENTO.filter((c) => linhas.some((l) => Number(l[c.chave]) !== 0));
 });
-
-const corClasse = { A: 'success', B: 'warning', C: 'grey' } as const;
 
 /**
  * A cor da cobertura é o aviso: abaixo de 80% o número de margem já não
@@ -266,7 +320,7 @@ const opcoesGrande = computed<ApexOptions>(() => ({
     fontFamily: 'inherit',
     animations: { enabled: true, speed: 400 },
   },
-  colors: ['#6515DD'],
+  colors: ['#a96e00'],
   dataLabels: { enabled: false },
   stroke: { curve: 'smooth', width: 2, lineCap: 'round' },
   // o preenchimento é uma lavagem, não um bloco: a linha é que carrega o dado
@@ -358,7 +412,7 @@ const DIMENSOES = [
   { valor: 'produto', label: 'Produto', icone: 'inventory_2', nota: 'Direto da venda, inclusive o que saiu sem código.' },
   { valor: 'grupo', label: 'Grupo', icone: 'category', nota: 'Grupo de mercadorias do cadastro.' },
   { valor: 'setor', label: 'Setor', icone: 'groups', nota: 'Produção, panificação, confeitaria, loja — o setor do cadastro.' },
-  { valor: 'pdv', label: 'Caixa (PDV)', icone: 'point_of_sale', nota: 'O dinheiro por caixa, do fechamento. Produtos por caixa não existem no dado.' },
+  { valor: 'pdv', label: 'Caixa (PDV)', icone: 'point_of_sale', nota: 'Fechamento por caixa. Produtos exigem vínculo original item → venda → PDV.' },
 ] as const;
 
 const dimensao = ref<'produto' | 'grupo' | 'setor' | 'pdv'>('setor');
@@ -366,12 +420,67 @@ const dimensaoAtual = computed(() => DIMENSOES.find((d) => d.valor === dimensao.
 const ranking = ref<VendasRankingResposta | null>(null);
 const carregandoRanking = ref(false);
 const erroRanking = ref('');
+const pdvAberto = ref<VendasRankingResposta['itens'][number] | null>(null);
+const detalhePdv = ref<DetalhePdv | null>(null);
+const carregandoDetalhe = ref(false);
+const erroDetalhe = ref('');
+const ordemPdv = ref<'quantidade' | 'faturamento'>('quantidade');
+let pedidoDetalhe = 0;
+async function carregarDetalhePdv() {
+  const pdv = pdvAberto.value;
+  const pedido = ++pedidoDetalhe;
+  detalhePdv.value = null;
+  erroDetalhe.value = '';
+  if (!pdv || pdv.chave.startsWith('legado:')) return;
+  carregandoDetalhe.value = true;
+  try {
+    const resposta = await api.vendasPdvDetalhe({
+      ...(isAdmin.value ? { loja: loja.value } : {}),
+      dispositivoIdErp: pdv.chave,
+      inicio: inicioComHora.value,
+      fim: fimComHora.value,
+      ordenar: ordemPdv.value,
+    });
+    if (pedido === pedidoDetalhe) detalhePdv.value = resposta;
+  } catch (e: unknown) {
+    if (pedido === pedidoDetalhe) erroDetalhe.value = (e as { data?: { message?: string } })?.data?.message || 'Não foi possível carregar os itens deste PDV.';
+  } finally {
+    if (pedido === pedidoDetalhe) carregandoDetalhe.value = false;
+  }
+}
+watch([pdvAberto, ordemPdv, horaInicio, horaFim], carregarDetalhePdv);
+
+/**
+ * Gráfico do PDV por HORA ou por DIA. O toggle só aparece quando há itens com
+ * hora — é o único lugar da área em que a fonte sustenta a granularidade.
+ */
+const granularidadePdv = ref<'hora' | 'dia'>('hora');
+const seriePdvTempo = computed(() => {
+  const pontos = detalhePdv.value?.porHora ?? [];
+  if (granularidadePdv.value === 'hora') {
+    return { categorias: pontos.map((p) => p.hora.slice(11, 16) + (pontos.length > 24 ? ' ' + p.hora.slice(8, 10) + '/' + p.hora.slice(5, 7) : '')), valores: pontos.map((p) => p.faturamento ?? p.quantidade) };
+  }
+  const porDia = new Map<string, number>();
+  for (const p of pontos) porDia.set(p.hora.slice(0, 10), (porDia.get(p.hora.slice(0, 10)) ?? 0) + (p.faturamento ?? p.quantidade));
+  return { categorias: [...porDia.keys()].map(diaCurto), valores: [...porDia.values()] };
+});
+const opcoesPdvTempo = computed<ApexOptions>(() => ({
+  chart: { toolbar: { show: false }, animations: { enabled: false } },
+  colors: ['#a96e00'],
+  dataLabels: { enabled: false },
+  plotOptions: { bar: { borderRadius: 3, columnWidth: '60%' } },
+  xaxis: { categories: seriePdvTempo.value.categorias, labels: { rotate: -45, style: { fontSize: '11px' } } },
+  yaxis: { labels: { formatter: (v: number) => (detalhePdv.value?.faturamentoItens === null ? num(v) : brl(v)) } },
+  tooltip: { y: { formatter: (v: number) => (detalhePdv.value?.faturamentoItens === null ? num(v) : brl(v)) } },
+}));
+watch([loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado], () => { pdvAberto.value = null; });
 
 async function carregarRanking() {
   carregandoRanking.value = true;
   erroRanking.value = '';
   try {
     ranking.value = await api.vendasRanking({
+      ...filtrosQuery.value,
       ...(isAdmin.value ? { loja: loja.value } : {}),
       inicio: inicio.value,
       fim: fim.value,
@@ -405,15 +514,8 @@ const fatiaDoLider = (v: number) => {
 
 /* ----------------------------------------------------------------- curva ABC */
 
-/**
- * A curva ABC desenhada: barras empilhadas de 100% mostrando que fatia do
- * faturamento cada classe carrega, e quantos produtos precisou para isso.
- *
- * O ponto da ABC é a DESPROPORÇÃO — poucos produtos fazendo a maior parte do
- * dinheiro. Duas barras lado a lado (faturamento × nº de produtos) mostram isso
- * de imediato; uma tabela com os mesmos números, não.
- */
-const CORES_ABC = { A: '#1baf7a', B: '#eda100', C: '#6B7280' } as const;
+/** Indicadores textuais e lista substituem as faixas gráficas da curva ABC. */
+const CORES_ABC = { A: '#a96e00', B: '#2563a8', C: '#6B7280' } as const;
 
 const abcTemDados = computed(() => (dados.value?.curvaAbc ?? []).some((c) => c.produtos > 0));
 
@@ -432,6 +534,7 @@ async function carregarListaAbc() {
   erroAbc.value = '';
   try {
     listaAbc.value = await api.vendasCurvaAbc({
+      ...filtrosQuery.value,
       ...(isAdmin.value ? { loja: loja.value } : {}),
       inicio: inicio.value,
       fim: fim.value,
@@ -447,7 +550,7 @@ async function carregarListaAbc() {
 }
 
 /* Só busca com a aba aberta — a consulta cruza a venda inteira com o cadastro. */
-watch([aba, classeAberta, loja, inicio, fim], () => {
+watch([aba, classeAberta, loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado], () => {
   if (aba.value === 'abc') carregarListaAbc();
 });
 
@@ -465,9 +568,34 @@ const ORDENS = [
   { valor: 'risco', label: 'Menos dias de estoque' },
 ] as const;
 const ordem = ref<'faturamento' | 'giro' | 'risco'>('faturamento');
+// filtroSetor / filtroGrupo / filtroProduto: declarados no topo, valem para a área inteira
+const paginaAbc = ref(1);
+const TAMANHO_PAGINA_ABC = 25;
+/**
+ * As OPÇÕES de setor e grupo saem de uma leitura SEM filtro, própria.
+ *
+ * Tirá-las da lista ABC exibida tinha dois defeitos: ela só carrega na aba ABC
+ * (os selects da barra ficavam vazios nas outras abas) e já vem filtrada — ao
+ * escolher um setor, os demais sumiam do dropdown e não dava para trocar.
+ */
+const baseOpcoes = ref<AbcProdutos | null>(null);
+async function carregarOpcoesCadastro() {
+  try {
+    baseOpcoes.value = await api.vendasCurvaAbc({ ...(isAdmin.value ? { loja: loja.value } : {}), inicio: inicio.value, fim: fim.value });
+  } catch { baseOpcoes.value = null; }
+}
+onMounted(carregarOpcoesCadastro);
+watch([loja, inicio, fim], carregarOpcoesCadastro);
+const setoresAbc = computed(() => [...new Set((baseOpcoes.value?.itens ?? []).map((i) => i.setor).filter((v): v is string => !!v))].sort());
+const gruposAbc = computed(() => [...new Set((baseOpcoes.value?.itens ?? []).map((i) => i.grupo).filter((v): v is string => !!v))].sort());
+watch([classeAberta, loja, inicio, fim, filtroSetor, filtroGrupo, filtroProduto, ordem], () => { paginaAbc.value = 1; });
 
 const itensAbcOrdenados = computed(() => {
-  const itens = [...(listaAbc.value?.itens ?? [])];
+  const termo = (filtroProduto.value ?? '').trim().toLocaleLowerCase('pt-BR');
+  const itens = (listaAbc.value?.itens ?? []).filter((i) =>
+    (!filtroSetor.value || i.setor === filtroSetor.value)
+    && (!filtroGrupo.value || i.grupo === filtroGrupo.value)
+    && (!termo || i.produto.toLocaleLowerCase('pt-BR').includes(termo) || i.produtoCodigo.includes(termo)));
   if (ordem.value === 'giro') return itens.sort((a, b) => b.porDia - a.porDia);
   if (ordem.value === 'risco') {
     return itens.sort((a, b) => {
@@ -479,6 +607,8 @@ const itensAbcOrdenados = computed(() => {
   }
   return itens; // já vem ordenado por faturamento
 });
+const paginasAbc = computed(() => Math.ceil(itensAbcOrdenados.value.length / TAMANHO_PAGINA_ABC));
+const itensAbcPagina = computed(() => itensAbcOrdenados.value.slice((paginaAbc.value - 1) * TAMANHO_PAGINA_ABC, paginaAbc.value * TAMANHO_PAGINA_ABC));
 
 const abcFatias = computed(() => (dados.value?.curvaAbc ?? []).map((c) => ({
   classe: c.classe,
@@ -575,6 +705,26 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
         hide-details
         style="max-width: 190px"
       />
+      <v-text-field
+        v-model="horaInicio"
+        type="time"
+        label="Hora de"
+        variant="outlined"
+        density="compact"
+        hide-details
+        clearable
+        style="max-width: 150px"
+      />
+      <v-text-field
+        v-model="horaFim"
+        type="time"
+        label="Hora até"
+        variant="outlined"
+        density="compact"
+        hide-details
+        clearable
+        style="max-width: 150px"
+      />
       <!--
         `:model-value`, não `v-model`: quem manda são as DATAS. O atalho é um
         atalho — ele escreve nas datas e depois se acende sozinho porque elas
@@ -587,10 +737,18 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
           {{ a.label }}
         </v-btn>
       </v-btn-toggle>
+      <!--
+        `min-width` importa: sem ele o flex encolhia os selects a 60px no canto
+        da barra e o rótulo virava uma letra. Com largura mínima eles quebram
+        para a linha de baixo inteiros, em vez de caberem espremidos.
+      -->
+      <v-select v-model="filtroSetor" :items="setoresAbc" label="Setor" clearable variant="outlined" density="compact" hide-details style="min-width: 190px; max-width: 240px" />
+      <v-select v-model="filtroGrupo" :items="gruposAbc" label="Grupo" clearable variant="outlined" density="compact" hide-details style="min-width: 190px; max-width: 240px" />
+      <v-text-field v-model="filtroProduto" label="Produto ou código" prepend-inner-icon="search" clearable variant="outlined" density="compact" hide-details style="min-width: 220px; max-width: 260px" />
       <v-spacer />
       <v-btn variant="tonal" prepend-icon="refresh" :loading="carregando" @click="carregar">Atualizar</v-btn>
-      <v-btn variant="tonal" prepend-icon="list" to="/vendas/produtos">Produtos vendidos</v-btn>
-      <v-btn variant="tonal" prepend-icon="leaderboard" color="primary" to="/vendas/painel">Painel de setores</v-btn>
+      <v-btn variant="tonal" prepend-icon="list" :to="{ path: '/vendas/produtos', query: queryAtual }">Produtos vendidos</v-btn>
+      <v-btn variant="tonal" prepend-icon="leaderboard" color="primary" :to="{ path: '/vendas/painel', query: queryAtual }">Painel de setores</v-btn>
     </div>
 
     <!--
@@ -656,7 +814,6 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
         <v-tab value="visao" prepend-icon="show_chart">Visão geral</v-tab>
         <v-tab value="ranking" prepend-icon="leaderboard">Ranking</v-tab>
         <v-tab value="abc" prepend-icon="donut_large">Curva ABC</v-tab>
-        <v-tab value="relatorios" prepend-icon="assessment">Relatórios</v-tab>
         <v-tab value="graficos" prepend-icon="bar_chart">Gráficos</v-tab>
       </v-tabs>
 
@@ -667,6 +824,19 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
       <v-window v-else v-model="aba">
         <!-- ─────────────────────────────────────────────── VISÃO GERAL ── -->
         <v-window-item value="visao">
+          <!--
+            Dois avisos que existem para a tela não mentir: o relatório é por
+            DIA (a fonte só tem data, hora vale no detalhe do PDV) e o filtro
+            de cadastro só alcança o que sai de itens.
+          -->
+          <v-alert v-if="comHora" type="info" variant="tonal" density="compact" class="mb-3" icon="schedule">
+            Este relatório tem granularidade <strong>diária</strong>: as horas informadas valem só no detalhe de cada PDV.
+          </v-alert>
+          <v-alert v-if="dados.filtros.ativo" type="info" variant="tonal" density="compact" class="mb-3" icon="filter_alt">
+            Filtro por cadastro ativo — vale para faturamento, quantidade, produtos e curva ABC.
+            <strong>Nº de vendas, ticket médio, pagamentos e ranking de caixas não filtram</strong>: o fechamento de caixa não tem itens.
+            <v-btn size="x-small" variant="text" class="ml-2" @click="limparFiltros">Limpar</v-btn>
+          </v-alert>
           <v-row class="mb-1">
             <v-col v-for="c in resumoCards" :key="c.label" cols="12" sm="6" md="3">
               <v-card flat border rounded="lg" class="pa-4 h-100">
@@ -724,6 +894,27 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             de caixa. São registros diferentes do PDV, então os totais podem não bater:
             o fechamento inclui crediário, sobra/perda e outros lançamentos que não são venda de produto.
           </div>
+
+          <v-card flat border rounded="lg" class="pa-4 mt-4">
+            <div class="d-flex align-center flex-wrap ga-2 mb-2">
+              <div class="text-subtitle-1 font-weight-bold">Margem e lucro bruto</div>
+              <v-spacer />
+              <v-btn size="small" variant="tonal" :to="{ path: '/vendas/de-para', query: queryAtual }">Resolver produtos sem custo</v-btn>
+            </div>
+            <div class="text-body-2 mb-2">
+              Cobertura de custo: <strong>{{ pct(dados.margem.coberturaPercentual) }}</strong> do faturamento.
+              {{ brl(dados.margem.faturamentoSemCusto) }} ainda não têm custo cadastrado.
+            </div>
+            <v-progress-linear :model-value="dados.margem.coberturaPercentual" :color="corCobertura" height="6" rounded class="mb-4" />
+            <v-row dense>
+              <v-col cols="12" sm="4"><div class="text-caption">Custo</div><div class="text-h6 font-weight-bold">{{ brl(dados.margem.custoTotal) }}</div></v-col>
+              <v-col cols="12" sm="4"><div class="text-caption">Lucro bruto</div><div class="text-h6 font-weight-bold sales-profit">{{ brl(dados.margem.lucroBruto) }}</div></v-col>
+              <v-col cols="12" sm="4"><div class="text-caption">Margem</div><div class="text-h6 font-weight-bold sales-profit">{{ pct(dados.margem.margemPercentual) }}</div></v-col>
+            </v-row>
+            <div v-if="dados.margem.produtosSemVinculo" class="text-caption text-medium-emphasis mt-2">
+              {{ num(dados.margem.produtosSemVinculo) }} produto(s) precisam de vínculo para apuração completa.
+            </div>
+          </v-card>
         </v-window-item>
 
         <!-- ─────────────────────────────────────────────────── RANKING ── -->
@@ -771,7 +962,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 <div class="text-caption text-medium-emphasis mt-1">
                   {{ ranking.cobertura.faturamentoSemClassificacao !== null ? brl(ranking.cobertura.faturamentoSemClassificacao) + " em " : "" }}
                   {{ num(ranking.cobertura.linhasSemVinculo) }} linha(s) não casaram com produto do cadastro.
-                  <NuxtLink to="/vendas/de-para" class="text-primary">Resolver no de-para</NuxtLink>.
+                  <NuxtLink :to="{ path: '/vendas/de-para', query: queryAtual }" class="text-primary">Resolver no de-para</NuxtLink>.
                 </div>
               </div>
 
@@ -784,10 +975,19 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                   <div
                     class="text-caption font-weight-bold text-center flex-shrink-0"
                     style="width: 28px"
-                    :class="i.posicao <= 3 ? 'text-primary' : 'text-medium-emphasis'"
+                    :class="i.posicao <= 3 ? 'sales-revenue' : 'text-medium-emphasis'"
                   >{{ i.posicao }}º</div>
                   <div class="flex-grow-1" style="min-width: 0">
-                    <div class="text-body-2 text-truncate">{{ i.rotulo }}</div>
+                    <v-btn
+                      v-if="dimensao === 'pdv'"
+                      variant="text"
+                      size="small"
+                      class="sales-pdv-link"
+                      append-icon="chevron_right"
+                      :aria-label="`Ver detalhes do PDV ${i.rotulo}`"
+                      @click="pdvAberto = i"
+                    >{{ i.rotulo }}</v-btn>
+                    <div v-else class="text-body-2 text-truncate">{{ i.rotulo }}</div>
                     <div class="text-caption text-medium-emphasis">
                       {{ pct(i.participacao) }} do período
                       <template v-if="i.quantidade !== null"> · {{ num(i.quantidade) }} un</template>
@@ -795,14 +995,14 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                     </div>
                   </div>
                   <div class="text-right flex-shrink-0">
-                    <div v-if="i.faturamento !== null" class="text-body-2 font-weight-bold">{{ brl(i.faturamento) }}</div>
+                    <div v-if="i.faturamento !== null" class="text-body-2 font-weight-bold sales-revenue">{{ brl(i.faturamento) }}</div>
                     <div class="text-caption text-medium-emphasis">{{ num(i.pontos) }} pts</div>
                   </div>
                 </div>
                 <!-- barra proporcional ao LÍDER: compara dentro da própria lista -->
                 <v-progress-linear
                   :model-value="fatiaDoLider(i.pontos)"
-                  :color="i.posicao === 1 ? 'primary' : 'grey-lighten-1'"
+                  :color="i.posicao === 1 ? '#a96e00' : 'grey-lighten-1'"
                   height="4"
                   rounded
                   class="mt-1"
@@ -815,6 +1015,15 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 <template v-if="ranking.campo"> Classificado pelo campo <code>{{ ranking.campo }}</code> do cadastro.</template>
               </div>
             </template>
+          </v-card>
+          <v-card flat border rounded="lg" class="pa-4 mt-4">
+            <div class="text-subtitle-1 font-weight-bold mb-2">Produtos com menor venda no período</div>
+            <div class="text-caption text-medium-emphasis mb-3">Entre os produtos que tiveram alguma venda.</div>
+            <div v-if="!dados.ranking.menosVendidos.length" class="text-body-2 text-medium-emphasis">Nenhum produto vendido no período.</div>
+            <div v-for="p in dados.ranking.menosVendidos" :key="`n-${p.produtoCodigo}-${p.produto}`" class="sales-rank-row">
+              <div><div class="font-weight-medium">{{ p.produto }}</div><div class="text-caption text-medium-emphasis">{{ p.produtoCodigo || 'sem código' }}</div></div>
+              <div class="text-right"><div class="sales-volume font-weight-bold">{{ num(p.quantidade) }} vendidos</div><div class="sales-revenue text-caption">{{ brl(p.faturamento) }}</div></div>
+            </div>
           </v-card>
         </v-window-item>
 
@@ -832,39 +1041,6 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             </div>
 
             <template v-else>
-              <!--
-                Duas barras de 100%, uma sobre a outra: o dinheiro em cima, a
-                quantidade de produtos embaixo. É a desproporção que a ABC
-                existe para mostrar — poucos produtos fazendo a maior parte do
-                faturamento —, e ela salta aos olhos comparando as duas faixas.
-                Os mesmos números numa tabela não mostram isso.
-              -->
-              <div class="text-caption text-medium-emphasis mb-1">Fatia do faturamento</div>
-              <div class="d-flex mb-4" style="height: 46px; border-radius: 8px; overflow: hidden">
-                <div
-                  v-for="f in abcFatias"
-                  :key="`fat-${f.classe}`"
-                  class="d-flex align-center justify-center text-white font-weight-bold abc-faixa"
-                  :style="{ width: `${f.pctFaturamento}%`, background: f.cor }"
-                  :title="`${f.classe}: ${brl(f.faturamento)}`"
-                >
-                  <span v-if="f.pctFaturamento >= 8">{{ f.classe }} · {{ pct(f.pctFaturamento) }}</span>
-                </div>
-              </div>
-
-              <div class="text-caption text-medium-emphasis mb-1">Fatia da quantidade de produtos</div>
-              <div class="d-flex mb-5" style="height: 46px; border-radius: 8px; overflow: hidden">
-                <div
-                  v-for="f in abcFatias"
-                  :key="`prod-${f.classe}`"
-                  class="d-flex align-center justify-center text-white font-weight-bold abc-faixa"
-                  :style="{ width: `${f.pctProdutos}%`, background: f.cor, opacity: 0.55 }"
-                  :title="`${f.classe}: ${num(f.produtos)} produto(s)`"
-                >
-                  <span v-if="f.pctProdutos >= 8">{{ f.classe }} · {{ pct(f.pctProdutos) }}</span>
-                </div>
-              </div>
-
               <v-row dense>
                 <v-col v-for="f in abcFatias" :key="`card-${f.classe}`" cols="12" sm="4">
                   <v-card flat border rounded="lg" class="pa-4 h-100">
@@ -883,9 +1059,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
               </v-row>
 
               <div class="text-caption text-medium-emphasis mt-4">
-                Compare as duas faixas: quanto mais curta a faixa <strong>A</strong> embaixo e mais
-                longa em cima, mais o faturamento depende de poucos produtos — e mais caro sai
-                deixar um deles faltar na prateleira.
+                A quantidade de produtos da classe A varia conforme as vendas; não é fixada em 20% do catálogo.
               </div>
             </template>
           </v-card>
@@ -917,6 +1091,12 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             </div>
 
             <template v-else-if="listaAbc">
+              <div class="sales-abc-filters mb-4" aria-label="Filtros da lista ABC">
+              </div>
+              <div class="text-caption text-medium-emphasis mb-3">
+                {{ num(itensAbcOrdenados.length) }} produto(s) nesta lista após os filtros.
+                Setor, grupo e produto vêm da barra acima e recalculam a curva sobre o recorte: a classe A aqui é a A DENTRO do filtro. O ranking de caixas não os aplica.
+              </div>
               <!--
                 O AVISO vem antes da tabela, de propósito.
 
@@ -940,7 +1120,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 <template v-if="listaAbc.semCadastro">
                   <strong class="text-warning">{{ num(listaAbc.semCadastro) }}</strong>
                   produto(s) desta classe não casaram com o cadastro — sem custo, mínimo nem máximo.
-                  <NuxtLink to="/vendas/de-para" class="text-primary">Resolver no de-para</NuxtLink>.
+                  <NuxtLink :to="{ path: '/vendas/de-para', query: queryAtual }" class="text-primary">Resolver no de-para</NuxtLink>.
                 </template>
                 <template v-if="listaAbc.semEstoqueMax">
                   <span v-if="listaAbc.semCadastro"> · </span>
@@ -970,7 +1150,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="i in itensAbcOrdenados" :key="`${i.produtoCodigo}-${i.produto}`">
+                    <tr v-for="i in itensAbcPagina" :key="`${i.produtoCodigo}-${i.produto}`" :class="{ 'sales-abc-a': i.classe === 'A' }">
                       <td class="text-medium-emphasis">{{ i.posicao }}</td>
                       <td>
                         <div class="text-truncate" style="max-width: 320px">{{ i.produto }}</div>
@@ -1002,6 +1182,8 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 </v-table>
               </div>
 
+              <v-pagination v-if="paginasAbc > 1" v-model="paginaAbc" :length="paginasAbc" :total-visible="5" aria-label="Páginas da lista ABC" class="mt-4" />
+
               <div class="text-caption text-medium-emphasis mt-3">
                 Período de {{ num(listaAbc.periodo.dias) }} dia(s).
                 <strong>Por dia</strong> é a venda média no período — é o ritmo que consome a prateleira.
@@ -1011,118 +1193,6 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
         </v-window-item>
 
         <!-- ──────────────────────────────────────────────── RELATÓRIOS ── -->
-        <v-window-item value="relatorios">
-          <v-row>
-            <v-col cols="12" md="6">
-              <v-card flat border rounded="lg" class="pa-4 h-100">
-                <div class="text-subtitle-1 font-weight-bold mb-3">Mais vendidos</div>
-                <div v-for="p in dados.ranking.maisVendidos" :key="`m-${p.produtoCodigo}-${p.produto}`" class="d-flex align-center ga-3 mb-2">
-                  <div class="flex-grow-1" style="min-width: 0">
-                    <div class="text-body-2 text-truncate">{{ p.produto }}</div>
-                    <div class="text-caption text-medium-emphasis">{{ p.produtoCodigo || 'sem código' }}</div>
-                  </div>
-                  <div class="text-right">
-                    <div class="text-body-2 font-weight-bold">{{ num(p.quantidade) }}</div>
-                    <div class="text-caption text-medium-emphasis">{{ brl(p.faturamento) }}</div>
-                  </div>
-                </div>
-              </v-card>
-            </v-col>
-
-            <v-col cols="12" md="6">
-              <v-card flat border rounded="lg" class="pa-4 h-100">
-                <div class="text-subtitle-1 font-weight-bold mb-1">Menos vendidos</div>
-                <div class="text-caption text-medium-emphasis mb-3">Entre os que tiveram alguma venda no período.</div>
-                <div v-for="p in dados.ranking.menosVendidos" :key="`n-${p.produtoCodigo}-${p.produto}`" class="d-flex align-center ga-3 mb-2">
-                  <div class="flex-grow-1" style="min-width: 0">
-                    <div class="text-body-2 text-truncate">{{ p.produto }}</div>
-                    <div class="text-caption text-medium-emphasis">{{ p.produtoCodigo || 'sem código' }}</div>
-                  </div>
-                  <div class="text-right">
-                    <div class="text-body-2 font-weight-bold">{{ num(p.quantidade) }}</div>
-                    <div class="text-caption text-medium-emphasis">{{ brl(p.faturamento) }}</div>
-                  </div>
-                </div>
-              </v-card>
-            </v-col>
-          </v-row>
-
-          <v-card flat border rounded="lg" class="pa-4 mt-4">
-            <div class="d-flex align-center flex-wrap ga-2 mb-1">
-              <div class="text-subtitle-1 font-weight-bold">Margem e lucro</div>
-              <v-spacer />
-              <v-btn
-                size="small"
-                variant="tonal"
-                :color="dados.margem.produtosSemVinculo ? 'warning' : undefined"
-                to="/vendas/de-para"
-              >
-                Resolver produtos sem custo
-                <template v-if="dados.margem.produtosSemVinculo">({{ num(dados.margem.produtosSemVinculo) }})</template>
-              </v-btn>
-            </div>
-
-            <!--
-              A cobertura vem ANTES do lucro de propósito. Margem calculada sobre
-              metade do faturamento, apresentada como total, leva a decisão errada
-              de preço — o pão sem custo cadastrado se esconde atrás da Coca-Cola.
-            -->
-            <div class="d-flex align-center ga-2 mb-1 mt-2">
-              <span class="text-body-2">Calculada sobre</span>
-              <strong :class="`text-${corCobertura}`">{{ pct(dados.margem.coberturaPercentual) }}</strong>
-              <span class="text-body-2">do faturamento</span>
-            </div>
-            <v-progress-linear
-              :model-value="dados.margem.coberturaPercentual"
-              :color="corCobertura"
-              height="8"
-              rounded
-              class="mb-3"
-            />
-            <div class="text-caption text-medium-emphasis mb-4">
-              {{ brl(dados.margem.faturamentoSemCusto) }} em vendas ainda não têm custo cadastrado
-              <template v-if="dados.margem.produtosSemVinculo">
-                ({{ num(dados.margem.produtosSemVinculo) }} produto(s) sem vínculo)
-              </template>.
-            </div>
-
-            <v-row dense>
-              <v-col cols="12" sm="4">
-                <div class="text-caption text-medium-emphasis text-uppercase">Custo</div>
-                <div class="text-h6 font-weight-bold">{{ brl(dados.margem.custoTotal) }}</div>
-              </v-col>
-              <v-col cols="12" sm="4">
-                <div class="text-caption text-medium-emphasis text-uppercase">Lucro bruto</div>
-                <div class="text-h6 font-weight-bold" :class="dados.margem.lucroBruto < 0 ? 'text-error' : 'text-success'">
-                  {{ brl(dados.margem.lucroBruto) }}
-                </div>
-              </v-col>
-              <v-col cols="12" sm="4">
-                <div class="text-caption text-medium-emphasis text-uppercase">Margem</div>
-                <div class="text-h6 font-weight-bold" :class="dados.margem.margemPercentual < 0 ? 'text-error' : ''">
-                  {{ pct(dados.margem.margemPercentual) }}
-                </div>
-              </v-col>
-            </v-row>
-          </v-card>
-
-          <v-card flat border rounded="lg" class="pa-4 mt-4">
-            <div class="text-subtitle-1 font-weight-bold mb-1">Curva ABC</div>
-            <div class="text-caption text-medium-emphasis mb-3">
-              A = os produtos que somam os primeiros 80% do faturamento; B até 95%; C o restante.
-            </div>
-            <div v-for="c in dados.curvaAbc" :key="c.classe" class="mb-3">
-              <div class="d-flex align-center ga-2 mb-1">
-                <v-chip :color="corClasse[c.classe]" size="small" variant="tonal" class="font-weight-bold">{{ c.classe }}</v-chip>
-                <span class="text-body-2">{{ num(c.produtos) }} produto(s)</span>
-                <v-spacer />
-                <span class="text-body-2 font-weight-bold">{{ brl(c.faturamento) }}</span>
-                <span class="text-caption text-medium-emphasis">{{ pct(c.percentual) }}</span>
-              </div>
-              <v-progress-linear :model-value="c.percentual" :color="corClasse[c.classe]" height="6" rounded />
-            </div>
-          </v-card>
-        </v-window-item>
 
         <!-- ────────────────────────────────────────────────── GRÁFICOS ── -->
         <v-window-item value="graficos">
@@ -1174,23 +1244,81 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
         </v-window-item>
       </v-window>
     </template>
+
+    <v-dialog :model-value="pdvAberto !== null" max-width="650" @update:model-value="v => { if (!v) pdvAberto = null; }">
+      <v-card v-if="pdvAberto" rounded="lg" class="pa-5">
+        <div class="d-flex align-center ga-3 mb-4">
+          <div class="text-h6 font-weight-bold">{{ pdvAberto.rotulo }}</div>
+          <v-spacer />
+          <v-btn icon="close" variant="text" aria-label="Fechar detalhes do PDV" @click="pdvAberto = null" />
+        </div>
+        <div class="text-body-2 mb-4">{{ dia(inicio) }} a {{ dia(fim) }} · fechamento diário de caixa</div>
+        <div class="d-flex flex-wrap ga-6 mb-4">
+          <div><div class="text-caption">Faturamento</div><strong class="sales-revenue">{{ pdvAberto.faturamento === null ? 'Restrito' : brl(pdvAberto.faturamento) }}</strong></div>
+          <div><div class="text-caption">Nº de vendas</div><strong class="sales-revenue">{{ num(pdvAberto.numeroVendas ?? 0) }}</strong></div>
+          <div><div class="text-caption">Ticket médio</div><strong class="sales-volume">{{ pdvAberto.faturamento !== null && pdvAberto.numeroVendas ? brl(pdvAberto.faturamento / pdvAberto.numeroVendas) : '—' }}</strong></div>
+        </div>
+        <v-progress-linear v-if="carregandoDetalhe" indeterminate color="primary" class="mb-3" />
+        <v-alert v-if="erroDetalhe" type="error" variant="tonal" class="mb-3">{{ erroDetalhe }}</v-alert>
+        <div v-if="detalhePdv?.porHora?.length" class="mb-4">
+          <div class="d-flex align-center flex-wrap ga-2 mb-2">
+            <div class="text-subtitle-2 font-weight-bold">{{ detalhePdv.faturamentoItens === null ? 'Quantidade' : 'Faturamento' }} por {{ granularidadePdv }}</div>
+            <v-spacer />
+            <v-btn-toggle v-model="granularidadePdv" density="compact" variant="outlined" divided mandatory>
+              <v-btn value="hora" size="small">Por hora</v-btn>
+              <v-btn value="dia" size="small">Por dia</v-btn>
+            </v-btn-toggle>
+          </div>
+          <apexchart type="bar" :height="220" :options="opcoesPdvTempo" :series="[{ name: granularidadePdv === 'hora' ? 'Por hora' : 'Por dia', data: seriePdvTempo.valores }]" />
+        </div>
+        <v-alert v-if="pdvAberto.chave.startsWith('legado:') || (!carregandoDetalhe && !detalhePdv?.disponivel)" type="info" variant="tonal">
+          Produtos por PDV ainda indisponíveis neste período. O fechamento antigo não traz o ID do dispositivo e o histórico de produtos chegou somente por dia.
+          Não associamos itens a caixas por nome ou horário aproximado.
+        </v-alert>
+        <template v-if="detalhePdv?.disponivel">
+          <div class="d-flex flex-wrap align-center ga-2 mb-3">
+            <div class="font-weight-bold">Produtos deste PDV</div>
+            <v-spacer />
+            <v-btn-toggle v-model="ordemPdv" mandatory density="compact" variant="outlined" divided>
+              <v-btn value="quantidade" size="small">Mais vendidos</v-btn>
+              <v-btn value="faturamento" size="small">Maior faturamento</v-btn>
+            </v-btn-toggle>
+          </div>
+          <div class="text-caption text-medium-emphasis mb-2">
+            {{ num(detalhePdv.numeroVendas) }} venda(s) com itens · {{ pct(detalhePdv.coberturaCadastroPercentual) }} do faturamento dos itens conciliado ao cadastro.
+            Período de dias completos; horas individuais somente nos itens importados.
+          </div>
+          <div v-if="detalhePdv.fechamento" class="text-caption text-medium-emphasis mb-2">
+            Fechamento: {{ detalhePdv.fechamento.total === null ? 'restrito' : brl(detalhePdv.fechamento.total) }}
+            · diferença frente aos itens: {{ detalhePdv.fechamento.diferenca === null ? 'restrita' : brl(detalhePdv.fechamento.diferenca) }}.
+            Descontos, cancelamentos, devoluções e lançamentos de caixa podem explicar divergências; confira a origem antes de concluir.
+          </div>
+          <div v-else class="text-caption text-medium-emphasis mb-2">Sem fechamento identificado pelo mesmo ID do dispositivo para comparar.</div>
+          <div v-if="!detalhePdv.itens.length" class="text-body-2 text-medium-emphasis py-4">Nenhum item não cancelado neste período.</div>
+          <div v-else class="sales-pdv-products">
+            <div v-for="item in detalhePdv.itens" :key="`${item.produtoIdErp}-${item.produtoCodigo}-${item.produto}`" class="sales-rank-row">
+              <div>
+                <div class="font-weight-medium">{{ item.produto }}</div>
+                <div class="text-caption text-medium-emphasis">{{ item.produtoCodigo || 'sem código' }} · {{ item.produtoCadastro || 'fora do cadastro' }}</div>
+              </div>
+              <div class="text-right flex-shrink-0"><div class="sales-volume font-weight-bold">{{ num(item.quantidade) }}</div><div v-if="item.faturamento !== null" class="sales-revenue text-caption">{{ brl(item.faturamento) }}</div></div>
+            </div>
+          </div>
+        </template>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <style scoped>
-/*
- * A faixa da ABC cresce e encolhe quando o período muda, em vez de saltar.
- * O movimento é o que liga uma leitura à outra: sem ele, trocar de 7 para 30
- * dias parece carregar outra tela, e não a mesma curva noutro recorte.
- */
-.abc-faixa {
-  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease;
-  min-width: 0;
-  white-space: nowrap;
-  font-size: 12px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .abc-faixa { transition: none; }
-}
+.sales-abc-a { background: var(--cx-sales-revenue-wash); }
+.sales-abc-a td:first-child { border-left: 3px solid var(--cx-sales-revenue); }
+.sales-profit { color: var(--cx-sales-profit); }
+.sales-volume { color: var(--cx-sales-volume); }
+.sales-revenue { color: var(--cx-sales-revenue); }
+.sales-rank-row { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--cx-line-soft); }
+.sales-pdv-link { text-transform: none; padding-inline: 0; max-width: 100%; }
+.sales-pdv-products { max-height: 360px; overflow-y: auto; }
+.sales-abc-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 700px) { .sales-abc-filters { grid-template-columns: 1fr; } }
 </style>

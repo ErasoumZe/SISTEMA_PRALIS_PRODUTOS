@@ -3,6 +3,7 @@ import { AppError } from '@/config/api.replies';
 import { VendasRepository } from './vendas.repository';
 import {
   fechamentoCaixaInputSchema,
+  vendaItemPdvInputSchema,
   vendaProdutoInputSchema,
   type ImportarVendasBody,
   type ImportarVendasResult,
@@ -13,7 +14,9 @@ export class VendasService {
   constructor(@inject(VendasRepository) private repository: VendasRepository) {}
 
   async importar(input: ImportarVendasBody): Promise<ImportarVendasResult> {
-    const schema = input.tipo === 'venda_produto_dia' ? vendaProdutoInputSchema : fechamentoCaixaInputSchema;
+    const schema = input.tipo === 'venda_produto_dia' ? vendaProdutoInputSchema
+      : input.tipo === 'fechamento_caixa_dia' ? fechamentoCaixaInputSchema
+        : vendaItemPdvInputSchema;
     const parsed: unknown[] = [];
     const invalid: Array<{ linha: number; erros: string[] }> = [];
 
@@ -32,9 +35,8 @@ export class VendasService {
       );
     }
 
-    return input.tipo === 'venda_produto_dia'
-      ? this.repository.importarVendas(parsed as never[])
-      : this.repository.importarFechamentos(parsed as never[]);
+    if (input.tipo === 'venda_produto_dia') return this.repository.importarVendas(parsed as never[]);
+    if (input.tipo === 'fechamento_caixa_dia') return this.repository.importarFechamentos(parsed as never[]);
+    return this.repository.importarItensPdv(parsed as never[]);
   }
 }
-

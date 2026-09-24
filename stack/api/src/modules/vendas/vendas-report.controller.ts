@@ -2,7 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
 import { VendasReportService } from './vendas-report.service';
-import type { VendasSchemas } from '@pralis/shared';
+import type { VendasSchemas, VendasPdv } from '@pralis/shared';
 import type { VendasRanking } from '@pralis/shared';
 import { VendasRankingService } from './vendas-ranking.service';
 import { podeVerDinheiro, semDinheiro } from './vendas-ranking-sigilo';
@@ -10,6 +10,7 @@ import type { VendasAbc } from '@pralis/shared';
 import { VendasAbcService } from './vendas-abc.service';
 import { VendasReportRepository } from './vendas-report.repository';
 import { montarPulso } from './vendas-pulso';
+import { VendasPdvService } from './vendas-pdv.service';
 
 type VendasReportQuery = VendasSchemas.VendasReportQuery;
 
@@ -31,7 +32,8 @@ export class VendasReportController {
 
   async report(request: FastifyRequest<{ Querystring: VendasReportQuery }>, reply: FastifyReply) {
     const store = reportStore(request, request.query.loja);
-    const data = await this.service.report(store, request.query.inicio, request.query.fim);
+    const { setor, grupo, produto } = request.query;
+    const data = await this.service.report(store, request.query.inicio, request.query.fim, { setor, grupo, produto });
     return reply.status(200).send(buildResponse(data, 'Relatório de vendas'));
   }
 }
@@ -59,6 +61,7 @@ export class VendasRankingController {
       request.query.fim,
       request.query.dimensao,
       request.query.campoSetor,
+      { setor: request.query.setor, grupo: request.query.grupo, produto: request.query.produto, campoSetor: request.query.campoSetor },
     );
     /*
      * O corte do dinheiro acontece AQUI, na saída, e não na tela.
@@ -71,6 +74,17 @@ export class VendasRankingController {
       ? data
       : semDinheiro(data);
     return reply.status(200).send(buildResponse(visivel, 'Ranking de vendas'));
+  }
+}
+
+@injectable()
+export class VendasPdvController {
+  constructor(@inject(VendasPdvService) private service: VendasPdvService) {}
+
+  async detalhe(request: FastifyRequest<{ Querystring: VendasPdv.DetalhePdvQuery }>, reply: FastifyReply) {
+    const store = reportStore(request, request.query.loja);
+    const data = await this.service.detalhe(store, request.query, podeVerDinheiro(request.currentUser));
+    return reply.status(200).send(buildResponse(data, 'Detalhe do PDV'));
   }
 }
 
@@ -95,6 +109,7 @@ export class VendasAbcController {
       : reportStore(request, request.query.loja);
     const data = await this.service.produtos(
       store, request.query.inicio, request.query.fim, request.query.classe,
+      { setor: request.query.setor, grupo: request.query.grupo, produto: request.query.produto },
     );
     return reply.status(200).send(buildResponse(data, 'Produtos da curva ABC'));
   }

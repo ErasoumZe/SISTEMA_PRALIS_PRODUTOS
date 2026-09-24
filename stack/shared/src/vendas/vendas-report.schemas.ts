@@ -1,9 +1,32 @@
 import { z } from 'zod/v4';
 
+/**
+ * Filtros por CADASTRO, compartilhados por relatório, ranking e curva ABC.
+ *
+ * Alcançam só o que sai de itens vendidos (produto x dia). Número de vendas,
+ * pagamentos e ranking de PDV vêm do fechamento de caixa, que não tem itens —
+ * filtrar isso por setor exigiria rateio, e rateio é número inventado.
+ */
+export const filtrosCadastroSchema = z.object({
+  setor: z.string().trim().max(120).optional(),
+  grupo: z.string().trim().max(120).optional(),
+  produto: z.string().trim().max(120).optional(),
+});
+
 export const vendasReportQuerySchema = z.object({
   loja: z.enum(['TNP', 'LI']).optional(),
   inicio: z.iso.date(),
   fim: z.iso.date(),
+}).extend(filtrosCadastroSchema.shape);
+
+/** O que o filtro de cadastro alcançou nesta resposta. */
+export const filtrosAplicadosSchema = z.object({
+  setor: z.string().nullable(),
+  grupo: z.string().nullable(),
+  produto: z.string().nullable(),
+  ativo: z.boolean(),
+  /** Faturamento e quantidade vêm de itens e obedecem ao filtro; o resto não. */
+  alcance: z.literal('itens'),
 });
 
 const produtoRankingSchema = z.object({
@@ -54,7 +77,13 @@ const margemSchema = z.object({
 
 export const vendasReportSchema = z.object({
   loja: z.enum(['TNP', 'LI']),
-  periodo: z.object({ inicio: z.string(), fim: z.string() }),
+  /**
+   * `granularidade: 'dia'` é declaração, não enfeite: as duas fontes deste
+   * relatório só têm DATA. Hora existe apenas no detalhe por PDV, e quando a
+   * tela recebe hora aqui ela precisa saber que o servidor a ignorou.
+   */
+  periodo: z.object({ inicio: z.string(), fim: z.string(), granularidade: z.literal('dia') }),
+  filtros: filtrosAplicadosSchema,
   resumo: z.object({
     faturamento: z.number(),
     quantidade: z.number(),

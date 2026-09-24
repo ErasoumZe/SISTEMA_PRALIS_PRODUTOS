@@ -1,4 +1,5 @@
 import {
+  boolean,
   date,
   index,
   integer,
@@ -48,6 +49,7 @@ export const fechamentoCaixaDia = pgTable(
     loja: text('loja').notNull(),
     data: date('data', { mode: 'string' }).notNull(),
     pdv: text('pdv').notNull(),
+    dispositivoIdErp: text('dispositivo_id_erp').notNull().default(''),
     operador: text('operador').notNull(),
     natureza: text('natureza').notNull(),
     caixa: text('caixa'),
@@ -77,6 +79,40 @@ export const fechamentoCaixaDia = pgTable(
     uniqueIndex('uq_fechamento_caixa_dia_natural').on(t.loja, t.data, t.pdv, t.operador),
     uniqueIndex('uq_fechamento_caixa_dia_hash').on(t.hash),
     index('idx_fechamento_caixa_dia_loja_data').on(t.loja, t.data),
+  ],
+);
+
+/**
+ * Detalhe comprovado pelo ERP: item -> venda_balcao -> dispositivo.
+ * Nunca inferir PDV a partir de nome, horário aproximado ou fechamento diário.
+ * O histórico diário legado permanece intacto e é consultado separadamente.
+ */
+export const vendaItemPdv = pgTable(
+  'venda_item_pdv',
+  {
+    id: text('id').primaryKey().$defaultFn(() => uuidv7()),
+    loja: text('loja').notNull(),
+    vendaIdErp: text('venda_id_erp').notNull(),
+    itemIdErp: text('item_id_erp').notNull(),
+    dispositivoIdErp: text('dispositivo_id_erp').notNull(),
+    pdv: text('pdv').notNull(),
+    vendidoEm: timestamp('vendido_em', { mode: 'string' }).notNull(),
+    produtoIdErp: text('produto_id_erp').notNull().default(''),
+    produtoCodigo: text('produto_codigo').notNull().default(''),
+    produto: text('produto').notNull(),
+    quantidade: numeric('quantidade', { precision: 16, scale: 3 }).notNull(),
+    valorUnitario: numeric('valor_unitario', { precision: 16, scale: 2 }).notNull(),
+    total: numeric('total', { precision: 16, scale: 2 }).notNull(),
+    itemCancelado: boolean('item_cancelado').notNull(),
+    vendaStatus: text('venda_status').notNull(),
+    vendaConfirmada: boolean('venda_confirmada').notNull(),
+    origemAtualizadaEm: timestamp('origem_atualizada_em', { mode: 'string' }).notNull(),
+    atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('uq_venda_item_pdv_natural').on(t.loja, t.itemIdErp),
+    index('idx_venda_item_pdv_loja_pdv_hora').on(t.loja, t.dispositivoIdErp, t.vendidoEm),
+    index('idx_venda_item_pdv_loja_venda').on(t.loja, t.vendaIdErp),
   ],
 );
 

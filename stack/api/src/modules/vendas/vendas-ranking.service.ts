@@ -2,7 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import { VendasRanking } from '@pralis/shared';
 import { AppError } from '@/config/api.replies';
 import { VendasReportRepository } from './vendas-report.repository';
-import { indexarPorCodigo, resolverProduto, type ProdutoCadastro } from './vendas-margem';
+import { filtroVazio, indexarPorCodigo, passaNoFiltro, resolverProduto, type FiltroCadastro, type ProdutoCadastro } from './vendas-margem';
 import { agruparPorChave, type LinhaClassificada } from './vendas-ranking';
 /** Lojas com relatório nesta etapa — mesma definição dos demais serviços. */
 type Loja = 'TNP' | 'LI';
@@ -28,6 +28,7 @@ export class VendasRankingService {
     fim: string,
     dimensao: VendasRanking.Dimensao,
     campoSetor: 'setorEstoque' | 'setorVenda1' = 'setorEstoque',
+    filtro: FiltroCadastro = {},
   ): Promise<VendasRanking.VendasRanking> {
     const dias = Math.floor(
       (new Date(`${fim}T00:00:00Z`).getTime() - new Date(`${inicio}T00:00:00Z`).getTime()) / 86_400_000,
@@ -51,7 +52,12 @@ export class VendasRankingService {
      */
     const campo = dimensao === 'grupo' ? 'grupo' : campoSetor;
 
-    const linhas: LinhaClassificada[] = vendas.map((v) => {
+    // PDV nunca chega aqui (retornou acima): o filtro de cadastro só corta itens
+    const filtradas = filtroVazio(filtro)
+      ? vendas
+      : vendas.filter((v) => passaNoFiltro(resolverProduto(v.produtoCodigo, v.produto, indice, dePara), v, { ...filtro, campoSetor }));
+
+    const linhas: LinhaClassificada[] = filtradas.map((v) => {
       if (dimensao === 'produto') {
         return {
           chave: `${v.produtoCodigo}|${v.produto}`,
@@ -102,7 +108,7 @@ export class VendasRankingService {
   private async porPdv(loja: Loja, inicio: string, fim: string): Promise<VendasRanking.VendasRanking> {
     const linhas = await this.repository.porPdv(loja, inicio, fim);
     const r = agruparPorChave(linhas.map((l) => ({
-      chave: l.pdv,
+      chave: l.dispositivoIdErp || `legado:${l.pdv}`,
       rotulo: l.operador ? `${l.pdv} — ${l.operador}` : l.pdv,
       faturamento: l.total,
       quantidade: 0,

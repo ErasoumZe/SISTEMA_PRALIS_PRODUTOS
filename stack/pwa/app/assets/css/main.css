@@ -40,6 +40,17 @@
   --cx-negative: #c62828;
   --cx-warning: #9a5b08;
   --cx-information: #2563a8;
+  /* Métricas de vendas: cor comunica o significado, não a posição do card. */
+  --cx-sales-revenue: #a96e00;
+  --cx-sales-revenue-wash: #fff5d6;
+  --cx-sales-volume: #157f3c;
+  --cx-sales-volume-wash: #e7f6ec;
+  --cx-sales-profit: #2563a8;
+  --cx-sales-profit-wash: #e9f2ff;
+  --cx-sales-expense: #c62828;
+  --cx-sales-expense-wash: #fff0f0;
+  --cx-sales-transfer: #b65c0a;
+  --cx-sales-transfer-wash: #fff0e3;
 
   /* Escala compartilhada para páginas, filtros e formulários. */
   --cx-space-1: 4px;

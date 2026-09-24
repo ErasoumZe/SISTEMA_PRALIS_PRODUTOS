@@ -20,6 +20,7 @@ function setup() {
   const repository = {
     importarVendas: vi.fn().mockResolvedValue({ recebidas: 1, inseridas: 1, atualizadas: 0, ignoradas: 0 }),
     importarFechamentos: vi.fn(),
+    importarItensPdv: vi.fn().mockResolvedValue({ recebidas: 1, inseridas: 1, atualizadas: 0, ignoradas: 0 }),
   } as unknown as VendasRepository;
   return { repository, service: new VendasService(repository) };
 }
@@ -49,6 +50,23 @@ describe('VendasService', () => {
     });
     expect(repository.importarVendas).not.toHaveBeenCalled();
   });
+
+  it('exige IDs originais de item e venda para aceitar detalhe por PDV', async () => {
+    const { repository, service } = setup();
+    const item = {
+      ID_VENDA_BALCAO: '101', ID_ITEM_VENDA_BALCAO: '501', ID_DISPOSITIVO: '7', PDV: 'PDV 07',
+      DATA_HORA_VENDA: '2026-09-24 14:30:15', PRODUTO_ID_ERP: '99', PRODUTO_CODIGO: '7891',
+      PRODUTO: 'PRODUTO TESTE', QUANTIDADE: '2', VALOR_UNITARIO: '5,00', TOTAL: '10,00',
+      ITEM_CANCELADO: false, VENDA_STATUS: 'F', VENDA_CONFIRMADA: true, EMPRESA: 'TNP CENTRAL',
+      ATUALIZADO_EM: '2026-09-24 14:31:00',
+    };
+    await service.importar({ tipo: 'venda_item_pdv', linhas: [item] });
+    expect(repository.importarItensPdv).toHaveBeenCalledWith([
+      expect.objectContaining({ ID_VENDA_BALCAO: '101', ID_ITEM_VENDA_BALCAO: '501', TOTAL: '10.00' }),
+    ]);
+    await expect(service.importar({ tipo: 'venda_item_pdv', linhas: [{ ...item, ID_VENDA_BALCAO: '' }] }))
+      .rejects.toMatchObject({ code: 'SALES_BATCH_INVALID', statusCode: 422 });
+  });
 });
 
 describe('deriveOperador', () => {
@@ -61,4 +79,3 @@ describe('deriveOperador', () => {
     expect(deriveOperador('OPERADOR NOMINAL')).toEqual({ natureza: 'nominal', caixa: null, turno: null });
   });
 });
-

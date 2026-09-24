@@ -8,7 +8,7 @@ import { gruposMercadoria, locaisVenda, setores } from '@/modules/apoio/apoio.ta
 import { users } from '@/modules/user/user.table';
 import { productSheetSync } from '@/modules/google-sheets/product-sheet-sync.table';
 import { sessions } from '@/modules/auth/auth.table';
-import { fechamentoCaixaDia, vendaProdutoDia } from '@/modules/vendas/vendas.table';
+import { fechamentoCaixaDia, vendaItemPdv, vendaProdutoDia } from '@/modules/vendas/vendas.table';
 
 const schema = {
   products,
@@ -24,6 +24,7 @@ const schema = {
   productSheetSync,
   vendaProdutoDia,
   fechamentoCaixaDia,
+  vendaItemPdv,
 };
 
 const buildPoolConfig = (connectionString: string) => ({
