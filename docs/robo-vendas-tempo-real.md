@@ -16,33 +16,31 @@ O robô acorda **uma vez por dia** (`HORARIO_EXECUCAO_TNP: "22:10"` no
 produto × dia e fechamento de caixa × dia. Nenhum dos dois sabe o que é "uma
 venda". Por isso não é tempo real — e nunca foi: é uma remessa diária.
 
-## O que mudar no robô (quatro edições)
+## O que colocar no robô (quatro arquivos, nenhuma edição de código)
 
-1. **Nova consulta.** Copiar `docs/robo/CREARE_COMPILART_ITENS_VENDA_PDV.sql`
-   para `queries/`. Ela traz uma linha por item de cupom com o vínculo que o
-   ERP prova (`item_venda_balcao → venda_balcao → dispositivo`), hora, código
-   e descrição originais, quantidade, valor, status e cancelamento. Os aliases
-   de saída são o contrato do servidor — não renomear.
+Nada do robô diário muda. Entra um **caminho separado**, que não toca na
+planilha e só fala com o Pralis. Os quatro arquivos estão em `docs/robo/` e
+vão para `C:\Users\Server-Pralis\Documents\bot`:
 
-2. **Registrar a tarefa** em `services/syncService.js`, na lista
-   `CREARE_COMPILART`, ao lado das três existentes:
-   `{ query: 'CREARE_COMPILART_ITENS_VENDA_PDV.sql', sheetName: 'VENDAS_ITENS_PDV' }`.
-   Esta tarefa **não vai para o Google Sheets** — só para o Pralis. Se o
-   `runQueryAutomation` gravar toda tarefa na planilha, marcar esta como
-   `somentePralis: true` e pular a escrita na planilha para ela.
+| arquivo | onde cai | o que é |
+|---|---|---|
+| `CREARE_COMPILART_ITENS_VENDA_PDV.sql` | `bot\queries\` | a consulta: uma linha por item de cupom com o vínculo que o ERP prova |
+| `rodar-vendas-ao-vivo.js` | `bot\` | lê a consulta (últimos dias), monta o lote `venda_item_pdv` e envia ao Pralis; usa o mesmo cadeado do robô diário para nunca rodarem juntos |
+| `rodar-vendas-ao-vivo.bat` | `bot\` | chama o `.js` em segundo plano e grava `logs\ao-vivo-agendado.txt` |
+| `INSTALAR-AO-VIVO.bat` | `bot\` | registra no Agendador de Tarefas a execução **a cada 1 minuto** (tarefa "Bot Padaria - Vendas ao vivo"); rodar uma vez como administrador |
 
-3. **Mapear o tipo** em `services/pralisSalesService.js`, no `SHEET_TYPES`:
-   `VENDAS_ITENS_PDV: 'venda_item_pdv'`. O envio em lotes de 500 e o replay de
-   pendentes já existentes servem como estão. A chave única no servidor é
-   `loja + ID_ITEM_VENDA_BALCAO`: reenviar não duplica; `ATUALIZADO_EM` mais
-   novo corrige o item.
+Ele reaproveita o que já existe no robô — conexão ao Creare, `.env.producao`
+(`PRALIS_VENDAS_API_URL` e `PRALIS_VENDAS_API_TOKEN` já estão lá), o cadeado
+e o cliente HTTP. A chave única no servidor é `loja + ID_ITEM_VENDA_BALCAO`:
+reenviar não duplica; `ATUALIZADO_EM` mais novo corrige o item.
 
-4. **Frequência.** Para a aba ficar "ao vivo", esta tarefa precisa rodar a cada
-   minuto — as outras continuam às 22:10. Sugestão: uma segunda entrada de
-   `node-cron` em `index.js` (`* * * * *`) que roda **só** esta tarefa com
-   `{{VALOR_DATA}} = hoje`, dentro do mesmo `withLock` para nunca cruzar com a
-   execução diária. Um minuto de intervalo com o Creare no mesmo PC custa uma
-   consulta indexada por data; se a máquina sofrer, subir para 2–5 min.
+Por padrão lê **hoje e ontem** (`AO_VIVO_DIAS=1`). Para um backfill, rodar à
+mão com `set AO_VIVO_DIAS=30 && node rodar-vendas-ao-vivo.js`, uma vez.
+
+Também vale mandar `ID_DISPOSITIVO` no lote de fechamento
+(`CREARE_COMPILART_FECHAMENTO_CAIXA.sql` já tem `d.ID_DISPOSITIVO` na
+subconsulta): é o que permite ao detalhe do PDV confrontar itens e fechamento.
+Essa é a única edição de código sugerida, e é opcional.
 
 Também vale mandar `ID_DISPOSITIVO` no lote de fechamento
 (`CREARE_COMPILART_FECHAMENTO_CAIXA.sql` já tem `d.ID_DISPOSITIVO` na
@@ -66,13 +64,15 @@ a consulta assume e precisam ser confirmados olhando o banco:
 
 1. Rodar a consulta nova **à mão** no MySQL da padaria para um dia conhecido e
    conferir 3 cupons contra o Creare (itens, hora, PDV, cancelamento).
-2. Fazer as quatro edições no robô com `AMBIENTE: desenvolvimento` apontando
-   para homologação; rodar uma vez; conferir em `/vendas` → aba Vendas.
+2. Copiar os quatro arquivos e rodar **uma vez à mão**: `node rodar-vendas-ao-vivo.js`
+   na pasta do bot. Ler `logs\ao-vivo.txt`; conferir em `/vendas` → aba Vendas.
 3. Reenviar o mesmo dia e confirmar `inseridas: 0, ignoradas: N` na resposta.
 4. Apontar para produção. Backfill por períodos curtos (uma semana por vez),
    comparando por dia o total dos itens com o fechamento — a diferença é
    informação (descontos, devoluções), não erro a corrigir.
-5. Só então ligar o cron de 1 minuto.
+5. Só então rodar `INSTALAR-AO-VIVO.bat` como administrador — a partir daí o
+   Windows executa o envio a cada minuto. Para desligar:
+   `schtasks /Delete /TN "Bot Padaria - Vendas ao vivo" /F`.
 
 Enquanto isso não acontece, a aba Vendas mostra **"Aguardando o robô da
 loja"** — e é a verdade.
