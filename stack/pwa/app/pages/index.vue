@@ -87,17 +87,6 @@ const selecionados = ref<Set<string>>(new Set());
 const dialogoExclusao = ref(false);
 const fraseExclusao = ref('');
 const excluindoLote = ref(false);
-/**
- * Faixas de códigos internos para consulta. Não alteram o cadastro: DELIVERY
- * (7xxxxx), códigos novos e itens sem código continuam preservados no sistema;
- * apenas não aparecem enquanto uma faixa estiver ativa.
- */
-type FaixaCodigoFiltro = 'historico' | 'sia' | null;
-const faixaCodigoFiltro = ref<FaixaCodigoFiltro>(null);
-const FAIXAS_CODIGO = {
-  historico: { min: 1, max: 428, label: 'Código 00001–00428' },
-  sia: { min: 10_000, max: 13_126, label: 'Código 10000–13126' },
-} as const;
 type ClasseAbc = 'A' | 'B' | 'C';
 const curvaAbcFiltro = ref<ClasseAbc | null>(null);
 const curvaAbcOpcoes = [
@@ -173,7 +162,7 @@ const ordenarOpcoes = [
 const mostrarFiltros = ref(false);
 const numFiltros = computed(
   () =>
-    [statusFiltro.value, tipoFiltro.value, setorFiltro.value, grupoFiltro.value, cadastradoPorFiltro.value, curvaAbcFiltro.value, faixaCodigoFiltro.value].filter(Boolean).length +
+    [statusFiltro.value, tipoFiltro.value, setorFiltro.value, grupoFiltro.value, cadastradoPorFiltro.value, curvaAbcFiltro.value].filter(Boolean).length +
     (ordenar.value !== 'recentes' ? 1 : 0),
 );
 const temFiltro = computed(() => numFiltros.value > 0 || !!search.value);
@@ -183,7 +172,6 @@ function limparFiltros() {
   setorFiltro.value = null;
   grupoFiltro.value = null;
   cadastradoPorFiltro.value = null;
-  faixaCodigoFiltro.value = null;
   curvaAbcFiltro.value = null;
   ordenar.value = 'recentes';
   search.value = '';
@@ -199,11 +187,6 @@ const filtrados = computed(() =>
     if (setorFiltro.value && p.setorEstoque !== setorFiltro.value) return false;
     if (grupoFiltro.value && p.grupo !== grupoFiltro.value) return false;
     if (cadastradoPorFiltro.value && p.createdByName !== cadastradoPorFiltro.value) return false;
-    if (faixaCodigoFiltro.value) {
-      const faixa = FAIXAS_CODIGO[faixaCodigoFiltro.value];
-      const codigo = Number(p.codigoInterno);
-      if (!Number.isInteger(codigo) || codigo < faixa.min || codigo > faixa.max) return false;
-    }
     if (curvaAbcFiltro.value && classesAbcPorProduto.value.get(p.id) !== curvaAbcFiltro.value) return false;
     return true;
   }),
@@ -224,7 +207,7 @@ const totalPaginas = computed(() => Math.max(1, Math.ceil(ordenados.value.length
 const paginados = computed(() => ordenados.value.slice((page.value - 1) * PER_PAGE, page.value * PER_PAGE));
 
 // volta pra página 1 ao trocar filtro/ordem/busca/aba; mantém a página válida quando a lista muda
-watch([statusFiltro, tipoFiltro, setorFiltro, grupoFiltro, cadastradoPorFiltro, curvaAbcFiltro, faixaCodigoFiltro, ordenar, search, aba], () => { page.value = 1; });
+watch([statusFiltro, tipoFiltro, setorFiltro, grupoFiltro, cadastradoPorFiltro, curvaAbcFiltro, ordenar, search, aba], () => { page.value = 1; });
 watch(totalPaginas, (n) => { if (page.value > n) page.value = n; });
 
 /** Substitui a lista só se ela mudou; no polling, ignora resposta idêntica. */
@@ -548,18 +531,6 @@ function preco(p: Product): string | null {
           <v-select v-model="setorFiltro" :items="setores" label="Setor" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="warehouse" class="filtro-select filtro-item" />
           <v-select v-model="grupoFiltro" :items="grupos" label="Grupo" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="sell" class="filtro-select filtro-item" />
           <v-select v-if="isAdmin" v-model="cadastradoPorFiltro" :items="cadastradosPor" label="Cadastrado por" density="compact" variant="outlined" hide-details clearable rounded="lg" prepend-inner-icon="person" class="filtro-select filtro-item" />
-          <v-btn
-            v-for="(faixa, chave) in FAIXAS_CODIGO"
-            :key="chave"
-            size="small"
-            rounded="lg"
-            :variant="faixaCodigoFiltro === chave ? 'flat' : 'outlined'"
-            :color="faixaCodigoFiltro === chave ? 'primary' : 'grey-darken-1'"
-            prepend-icon="tag"
-            @click="faixaCodigoFiltro = faixaCodigoFiltro === chave ? null : chave"
-          >
-            {{ faixa.label }}
-          </v-btn>
           <v-select v-model="ordenar" :items="ordenarOpcoes" item-title="label" item-value="value" label="Ordenar" density="compact" variant="outlined" hide-details rounded="lg" prepend-inner-icon="swap_vert" class="filtro-select filtro-item" />
         </div>
       </v-card>
