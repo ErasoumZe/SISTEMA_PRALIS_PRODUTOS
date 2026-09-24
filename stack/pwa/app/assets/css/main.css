@@ -38,6 +38,24 @@
 
   --cx-positive: #157f3c;
   --cx-negative: #c62828;
+  --cx-warning: #9a5b08;
+  --cx-information: #2563a8;
+
+  /* Escala compartilhada para páginas, filtros e formulários. */
+  --cx-space-1: 4px;
+  --cx-space-2: 8px;
+  --cx-space-3: 12px;
+  --cx-space-4: 16px;
+  --cx-space-5: 20px;
+  --cx-space-6: 24px;
+  --cx-space-8: 32px;
+  --cx-space-10: 40px;
+
+  --cx-text-xs: 0.75rem;
+  --cx-text-sm: 0.875rem;
+  --cx-text-md: 1rem;
+  --cx-text-lg: 1.125rem;
+  --cx-text-title: clamp(1.35rem, 1.2rem + 0.6vw, 1.75rem);
 
   --cx-r-sm: 8px;
   --cx-r-md: 10px;
@@ -206,6 +224,66 @@ body {
   transform: scale(0.985);
 }
 
+/* Padrões de página que podem ser aplicados gradualmente às rotas. */
+.cx-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.cx-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--cx-space-3);
+  padding: var(--cx-space-4);
+  border: 1px solid var(--cx-line);
+  border-radius: var(--cx-r-lg);
+  background: var(--cx-surface);
+}
+
+.cx-section-label {
+  color: var(--cx-ink-soft);
+  font-size: var(--cx-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.045em;
+}
+
+.cx-muted {
+  color: var(--cx-ink-soft);
+}
+
+.cx-empty {
+  padding: var(--cx-space-10);
+  text-align: center;
+}
+
+.cx-empty__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: var(--cx-space-4);
+  border-radius: var(--cx-r-xl);
+  background: var(--cx-brand-wash);
+  color: var(--cx-brand);
+}
+
+.cx-empty__title {
+  color: var(--cx-ink);
+  font-size: var(--cx-text-lg);
+  font-weight: 700;
+  letter-spacing: -0.018em;
+}
+
+.cx-empty__description {
+  max-width: 48ch;
+  margin: var(--cx-space-2) auto 0;
+  color: var(--cx-ink-soft);
+  font-size: var(--cx-text-sm);
+  line-height: 1.5;
+}
+
 /* ===== tabelas ===== */
 
 .v-table,
@@ -269,6 +347,14 @@ body {
   /* alvo de toque mínimo: 44px é a medida que o dedo acerta sem mirar */
   .v-btn.v-btn--size-small {
     min-height: 44px;
+  }
+
+  .cx-toolbar {
+    padding: var(--cx-space-3);
+  }
+
+  .cx-empty {
+    padding: var(--cx-space-8) var(--cx-space-4);
   }
 }
 

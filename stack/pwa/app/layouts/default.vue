@@ -23,6 +23,12 @@ onMounted(() => {
   if (!mdAndUp.value) drawer.value = false;
 });
 
+// Ao girar o celular ou redimensionar a janela, não deixar o menu móvel aberto
+// sobre a página. Ao voltar ao desktop, a navegação permanente reaparece.
+watch(mdAndUp, (desktop) => {
+  drawer.value = desktop;
+});
+
 /**
  * O menu sai do CATÁLOGO DE TELAS, não de uma lista escrita aqui.
  *
