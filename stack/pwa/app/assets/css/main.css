@@ -52,18 +52,19 @@
    *    escurecido até ler. Azul e verde usam os tons de texto do próprio
    *    Google (#1A73E8, #1E8E3E), que já foram calibrados para isso.
    */
-  --cx-sales-revenue: #fbbc05;
-  --cx-sales-revenue-ink: #b58500;
-  --cx-sales-revenue-wash: #fef7e0;
-  --cx-sales-volume: #34a853;
-  --cx-sales-volume-ink: #1e8e3e;
-  --cx-sales-volume-wash: #e6f4ea;
-  --cx-sales-profit: #4285f4;
-  --cx-sales-profit-ink: #1a73e8;
-  --cx-sales-profit-wash: #e8f0fe;
-  --cx-sales-expense: #ea4335;
-  --cx-sales-expense-ink: #c5221f;
-  --cx-sales-expense-wash: #fce8e6;
+  /* Valores exatos enviados pelo José em 24/09: #f3fb05 #07e816 #0595fb #fb0505. */
+  --cx-sales-revenue: #f3fb05;
+  --cx-sales-revenue-ink: #8f9400;
+  --cx-sales-revenue-wash: #fdfee0;
+  --cx-sales-volume: #07e816;
+  --cx-sales-volume-ink: #049a0f;
+  --cx-sales-volume-wash: #e3fde5;
+  --cx-sales-profit: #0595fb;
+  --cx-sales-profit-ink: #0468b3;
+  --cx-sales-profit-wash: #e3f2fe;
+  --cx-sales-expense: #fb0505;
+  --cx-sales-expense-ink: #c40404;
+  --cx-sales-expense-wash: #fee3e3;
   --cx-sales-transfer: #f57c00;
   --cx-sales-transfer-ink: #c25e00;
   --cx-sales-transfer-wash: #fff0e3;

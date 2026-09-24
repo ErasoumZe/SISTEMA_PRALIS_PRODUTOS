@@ -320,7 +320,7 @@ const opcoesGrande = computed<ApexOptions>(() => ({
     fontFamily: 'inherit',
     animations: { enabled: true, speed: 400 },
   },
-  colors: ['#fbbc05'], // amarelo de faturamento, mesma paleta dos tokens --cx-sales-*
+  colors: ['#f3fb05'], // amarelo de faturamento, mesma paleta dos tokens --cx-sales-*
   dataLabels: { enabled: false },
   stroke: { curve: 'smooth', width: 2, lineCap: 'round' },
   // o preenchimento é uma lavagem, não um bloco: a linha é que carrega o dado
@@ -466,7 +466,7 @@ const seriePdvTempo = computed(() => {
 });
 const opcoesPdvTempo = computed<ApexOptions>(() => ({
   chart: { toolbar: { show: false }, animations: { enabled: false } },
-  colors: ['#fbbc05'], // amarelo de faturamento, mesma paleta dos tokens --cx-sales-*
+  colors: ['#f3fb05'], // amarelo de faturamento, mesma paleta dos tokens --cx-sales-*
   dataLabels: { enabled: false },
   plotOptions: { bar: { borderRadius: 3, columnWidth: '60%' } },
   xaxis: { categories: seriePdvTempo.value.categorias, labels: { rotate: -45, style: { fontSize: '11px' } } },
@@ -516,7 +516,7 @@ const fatiaDoLider = (v: number) => {
 
 /** Indicadores textuais e lista substituem as faixas gráficas da curva ABC. */
 /* A em amarelo e B em azul: os mesmos vivos dos tokens --cx-sales-*; C fica neutro. */
-const CORES_ABC = { A: '#fbbc05', B: '#4285f4', C: '#6B7280' } as const;
+const CORES_ABC = { A: '#f3fb05', B: '#0595fb', C: '#6B7280' } as const;
 
 const abcTemDados = computed(() => (dados.value?.curvaAbc ?? []).some((c) => c.produtos > 0));
 
@@ -1004,7 +1004,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 <!-- barra proporcional ao LÍDER: compara dentro da própria lista -->
                 <v-progress-linear
                   :model-value="fatiaDoLider(i.pontos)"
-                  :color="i.posicao === 1 ? '#fbbc05' : 'grey-lighten-1'"
+                  :color="i.posicao === 1 ? '#f3fb05' : 'grey-lighten-1'"
                   height="4"
                   rounded
                   class="mt-1"
