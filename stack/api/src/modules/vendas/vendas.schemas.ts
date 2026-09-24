@@ -76,6 +76,14 @@ const dataHora = valor.transform((raw, ctx) => {
 const empresa = z.enum(['TNP CENTRAL', 'LISBOA CENTRAL']);
 const hash = z.string().trim().regex(/^[0-9a-f]{64}$/i).transform((v) => v.toLowerCase());
 const opcionalDecimal = decimal.optional().default('0');
+const indicadorCancelado = z.union([z.boolean(), z.string(), z.number()]).transform((raw, ctx) => {
+  if (typeof raw === 'boolean') return raw;
+  const value = String(raw).trim().toUpperCase();
+  if (['1', 'C', 'S', 'SIM', 'TRUE'].includes(value)) return true;
+  if (['0', 'N', 'NAO', 'NÃO', 'FALSE', ''].includes(value)) return false;
+  ctx.addIssue({ code: 'custom', message: 'indicador de cancelamento desconhecido' });
+  return z.NEVER;
+});
 
 export const vendaProdutoInputSchema = z.object({
   DATA_VENDA: dataBr,
@@ -98,6 +106,7 @@ export const fechamentoCaixaInputSchema = z.object({
   // Exigir 1 caractere recusava esses dias inteiros. Quem identifica a linha
   // e o par (PDV, OPERADOR) — e OPERADOR continua obrigatorio.
   PDV: z.string().trim(),
+  ID_DISPOSITIVO: valor.transform((v) => v.trim()).optional().default(''),
   OPERADOR: z.string().trim().min(1),
   PRIMEIRA_VENDA: dataHora,
   ULTIMA_VENDA: dataHora,
@@ -121,8 +130,28 @@ export const fechamentoCaixaInputSchema = z.object({
   HASH: hash,
 }).loose();
 
+/** Chaves originais do ERP; nome e proximidade de horário não são vínculo. */
+export const vendaItemPdvInputSchema = z.object({
+  ID_VENDA_BALCAO: z.string().trim().min(1),
+  ID_ITEM_VENDA_BALCAO: z.string().trim().min(1),
+  ID_DISPOSITIVO: z.string().trim().optional().default(''),
+  PDV: z.string().trim(),
+  DATA_HORA_VENDA: dataHora,
+  PRODUTO_ID_ERP: z.string().trim().optional().default(''),
+  PRODUTO_CODIGO: z.string().trim().optional().default(''),
+  PRODUTO: z.string().trim().min(1),
+  QUANTIDADE: decimal,
+  VALOR_UNITARIO: decimal,
+  TOTAL: decimal,
+  ITEM_CANCELADO: indicadorCancelado,
+  VENDA_STATUS: valor.transform((v) => v.trim()),
+  VENDA_CONFIRMADA: z.boolean(),
+  EMPRESA: empresa,
+  ATUALIZADO_EM: dataHora,
+}).loose();
+
 export const importarVendasBodySchema = z.object({
-  tipo: z.enum(['venda_produto_dia', 'fechamento_caixa_dia']),
+  tipo: z.enum(['venda_produto_dia', 'fechamento_caixa_dia', 'venda_item_pdv']),
   linhas: z.array(z.record(z.string(), z.unknown())).min(1).max(1000),
 });
 
@@ -135,5 +164,6 @@ export const importarVendasResultSchema = z.object({
 
 export type VendaProdutoInput = z.output<typeof vendaProdutoInputSchema>;
 export type FechamentoCaixaInput = z.output<typeof fechamentoCaixaInputSchema>;
+export type VendaItemPdvInput = z.output<typeof vendaItemPdvInputSchema>;
 export type ImportarVendasBody = z.output<typeof importarVendasBodySchema>;
 export type ImportarVendasResult = z.output<typeof importarVendasResultSchema>;

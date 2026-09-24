@@ -2,7 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
 import { VendasReportService } from './vendas-report.service';
-import type { VendasSchemas } from '@pralis/shared';
+import type { VendasSchemas, VendasPdv } from '@pralis/shared';
 import type { VendasRanking } from '@pralis/shared';
 import { VendasRankingService } from './vendas-ranking.service';
 import { podeVerDinheiro, semDinheiro } from './vendas-ranking-sigilo';
@@ -10,6 +10,7 @@ import type { VendasAbc } from '@pralis/shared';
 import { VendasAbcService } from './vendas-abc.service';
 import { VendasReportRepository } from './vendas-report.repository';
 import { montarPulso } from './vendas-pulso';
+import { VendasPdvService } from './vendas-pdv.service';
 
 type VendasReportQuery = VendasSchemas.VendasReportQuery;
 
@@ -71,6 +72,17 @@ export class VendasRankingController {
       ? data
       : semDinheiro(data);
     return reply.status(200).send(buildResponse(visivel, 'Ranking de vendas'));
+  }
+}
+
+@injectable()
+export class VendasPdvController {
+  constructor(@inject(VendasPdvService) private service: VendasPdvService) {}
+
+  async detalhe(request: FastifyRequest<{ Querystring: VendasPdv.DetalhePdvQuery }>, reply: FastifyReply) {
+    const store = reportStore(request, request.query.loja);
+    const data = await this.service.detalhe(store, request.query, podeVerDinheiro(request.currentUser));
+    return reply.status(200).send(buildResponse(data, 'Detalhe do PDV'));
   }
 }
 

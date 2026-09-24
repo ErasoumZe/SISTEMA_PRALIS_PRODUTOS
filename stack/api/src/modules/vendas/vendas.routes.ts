@@ -10,16 +10,17 @@ import {
 } from './vendas.schemas';
 import { vendasImportAuth } from './vendas.auth';
 import { authMiddleware } from '@/middlewares/auth-handler';
-import { VendasReportController, VendasRankingController, VendasAbcController, VendasPulsoController } from './vendas-report.controller';
+import { VendasReportController, VendasRankingController, VendasPdvController, VendasAbcController, VendasPulsoController } from './vendas-report.controller';
 import { VendasDeParaController } from './vendas-depara.controller';
 import { VendasUnicosController } from './vendas-unicos.controller';
 import { z } from 'zod/v4';
-import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasAbc, VendasPulso } from '@pralis/shared';
+import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasPdv, VendasAbc, VendasPulso } from '@pralis/shared';
 
 export async function vendasRoutes(app: FastifyInstance) {
   const controller = container.resolve(VendasController);
   const reportController = container.resolve(VendasReportController);
   const rankingController = container.resolve(VendasRankingController);
+  const pdvController = container.resolve(VendasPdvController);
   const abcController = container.resolve(VendasAbcController);
   const pulsoController = container.resolve(VendasPulsoController);
   const deParaController = container.resolve(VendasDeParaController);
@@ -74,6 +75,20 @@ export async function vendasRoutes(app: FastifyInstance) {
       },
     },
     rankingController.ranking.bind(rankingController),
+  );
+
+  typed.get<{ Querystring: VendasPdv.DetalhePdvQuery }>(
+    '/vendas/pdv/detalhe',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: VendasPdv.detalhePdvQuerySchema,
+        response: { 200: apiResponseSchema(VendasPdv.detalhePdvSchema) },
+        summary: 'Produtos comprovadamente vinculados a um dispositivo/PDV',
+        tags: ['VENDAS'],
+      },
+    },
+    pdvController.detalhe.bind(pdvController),
   );
 
   /*

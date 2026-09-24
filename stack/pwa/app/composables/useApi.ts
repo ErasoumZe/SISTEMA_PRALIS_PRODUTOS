@@ -1,4 +1,4 @@
-import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasAbc, VendasPulso } from '@pralis/shared';
+import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasPdv, VendasAbc, VendasPulso } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
@@ -6,6 +6,8 @@ type AdminUser = AdminSchemas.AdminUser;
 export type VendasReport = VendasSchemas.VendasReport;
 export type VendasReportQuery = VendasSchemas.VendasReportQuery;
 export type VendasRankingResposta = VendasRanking.VendasRanking;
+export type DetalhePdv = VendasPdv.DetalhePdv;
+export type DetalhePdvQuery = VendasPdv.DetalhePdvQuery;
 export type VendasRankingQuery = VendasRanking.VendasRankingQuery;
 export type ItemRanking = VendasRanking.ItemRanking;
 export type AbcProdutos = VendasAbc.AbcProdutos;
@@ -462,6 +464,9 @@ export function useApi() {
     /** Ranking de vendas por produto, grupo, setor ou PDV. */
     vendasRanking: (query: VendasRankingQuery) =>
       unwrap($fetch<{ data: VendasRankingResposta }>('/vendas/ranking', { ...base, query })),
+
+    vendasPdvDetalhe: (query: DetalhePdvQuery) =>
+      unwrap($fetch<{ data: DetalhePdv }>('/vendas/pdv/detalhe', { ...base, query })),
 
     /** Códigos do PDV sem produto no cadastro, com sugestões por semelhança. */
     vendasDePara: (query: DeParaQuery) =>

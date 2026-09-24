@@ -102,7 +102,7 @@ export class VendasRankingService {
   private async porPdv(loja: Loja, inicio: string, fim: string): Promise<VendasRanking.VendasRanking> {
     const linhas = await this.repository.porPdv(loja, inicio, fim);
     const r = agruparPorChave(linhas.map((l) => ({
-      chave: l.pdv,
+      chave: l.dispositivoIdErp || `legado:${l.pdv}`,
       rotulo: l.operador ? `${l.pdv} — ${l.operador}` : l.pdv,
       faturamento: l.total,
       quantidade: 0,

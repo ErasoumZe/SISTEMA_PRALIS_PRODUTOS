@@ -183,6 +183,13 @@
       "when": 1790197738145,
       "tag": "0025_curvy_victor_mancha",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790281515026,
+      "tag": "0026_whole_zzzax",
+      "breakpoints": true
     }
   ]
 }

@@ -132,19 +132,21 @@ export class VendasReportRepository {
    * caixa, nunca os produtos de um caixa.
    */
   async porPdv(loja: Loja, inicio: string, fim: string): Promise<Array<{
-    pdv: string; operador: string; total: number; numeroVendas: number;
+    pdv: string; dispositivoIdErp: string; operador: string; total: number; numeroVendas: number;
   }>> {
     const result = await db.execute(sql`
       SELECT pdv,
+             dispositivo_id_erp,
              min(operador) AS operador,
              sum(total_pagamento)::float8 AS total,
              sum(numero_vendas)::int AS numero_vendas
         FROM fechamento_caixa_dia
        WHERE loja = ${loja} AND data BETWEEN ${inicio} AND ${fim}
-       GROUP BY pdv
+       GROUP BY pdv, dispositivo_id_erp
     `);
     return result.rows.map((row) => ({
       pdv: String(row.pdv ?? ''),
+      dispositivoIdErp: String(row.dispositivo_id_erp ?? ''),
       operador: String(row.operador ?? ''),
       total: Number(row.total ?? 0),
       numeroVendas: Number(row.numero_vendas ?? 0),
