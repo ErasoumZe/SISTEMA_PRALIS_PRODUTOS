@@ -37,7 +37,7 @@ export class VendasPdvService {
       dispositivoIdErp: query.dispositivoIdErp,
       periodo: { inicio: query.inicio, fim: query.fim, fuso: 'America/Sao_Paulo' as const },
     };
-    const [presenca, totais, linhas, cadastro, dePara] = await Promise.all([
+    const [presenca, totais, linhas, porHora, cadastro, dePara] = await Promise.all([
       db.execute(sql`SELECT COUNT(*)::int AS total FROM venda_item_pdv
         WHERE loja = ${loja} AND dispositivo_id_erp = ${query.dispositivoIdErp}
           AND vendido_em >= ${inicio}::timestamp AND vendido_em < (${fim}::timestamp + INTERVAL '1 minute')`),
@@ -55,6 +55,19 @@ export class VendasPdvService {
           AND vendido_em >= ${inicio}::timestamp AND vendido_em < (${fim}::timestamp + INTERVAL '1 minute')
           AND NOT item_cancelado AND venda_confirmada
         GROUP BY produto_id_erp, produto_codigo, produto`),
+      /*
+       * A única série por HORA da área: `vendido_em` é hora local da loja, e
+       * `date_trunc` a agrupa sem converter fuso — o valor já está no fuso certo.
+       */
+      db.execute(sql`SELECT to_char(date_trunc('hour', vendido_em), 'YYYY-MM-DD"T"HH24:00') AS hora,
+          COALESCE(SUM(quantidade), 0) AS quantidade,
+          COALESCE(SUM(total), 0) AS faturamento,
+          COUNT(DISTINCT venda_id_erp)::int AS numero_vendas
+        FROM venda_item_pdv
+        WHERE loja = ${loja} AND dispositivo_id_erp = ${query.dispositivoIdErp}
+          AND vendido_em >= ${inicio}::timestamp AND vendido_em < (${fim}::timestamp + INTERVAL '1 minute')
+          AND NOT item_cancelado AND venda_confirmada
+        GROUP BY 1 ORDER BY 1`),
       this.repository.produtosDaLoja(loja),
       this.repository.deParaDaLoja(loja),
     ]);
@@ -111,6 +124,12 @@ export class VendasPdvService {
         faturamento: podeVerDinheiro ? item.faturamentoReal : null,
       })),
       fechamento,
+      porHora: porHora.rows.map((row) => ({
+        hora: String(row.hora),
+        quantidade: numero(row.quantidade),
+        faturamento: podeVerDinheiro ? numero(row.faturamento) : null,
+        numeroVendas: numero(row.numero_vendas),
+      })),
     };
   }
 }

@@ -21,8 +21,63 @@ const iso = VendasDatas.dataLocalISO;
 const loja = ref<'TNP' | 'LI'>(
   user.value?.loja === 'LI' ? 'LI' : 'TNP',
 );
-const inicio = ref(iso(VendasDatas.diasAntes(hoje, 29)));
-const fim = ref(iso(hoje));
+const route = useRoute();
+const router = useRouter();
+const q = (k: string) => (typeof route.query[k] === 'string' ? String(route.query[k]) : '');
+
+const inicio = ref(q('inicio') || iso(VendasDatas.diasAntes(hoje, 29)));
+const fim = ref(q('fim') || iso(hoje));
+
+/**
+ * HORA é opcional e só vale onde existe hora de verdade: o detalhe do PDV.
+ *
+ * As duas fontes do relatório diário só têm DATA. Aceitar hora aqui e aplicá-la
+ * ao relatório seria fabricar um recorte que a fonte não sustenta; por isso o
+ * relatório declara `granularidade: 'dia'` e a tela avisa quando há hora
+ * digitada. Quando o robô passar a enviar itens, o detalhe do PDV a honra.
+ */
+const horaInicio = ref(q('hi'));
+const horaFim = ref(q('hf'));
+const comHora = computed(() => !!horaInicio.value || !!horaFim.value);
+const inicioComHora = computed(() => `${inicio.value}T${horaInicio.value || '00:00'}`);
+const fimComHora = computed(() => `${fim.value}T${horaFim.value || '23:59'}`);
+
+/**
+ * Filtros por CADASTRO, válidos para a área inteira — com um limite declarado:
+ * alcançam só o que sai de ITENS (faturamento, quantidade, produtos, ABC).
+ * Número de vendas, pagamentos e ranking de PDV vêm do fechamento de caixa,
+ * que não tem itens; filtrar isso por setor exigiria rateio, e rateio é
+ * número inventado. A tela diz isso em vez de esconder.
+ */
+const filtroSetor = ref<string | null>(q('setor') || null);
+const filtroGrupo = ref<string | null>(q('grupo') || null);
+const filtroProduto = ref(q('produto'));
+/** O texto de produto viaja com atraso: cada letra digitada não pode virar uma consulta. */
+const filtroProdutoAplicado = ref(filtroProduto.value);
+let esperaProduto: ReturnType<typeof setTimeout> | null = null;
+watch(filtroProduto, (v) => {
+  if (esperaProduto) clearTimeout(esperaProduto);
+  esperaProduto = setTimeout(() => { filtroProdutoAplicado.value = v.trim(); }, 400);
+});
+const filtrosQuery = computed(() => ({
+  ...(filtroSetor.value ? { setor: filtroSetor.value } : {}),
+  ...(filtroGrupo.value ? { grupo: filtroGrupo.value } : {}),
+  ...(filtroProdutoAplicado.value ? { produto: filtroProdutoAplicado.value } : {}),
+}));
+const filtrosAtivos = computed(() => Object.keys(filtrosQuery.value).length > 0);
+function limparFiltros() { filtroSetor.value = null; filtroGrupo.value = null; filtroProduto.value = ''; filtroProdutoAplicado.value = ''; }
+
+/**
+ * Período, hora e filtros vivem na URL. É o que faz "voltar" voltar para o
+ * mesmo recorte e o que leva o recorte junto para as outras visões de vendas.
+ */
+const queryAtual = computed(() => ({
+  inicio: inicio.value, fim: fim.value,
+  ...(horaInicio.value ? { hi: horaInicio.value } : {}),
+  ...(horaFim.value ? { hf: horaFim.value } : {}),
+  ...filtrosQuery.value,
+}));
+watch(queryAtual, (nova) => { router.replace({ query: { ...route.query, ...nova } }); }, { deep: true });
 
 const dados = ref<VendasReport | null>(null);
 const carregando = ref(false);
@@ -62,6 +117,7 @@ async function carregar() {
   erro.value = '';
   try {
     dados.value = await api.vendasReport({
+      ...filtrosQuery.value,
       // usuário de loja não manda `loja`: quem decide é o servidor
       ...(isAdmin.value ? { loja: loja.value } : {}),
       inicio: inicio.value,
@@ -103,7 +159,7 @@ const NOME_DA_FONTE: Record<string, string> = {
 };
 
 onMounted(() => { carregar(); carregarPulso(); });
-watch([loja, inicio, fim], carregar);
+watch([loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado], carregar);
 
 const semMovimento = computed(() =>
   !!dados.value && dados.value.resumo.faturamento === 0 && dados.value.resumo.numeroVendas === 0);
@@ -381,8 +437,8 @@ async function carregarDetalhePdv() {
     const resposta = await api.vendasPdvDetalhe({
       ...(isAdmin.value ? { loja: loja.value } : {}),
       dispositivoIdErp: pdv.chave,
-      inicio: `${inicio.value}T00:00`,
-      fim: `${fim.value}T23:59`,
+      inicio: inicioComHora.value,
+      fim: fimComHora.value,
       ordenar: ordemPdv.value,
     });
     if (pedido === pedidoDetalhe) detalhePdv.value = resposta;
@@ -392,14 +448,39 @@ async function carregarDetalhePdv() {
     if (pedido === pedidoDetalhe) carregandoDetalhe.value = false;
   }
 }
-watch([pdvAberto, ordemPdv], carregarDetalhePdv);
-watch([loja, inicio, fim], () => { pdvAberto.value = null; });
+watch([pdvAberto, ordemPdv, horaInicio, horaFim], carregarDetalhePdv);
+
+/**
+ * Gráfico do PDV por HORA ou por DIA. O toggle só aparece quando há itens com
+ * hora — é o único lugar da área em que a fonte sustenta a granularidade.
+ */
+const granularidadePdv = ref<'hora' | 'dia'>('hora');
+const seriePdvTempo = computed(() => {
+  const pontos = detalhePdv.value?.porHora ?? [];
+  if (granularidadePdv.value === 'hora') {
+    return { categorias: pontos.map((p) => p.hora.slice(11, 16) + (pontos.length > 24 ? ' ' + p.hora.slice(8, 10) + '/' + p.hora.slice(5, 7) : '')), valores: pontos.map((p) => p.faturamento ?? p.quantidade) };
+  }
+  const porDia = new Map<string, number>();
+  for (const p of pontos) porDia.set(p.hora.slice(0, 10), (porDia.get(p.hora.slice(0, 10)) ?? 0) + (p.faturamento ?? p.quantidade));
+  return { categorias: [...porDia.keys()].map(diaCurto), valores: [...porDia.values()] };
+});
+const opcoesPdvTempo = computed<ApexOptions>(() => ({
+  chart: { toolbar: { show: false }, animations: { enabled: false } },
+  colors: ['#a96e00'],
+  dataLabels: { enabled: false },
+  plotOptions: { bar: { borderRadius: 3, columnWidth: '60%' } },
+  xaxis: { categories: seriePdvTempo.value.categorias, labels: { rotate: -45, style: { fontSize: '11px' } } },
+  yaxis: { labels: { formatter: (v: number) => (detalhePdv.value?.faturamentoItens === null ? num(v) : brl(v)) } },
+  tooltip: { y: { formatter: (v: number) => (detalhePdv.value?.faturamentoItens === null ? num(v) : brl(v)) } },
+}));
+watch([loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado], () => { pdvAberto.value = null; });
 
 async function carregarRanking() {
   carregandoRanking.value = true;
   erroRanking.value = '';
   try {
     ranking.value = await api.vendasRanking({
+      ...filtrosQuery.value,
       ...(isAdmin.value ? { loja: loja.value } : {}),
       inicio: inicio.value,
       fim: fim.value,
@@ -453,6 +534,7 @@ async function carregarListaAbc() {
   erroAbc.value = '';
   try {
     listaAbc.value = await api.vendasCurvaAbc({
+      ...filtrosQuery.value,
       ...(isAdmin.value ? { loja: loja.value } : {}),
       inicio: inicio.value,
       fim: fim.value,
@@ -468,7 +550,7 @@ async function carregarListaAbc() {
 }
 
 /* Só busca com a aba aberta — a consulta cruza a venda inteira com o cadastro. */
-watch([aba, classeAberta, loja, inicio, fim], () => {
+watch([aba, classeAberta, loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado], () => {
   if (aba.value === 'abc') carregarListaAbc();
 });
 
@@ -486,13 +568,26 @@ const ORDENS = [
   { valor: 'risco', label: 'Menos dias de estoque' },
 ] as const;
 const ordem = ref<'faturamento' | 'giro' | 'risco'>('faturamento');
-const filtroSetor = ref<string | null>(null);
-const filtroGrupo = ref<string | null>(null);
-const filtroProduto = ref('');
+// filtroSetor / filtroGrupo / filtroProduto: declarados no topo, valem para a área inteira
 const paginaAbc = ref(1);
 const TAMANHO_PAGINA_ABC = 25;
-const setoresAbc = computed(() => [...new Set((listaAbc.value?.itens ?? []).map((i) => i.setor).filter((v): v is string => !!v))].sort());
-const gruposAbc = computed(() => [...new Set((listaAbc.value?.itens ?? []).map((i) => i.grupo).filter((v): v is string => !!v))].sort());
+/**
+ * As OPÇÕES de setor e grupo saem de uma leitura SEM filtro, própria.
+ *
+ * Tirá-las da lista ABC exibida tinha dois defeitos: ela só carrega na aba ABC
+ * (os selects da barra ficavam vazios nas outras abas) e já vem filtrada — ao
+ * escolher um setor, os demais sumiam do dropdown e não dava para trocar.
+ */
+const baseOpcoes = ref<AbcProdutos | null>(null);
+async function carregarOpcoesCadastro() {
+  try {
+    baseOpcoes.value = await api.vendasCurvaAbc({ ...(isAdmin.value ? { loja: loja.value } : {}), inicio: inicio.value, fim: fim.value });
+  } catch { baseOpcoes.value = null; }
+}
+onMounted(carregarOpcoesCadastro);
+watch([loja, inicio, fim], carregarOpcoesCadastro);
+const setoresAbc = computed(() => [...new Set((baseOpcoes.value?.itens ?? []).map((i) => i.setor).filter((v): v is string => !!v))].sort());
+const gruposAbc = computed(() => [...new Set((baseOpcoes.value?.itens ?? []).map((i) => i.grupo).filter((v): v is string => !!v))].sort());
 watch([classeAberta, loja, inicio, fim, filtroSetor, filtroGrupo, filtroProduto, ordem], () => { paginaAbc.value = 1; });
 
 const itensAbcOrdenados = computed(() => {
@@ -610,6 +705,26 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
         hide-details
         style="max-width: 190px"
       />
+      <v-text-field
+        v-model="horaInicio"
+        type="time"
+        label="Hora de"
+        variant="outlined"
+        density="compact"
+        hide-details
+        clearable
+        style="max-width: 150px"
+      />
+      <v-text-field
+        v-model="horaFim"
+        type="time"
+        label="Hora até"
+        variant="outlined"
+        density="compact"
+        hide-details
+        clearable
+        style="max-width: 150px"
+      />
       <!--
         `:model-value`, não `v-model`: quem manda são as DATAS. O atalho é um
         atalho — ele escreve nas datas e depois se acende sozinho porque elas
@@ -622,10 +737,18 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
           {{ a.label }}
         </v-btn>
       </v-btn-toggle>
+      <!--
+        `min-width` importa: sem ele o flex encolhia os selects a 60px no canto
+        da barra e o rótulo virava uma letra. Com largura mínima eles quebram
+        para a linha de baixo inteiros, em vez de caberem espremidos.
+      -->
+      <v-select v-model="filtroSetor" :items="setoresAbc" label="Setor" clearable variant="outlined" density="compact" hide-details style="min-width: 190px; max-width: 240px" />
+      <v-select v-model="filtroGrupo" :items="gruposAbc" label="Grupo" clearable variant="outlined" density="compact" hide-details style="min-width: 190px; max-width: 240px" />
+      <v-text-field v-model="filtroProduto" label="Produto ou código" prepend-inner-icon="search" clearable variant="outlined" density="compact" hide-details style="min-width: 220px; max-width: 260px" />
       <v-spacer />
       <v-btn variant="tonal" prepend-icon="refresh" :loading="carregando" @click="carregar">Atualizar</v-btn>
-      <v-btn variant="tonal" prepend-icon="list" to="/vendas/produtos">Produtos vendidos</v-btn>
-      <v-btn variant="tonal" prepend-icon="leaderboard" color="primary" to="/vendas/painel">Painel de setores</v-btn>
+      <v-btn variant="tonal" prepend-icon="list" :to="{ path: '/vendas/produtos', query: queryAtual }">Produtos vendidos</v-btn>
+      <v-btn variant="tonal" prepend-icon="leaderboard" color="primary" :to="{ path: '/vendas/painel', query: queryAtual }">Painel de setores</v-btn>
     </div>
 
     <!--
@@ -701,6 +824,19 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
       <v-window v-else v-model="aba">
         <!-- ─────────────────────────────────────────────── VISÃO GERAL ── -->
         <v-window-item value="visao">
+          <!--
+            Dois avisos que existem para a tela não mentir: o relatório é por
+            DIA (a fonte só tem data, hora vale no detalhe do PDV) e o filtro
+            de cadastro só alcança o que sai de itens.
+          -->
+          <v-alert v-if="comHora" type="info" variant="tonal" density="compact" class="mb-3" icon="schedule">
+            Este relatório tem granularidade <strong>diária</strong>: as horas informadas valem só no detalhe de cada PDV.
+          </v-alert>
+          <v-alert v-if="dados.filtros.ativo" type="info" variant="tonal" density="compact" class="mb-3" icon="filter_alt">
+            Filtro por cadastro ativo — vale para faturamento, quantidade, produtos e curva ABC.
+            <strong>Nº de vendas, ticket médio, pagamentos e ranking de caixas não filtram</strong>: o fechamento de caixa não tem itens.
+            <v-btn size="x-small" variant="text" class="ml-2" @click="limparFiltros">Limpar</v-btn>
+          </v-alert>
           <v-row class="mb-1">
             <v-col v-for="c in resumoCards" :key="c.label" cols="12" sm="6" md="3">
               <v-card flat border rounded="lg" class="pa-4 h-100">
@@ -763,7 +899,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             <div class="d-flex align-center flex-wrap ga-2 mb-2">
               <div class="text-subtitle-1 font-weight-bold">Margem e lucro bruto</div>
               <v-spacer />
-              <v-btn size="small" variant="tonal" to="/vendas/de-para">Resolver produtos sem custo</v-btn>
+              <v-btn size="small" variant="tonal" :to="{ path: '/vendas/de-para', query: queryAtual }">Resolver produtos sem custo</v-btn>
             </div>
             <div class="text-body-2 mb-2">
               Cobertura de custo: <strong>{{ pct(dados.margem.coberturaPercentual) }}</strong> do faturamento.
@@ -826,7 +962,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 <div class="text-caption text-medium-emphasis mt-1">
                   {{ ranking.cobertura.faturamentoSemClassificacao !== null ? brl(ranking.cobertura.faturamentoSemClassificacao) + " em " : "" }}
                   {{ num(ranking.cobertura.linhasSemVinculo) }} linha(s) não casaram com produto do cadastro.
-                  <NuxtLink to="/vendas/de-para" class="text-primary">Resolver no de-para</NuxtLink>.
+                  <NuxtLink :to="{ path: '/vendas/de-para', query: queryAtual }" class="text-primary">Resolver no de-para</NuxtLink>.
                 </div>
               </div>
 
@@ -956,13 +1092,10 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
 
             <template v-else-if="listaAbc">
               <div class="sales-abc-filters mb-4" aria-label="Filtros da lista ABC">
-                <v-select v-model="filtroSetor" :items="setoresAbc" label="Setor" clearable variant="outlined" density="compact" hide-details />
-                <v-select v-model="filtroGrupo" :items="gruposAbc" label="Grupo" clearable variant="outlined" density="compact" hide-details />
-                <v-text-field v-model="filtroProduto" label="Produto ou código" prepend-inner-icon="search" clearable variant="outlined" density="compact" hide-details />
               </div>
               <div class="text-caption text-medium-emphasis mb-3">
                 {{ num(itensAbcOrdenados.length) }} produto(s) nesta lista após os filtros.
-                Os filtros de setor, grupo e produto aplicam-se somente à lista ABC; totais gerais e PDVs permanecem sem esse recorte.
+                Setor, grupo e produto vêm da barra acima e recalculam a curva sobre o recorte: a classe A aqui é a A DENTRO do filtro. O ranking de caixas não os aplica.
               </div>
               <!--
                 O AVISO vem antes da tabela, de propósito.
@@ -987,7 +1120,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 <template v-if="listaAbc.semCadastro">
                   <strong class="text-warning">{{ num(listaAbc.semCadastro) }}</strong>
                   produto(s) desta classe não casaram com o cadastro — sem custo, mínimo nem máximo.
-                  <NuxtLink to="/vendas/de-para" class="text-primary">Resolver no de-para</NuxtLink>.
+                  <NuxtLink :to="{ path: '/vendas/de-para', query: queryAtual }" class="text-primary">Resolver no de-para</NuxtLink>.
                 </template>
                 <template v-if="listaAbc.semEstoqueMax">
                   <span v-if="listaAbc.semCadastro"> · </span>
@@ -1127,6 +1260,17 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
         </div>
         <v-progress-linear v-if="carregandoDetalhe" indeterminate color="primary" class="mb-3" />
         <v-alert v-if="erroDetalhe" type="error" variant="tonal" class="mb-3">{{ erroDetalhe }}</v-alert>
+        <div v-if="detalhePdv?.porHora?.length" class="mb-4">
+          <div class="d-flex align-center flex-wrap ga-2 mb-2">
+            <div class="text-subtitle-2 font-weight-bold">{{ detalhePdv.faturamentoItens === null ? 'Quantidade' : 'Faturamento' }} por {{ granularidadePdv }}</div>
+            <v-spacer />
+            <v-btn-toggle v-model="granularidadePdv" density="compact" variant="outlined" divided mandatory>
+              <v-btn value="hora" size="small">Por hora</v-btn>
+              <v-btn value="dia" size="small">Por dia</v-btn>
+            </v-btn-toggle>
+          </div>
+          <apexchart type="bar" :height="220" :options="opcoesPdvTempo" :series="[{ name: granularidadePdv === 'hora' ? 'Por hora' : 'Por dia', data: seriePdvTempo.valores }]" />
+        </div>
         <v-alert v-if="pdvAberto.chave.startsWith('legado:') || (!carregandoDetalhe && !detalhePdv?.disponivel)" type="info" variant="tonal">
           Produtos por PDV ainda indisponíveis neste período. O fechamento antigo não traz o ID do dispositivo e o histórico de produtos chegou somente por dia.
           Não associamos itens a caixas por nome ou horário aproximado.

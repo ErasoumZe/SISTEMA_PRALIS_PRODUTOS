@@ -2,7 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import type { VendasAbc } from '@pralis/shared';
 import { AppError } from '@/config/api.replies';
 import { VendasReportRepository } from './vendas-report.repository';
-import { indexarPorCodigo, resolverProduto } from './vendas-margem';
+import { filtroVazio, indexarPorCodigo, passaNoFiltro, resolverProduto, type FiltroCadastro } from './vendas-margem';
 import { classificarAbc, diasDeMaximo } from './vendas-abc';
 
 type Loja = 'BASE' | 'TNP' | 'LI';
@@ -23,6 +23,7 @@ export class VendasAbcService {
     inicio: string,
     fim: string,
     classe?: 'A' | 'B' | 'C',
+    filtro: FiltroCadastro = {},
   ): Promise<VendasAbc.AbcProdutos> {
     const inicioMs = new Date(`${inicio}T00:00:00Z`).getTime();
     const fimMs = new Date(`${fim}T00:00:00Z`).getTime();
@@ -41,8 +42,16 @@ export class VendasAbcService {
     ]);
     const indice = indexarPorCodigo(cadastro);
 
-    const total = vendas.reduce((s, v) => s + v.faturamento, 0);
-    const classificados = classificarAbc(vendas, total);
+    /*
+     * O filtro entra ANTES da classificação: a curva é recalculada sobre o
+     * recorte, então "classe A do setor padaria" é a A DENTRO da padaria — que
+     * é a pergunta que quem filtra está fazendo.
+     */
+    const recorte = filtroVazio(filtro)
+      ? vendas
+      : vendas.filter((v) => passaNoFiltro(resolverProduto(v.produtoCodigo, v.produto, indice, dePara), v, filtro));
+    const total = recorte.reduce((s, v) => s + v.faturamento, 0);
+    const classificados = classificarAbc(recorte, total);
 
     let semCadastro = 0;
     let semEstoqueMax = 0;

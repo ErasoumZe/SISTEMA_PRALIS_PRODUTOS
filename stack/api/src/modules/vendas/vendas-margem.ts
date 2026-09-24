@@ -182,3 +182,61 @@ export function semelhanca(a: string, b: string): number {
   if (totalA + totalB === 0) return 0;
   return Math.round(((2 * comuns) / (totalA + totalB)) * 100);
 }
+
+/**
+ * Filtro por CADASTRO sobre uma venda agregada por produto.
+ *
+ * Setor e grupo não existem na venda — existem no produto do cadastro com que
+ * ela casou. Por isso o filtro só pode ser aplicado DEPOIS de `resolverProduto`,
+ * e só alcança o que sai de itens vendidos. O fechamento de caixa (número de
+ * vendas, pagamentos, ranking de PDV) não tem itens e não pode ser filtrado
+ * por setor/grupo sem inventar um rateio — quem consome tem que dizer isso.
+ *
+ * `produto` casa por trecho do nome vendido OU do código, sem acento e sem
+ * caixa, porque é o mesmo campo que a pessoa digita na caixa de busca.
+ */
+export interface FiltroCadastro {
+  setor?: string | null;
+  grupo?: string | null;
+  produto?: string | null;
+  /** De qual campo do cadastro sai o "setor". Mesmo padrão do ranking. */
+  campoSetor?: 'setorEstoque' | 'setorVenda1';
+}
+
+const semAcentoMinusculo = (s: string) =>
+  s.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('pt-BR').trim();
+
+export const filtroVazio = (f: FiltroCadastro | undefined | null): boolean =>
+  !f || (!f.setor?.trim() && !f.grupo?.trim() && !f.produto?.trim());
+
+export function passaNoFiltro(
+  produtoResolvido: ProdutoCadastro | null,
+  venda: { produtoCodigo: string; produto: string },
+  filtro: FiltroCadastro,
+): boolean {
+  if (filtroVazio(filtro)) return true;
+
+  if (filtro.produto?.trim()) {
+    const termo = semAcentoMinusculo(filtro.produto);
+    const nome = semAcentoMinusculo(venda.produto);
+    const nomeCadastro = produtoResolvido ? semAcentoMinusculo(produtoResolvido.nome) : '';
+    if (!nome.includes(termo) && !venda.produtoCodigo.includes(termo) && !nomeCadastro.includes(termo)) {
+      return false;
+    }
+  }
+  /*
+   * Setor e grupo exigem cadastro: venda que não casou com produto nenhum NÃO
+   * passa num filtro de setor — ela não tem setor. Mostrá-la seria contar como
+   * "padaria" algo que ninguém classificou.
+   */
+  if (filtro.setor?.trim()) {
+    const campo = filtro.campoSetor ?? 'setorEstoque';
+    const valor = produtoResolvido?.[campo] ?? null;
+    if (!valor || semAcentoMinusculo(String(valor)) !== semAcentoMinusculo(filtro.setor)) return false;
+  }
+  if (filtro.grupo?.trim()) {
+    const valor = produtoResolvido?.grupo ?? null;
+    if (!valor || semAcentoMinusculo(String(valor)) !== semAcentoMinusculo(filtro.grupo)) return false;
+  }
+  return true;
+}

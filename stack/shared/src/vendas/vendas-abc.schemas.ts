@@ -13,6 +13,9 @@ export const abcProdutosQuerySchema = z.object({
   inicio: z.iso.date(),
   fim: z.iso.date(),
   classe: z.enum(['A', 'B', 'C']).optional(),
+  setor: z.string().trim().max(120).optional(),
+  grupo: z.string().trim().max(120).optional(),
+  produto: z.string().trim().max(120).optional(),
 });
 
 export const produtoAbcSchema = z.object({

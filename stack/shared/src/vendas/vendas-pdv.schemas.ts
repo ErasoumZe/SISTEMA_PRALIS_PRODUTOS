@@ -31,6 +31,17 @@ export const detalhePdvSchema = z.object({
   })),
   /** Fechamento só pode ser comparado quando o período cobre dias completos. */
   fechamento: z.object({ total: z.number().nullable(), numeroVendas: z.number(), diferenca: z.number().nullable() }).nullable(),
+  /**
+   * Série por HORA local — a única desta área com hora de verdade, porque só
+   * o detalhe do PDV tem `vendido_em`. O relatório diário nunca fabrica isto.
+   * `hora` no formato `aaaa-mm-ddThh:00`.
+   */
+  porHora: z.array(z.object({
+    hora: z.string(),
+    quantidade: z.number(),
+    faturamento: z.number().nullable(),
+    numeroVendas: z.number(),
+  })),
 });
 
 export type DetalhePdvQuery = z.output<typeof detalhePdvQuerySchema>;

@@ -25,6 +25,10 @@ export const vendasRankingQuerySchema = z.object({
    * 100% do cadastro; no dia em que for preenchido, é trocar aqui.
    */
   campoSetor: z.enum(['setorEstoque', 'setorVenda1']).optional(),
+  // mesmos filtros do relatório; só valem para produto/grupo/setor — PDV não tem itens
+  setor: z.string().trim().max(120).optional(),
+  grupo: z.string().trim().max(120).optional(),
+  produto: z.string().trim().max(120).optional(),
 });
 
 /**
