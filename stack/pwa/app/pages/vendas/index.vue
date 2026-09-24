@@ -183,9 +183,9 @@ const resumoCards = computed(() => {
   // produto; número de vendas e ticket vêm do FECHAMENTO de caixa. São duas
   // fontes e podem divergir — sem dizer isso, o usuário lê como erro de conta.
   return [
-    { label: 'Faturamento', origem: 'vendas por produto', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)' },
+    { label: 'Faturamento', origem: 'vendas por produto', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
     { label: 'Quantidade vendida', origem: 'vendas por produto', valor: num(r.quantidade), icon: 'inventory_2', cor: 'var(--cx-sales-volume)' },
-    { label: 'Nº de vendas', origem: 'fechamento de caixa', valor: num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)' },
+    { label: 'Nº de vendas', origem: 'fechamento de caixa', valor: num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
     { label: 'Ticket médio', origem: 'fechamento de caixa', valor: brl(r.ticketMedio), icon: 'trending_up', cor: 'var(--cx-sales-volume)' },
   ];
 });
@@ -320,7 +320,7 @@ const opcoesGrande = computed<ApexOptions>(() => ({
     fontFamily: 'inherit',
     animations: { enabled: true, speed: 400 },
   },
-  colors: ['#a96e00'],
+  colors: ['#fbbc05'], // amarelo de faturamento, mesma paleta dos tokens --cx-sales-*
   dataLabels: { enabled: false },
   stroke: { curve: 'smooth', width: 2, lineCap: 'round' },
   // o preenchimento é uma lavagem, não um bloco: a linha é que carrega o dado
@@ -466,7 +466,7 @@ const seriePdvTempo = computed(() => {
 });
 const opcoesPdvTempo = computed<ApexOptions>(() => ({
   chart: { toolbar: { show: false }, animations: { enabled: false } },
-  colors: ['#a96e00'],
+  colors: ['#fbbc05'], // amarelo de faturamento, mesma paleta dos tokens --cx-sales-*
   dataLabels: { enabled: false },
   plotOptions: { bar: { borderRadius: 3, columnWidth: '60%' } },
   xaxis: { categories: seriePdvTempo.value.categorias, labels: { rotate: -45, style: { fontSize: '11px' } } },
@@ -515,7 +515,8 @@ const fatiaDoLider = (v: number) => {
 /* ----------------------------------------------------------------- curva ABC */
 
 /** Indicadores textuais e lista substituem as faixas gráficas da curva ABC. */
-const CORES_ABC = { A: '#a96e00', B: '#2563a8', C: '#6B7280' } as const;
+/* A em amarelo e B em azul: os mesmos vivos dos tokens --cx-sales-*; C fica neutro. */
+const CORES_ABC = { A: '#fbbc05', B: '#4285f4', C: '#6B7280' } as const;
 
 const abcTemDados = computed(() => (dados.value?.curvaAbc ?? []).some((c) => c.produtos > 0));
 
@@ -841,8 +842,9 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             <v-col v-for="c in resumoCards" :key="c.label" cols="12" sm="6" md="3">
               <v-card flat border rounded="lg" class="pa-4 h-100">
                 <div class="d-flex align-center ga-3">
+                  <!-- ícone escuro sobre o amarelo vivo: branco sobre #FBBC05 não se lê -->
                   <v-avatar :color="c.cor" size="46" rounded="lg" variant="flat">
-                    <v-icon color="white">{{ c.icon }}</v-icon>
+                    <v-icon :color="c.corIcone ?? 'white'">{{ c.icon }}</v-icon>
                   </v-avatar>
                   <div style="min-width: 0">
                     <div class="text-caption text-medium-emphasis text-uppercase">{{ c.label }}</div>
@@ -1002,7 +1004,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 <!-- barra proporcional ao LÍDER: compara dentro da própria lista -->
                 <v-progress-linear
                   :model-value="fatiaDoLider(i.pontos)"
-                  :color="i.posicao === 1 ? '#a96e00' : 'grey-lighten-1'"
+                  :color="i.posicao === 1 ? '#fbbc05' : 'grey-lighten-1'"
                   height="4"
                   rounded
                   class="mt-1"
@@ -1313,9 +1315,10 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
 <style scoped>
 .sales-abc-a { background: var(--cx-sales-revenue-wash); }
 .sales-abc-a td:first-child { border-left: 3px solid var(--cx-sales-revenue); }
-.sales-profit { color: var(--cx-sales-profit); }
-.sales-volume { color: var(--cx-sales-volume); }
-.sales-revenue { color: var(--cx-sales-revenue); }
+/* Texto usa a face `-ink`: o amarelo vivo de preenchimento não se lê sobre branco. */
+.sales-profit { color: var(--cx-sales-profit-ink); }
+.sales-volume { color: var(--cx-sales-volume-ink); }
+.sales-revenue { color: var(--cx-sales-revenue-ink); }
 .sales-rank-row { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--cx-line-soft); }
 .sales-pdv-link { text-transform: none; padding-inline: 0; max-width: 100%; }
 .sales-pdv-products { max-height: 360px; overflow-y: auto; }
