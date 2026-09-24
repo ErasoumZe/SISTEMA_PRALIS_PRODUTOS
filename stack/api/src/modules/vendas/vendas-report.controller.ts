@@ -2,7 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
 import { VendasReportService } from './vendas-report.service';
-import type { VendasSchemas, VendasPdv } from '@pralis/shared';
+import type { VendasSchemas, VendasPdv, VendasLista } from '@pralis/shared';
 import type { VendasRanking } from '@pralis/shared';
 import { VendasRankingService } from './vendas-ranking.service';
 import { podeVerDinheiro, semDinheiro } from './vendas-ranking-sigilo';
@@ -11,6 +11,7 @@ import { VendasAbcService } from './vendas-abc.service';
 import { VendasReportRepository } from './vendas-report.repository';
 import { montarPulso } from './vendas-pulso';
 import { VendasPdvService } from './vendas-pdv.service';
+import { VendasListaService } from './vendas-lista.service';
 
 type VendasReportQuery = VendasSchemas.VendasReportQuery;
 
@@ -85,6 +86,30 @@ export class VendasPdvController {
     const store = reportStore(request, request.query.loja);
     const data = await this.service.detalhe(store, request.query, podeVerDinheiro(request.currentUser));
     return reply.status(200).send(buildResponse(data, 'Detalhe do PDV'));
+  }
+}
+
+/**
+ * A lista de vendas, cupom a cupom. Mesma regra de loja (`reportStore`) e o
+ * mesmo corte de dinheiro na saída: quem não pode ver, não recebe.
+ */
+@injectable()
+export class VendasListaController {
+  constructor(@inject(VendasListaService) private service: VendasListaService) {}
+
+  async lista(request: FastifyRequest<{ Querystring: VendasLista.ListaVendasQuery }>, reply: FastifyReply) {
+    const store = reportStore(request, request.query.loja);
+    const data = await this.service.lista(store, request.query, podeVerDinheiro(request.currentUser));
+    const aviso = data.disponivel
+      ? `${data.total} venda(s) no período`
+      : 'Nenhum item detalhado chegou desta loja ainda — o robô precisa enviar o lote venda_item_pdv';
+    return reply.status(200).send(buildResponse(data, aviso));
+  }
+
+  async detalhe(request: FastifyRequest<{ Querystring: VendasLista.VendaDetalheQuery }>, reply: FastifyReply) {
+    const store = reportStore(request, request.query.loja);
+    const data = await this.service.detalhe(store, request.query.vendaIdErp, podeVerDinheiro(request.currentUser));
+    return reply.status(200).send(buildResponse(data, `Venda ${data.vendaIdErp}`));
   }
 }
 
