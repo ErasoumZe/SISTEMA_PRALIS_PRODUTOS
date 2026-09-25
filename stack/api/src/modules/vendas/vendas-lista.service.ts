@@ -72,9 +72,15 @@ export class VendasListaService {
         : sql`AND venda_id_erp IN (${sql.join(vendasPermitidas.map((id) => sql`${id}`), sql`, `)})`;
 
     const offset = (query.pagina - 1) * query.limite;
-    const [presenca, resultado] = await Promise.all([
+    const [presenca, pdvs, resultado] = await Promise.all([
       db.execute(sql`SELECT COUNT(*)::int AS total, MAX(origem_atualizada_em) AS atualizado
         FROM venda_item_pdv WHERE loja = ${loja}`),
+      // opções do filtro: só loja + período, sem o próprio filtro de PDV
+      db.execute(sql`SELECT dispositivo_id_erp, MAX(pdv) AS pdv
+        FROM venda_item_pdv
+        WHERE loja = ${loja}
+          AND vendido_em >= ${inicio}::timestamp AND vendido_em < (${fim}::timestamp + INTERVAL '1 minute')
+        GROUP BY dispositivo_id_erp ORDER BY 2`),
       db.execute(sql`
         WITH vendas AS (
           SELECT venda_id_erp, dispositivo_id_erp, pdv, venda_status, venda_confirmada,
@@ -108,6 +114,10 @@ export class VendasListaService {
       pagina: query.pagina,
       limite: query.limite,
       atualizadoEm: presenca.rows[0]?.atualizado ? dataHora(presenca.rows[0].atualizado) : null,
+      pdvs: pdvs.rows.map((row) => ({
+        dispositivoIdErp: String(row.dispositivo_id_erp ?? ''),
+        pdv: String(row.pdv ?? ''),
+      })),
       vendas: linhas.map((row) => ({
         vendaIdErp: String(row.venda_id_erp),
         vendidoEm: dataHora(row.vendido_em),

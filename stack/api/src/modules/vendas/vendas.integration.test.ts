@@ -158,6 +158,10 @@ describe('ingestão de vendas e fechamentos (Postgres real)', () => {
     expect(cancelada).toMatchObject({ itens: 0, total: 0, cancelada: true, confirmada: false });
     expect(confirmada.vendidoEm).toBe('2026-09-24T14:30:15');
     expect(r.atualizadoEm).toMatch(/^2026-09-24T/);
+    // opções do filtro de PDV: quem vendeu no período, pelo ID do dispositivo
+    expect(r.pdvs).toEqual([{ dispositivoIdErp: '7', pdv: 'PDV 07' }]);
+    const soPdv = await listaService.lista('TNP', { ...q, dispositivoIdErp: '7' }, true);
+    expect(soPdv.pdvs).toEqual(r.pdvs); // o filtro não apaga as outras opções
   });
 
   it('filtra por dispositivo e por texto de produto, e diz quando nao ha detalhe', async () => {

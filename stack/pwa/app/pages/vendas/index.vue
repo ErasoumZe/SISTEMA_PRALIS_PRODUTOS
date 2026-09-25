@@ -52,6 +52,8 @@ const fimComHora = computed(() => `${fim.value}T${horaFim.value || '23:59'}`);
 const filtroSetor = ref<string | null>(q('setor') || null);
 const filtroGrupo = ref<string | null>(q('grupo') || null);
 const filtroProduto = ref(q('produto'));
+/** PDV (ID do dispositivo no ERP). Só a aba Vendas usa: é a única com PDV por item. */
+const filtroPdv = ref<string | null>(q('pdv') || null);
 /** O texto de produto viaja com atraso: cada letra digitada não pode virar uma consulta. */
 const filtroProdutoAplicado = ref(filtroProduto.value);
 let esperaProduto: ReturnType<typeof setTimeout> | null = null;
@@ -76,8 +78,18 @@ const queryAtual = computed(() => ({
   ...(horaInicio.value ? { hi: horaInicio.value } : {}),
   ...(horaFim.value ? { hf: horaFim.value } : {}),
   ...filtrosQuery.value,
+  ...(filtroPdv.value ? { pdv: filtroPdv.value } : {}),
 }));
-watch(queryAtual, (nova) => { router.replace({ query: { ...route.query, ...nova } }); }, { deep: true });
+/*
+ * As chaves que ESTA tela controla saem inteiras da URL antes de regravar.
+ * Mesclar por cima (`{ ...route.query, ...nova }`) mantinha o valor antigo de
+ * um filtro limpo — a hora apagada continuava na URL e voltava ao recarregar.
+ */
+const CHAVES_DO_RECORTE = ['inicio', 'fim', 'hi', 'hf', 'setor', 'grupo', 'produto', 'pdv'];
+watch(queryAtual, (nova) => {
+  const resto = Object.fromEntries(Object.entries(route.query).filter(([k]) => !CHAVES_DO_RECORTE.includes(k)));
+  router.replace({ query: { ...resto, ...nova } });
+}, { deep: true });
 
 const dados = ref<VendasReport | null>(null);
 const carregando = ref(false);
@@ -508,6 +520,7 @@ async function carregarLista(silencioso = false) {
       inicio: inicioComHora.value,
       fim: fimComHora.value,
       ...filtrosQuery.value,
+      ...(filtroPdv.value ? { dispositivoIdErp: filtroPdv.value } : {}),
       limite: 50,
       pagina: paginaVendas.value,
     });
@@ -533,7 +546,8 @@ watch(aoVivo, (ligado) => {
 }, { immediate: true });
 onBeforeUnmount(() => { if (relogioAoVivo) clearInterval(relogioAoVivo); });
 
-watch([loja, inicio, fim, horaInicio, horaFim, filtroSetor, filtroGrupo, filtroProdutoAplicado], () => {
+watch(loja, () => { filtroPdv.value = null; }); // PDV de uma loja não existe na outra
+watch([loja, inicio, fim, horaInicio, horaFim, filtroSetor, filtroGrupo, filtroProdutoAplicado, filtroPdv], () => {
   paginaVendas.value = 1;
   if (aoVivo.value) void carregarLista();
 });
@@ -1305,6 +1319,20 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 </div>
               </div>
               <v-spacer />
+              <!-- setor, grupo e produto ficam na barra do topo e já valem aqui -->
+              <v-select
+                v-model="filtroPdv"
+                :items="listaVendas?.pdvs ?? []"
+                item-title="pdv"
+                item-value="dispositivoIdErp"
+                label="PDV"
+                prepend-inner-icon="point_of_sale"
+                clearable
+                variant="outlined"
+                density="compact"
+                hide-details
+                style="min-width: 220px; max-width: 280px"
+              />
               <v-btn size="small" variant="tonal" prepend-icon="refresh" :loading="carregandoLista" @click="carregarLista()">Atualizar agora</v-btn>
             </div>
 
