@@ -8,7 +8,7 @@
  * e digitado a frase — três atos distintos, nenhum acidental.
  */
 const api = useApi();
-const { user } = useAuth();
+const { user, podeVer } = useAuth();
 const isAdmin = computed(() => user.value?.role === 'admin');
 
 const total = ref<number | null>(null);
@@ -191,7 +191,7 @@ onMounted(() => {
             Compara, produto a produto, o que está no banco com o que está na planilha
             e aponta as diferenças. É só leitura — não corrige nada.
           </p>
-          <v-btn variant="tonal" color="primary" prepend-icon="fact_check" to="/produtos/reconciliacao">
+          <v-btn v-if="podeVer('conferir-planilha')" variant="tonal" color="primary" prepend-icon="fact_check" to="/produtos/reconciliacao">
             Abrir a conferência
           </v-btn>
         </v-card-text>
@@ -209,7 +209,7 @@ onMounted(() => {
             <strong>Confere antes de gravar</strong>: código de barras apontando para dois
             produtos é recusado, porque um sobrescreveria o outro no PDV.
           </p>
-          <v-btn variant="tonal" color="primary" prepend-icon="sync_alt" to="/produtos/depara-sia">
+          <v-btn v-if="podeVer('depara-sia')" variant="tonal" color="primary" prepend-icon="sync_alt" to="/produtos/depara-sia">
             Abrir o de-para
           </v-btn>
         </v-card-text>
@@ -229,10 +229,10 @@ onMounted(() => {
             da planilha MIX. Adota sozinho só quando o código de barras casa com uma
             linha só; o resto fica para você decidir item a item.
           </p>
-          <v-btn variant="tonal" color="primary" prepend-icon="barcode" to="/produtos/giulia-sia" class="mr-2">
+          <v-btn v-if="podeVer('giulia-sia')" variant="tonal" color="primary" prepend-icon="barcode" to="/produtos/giulia-sia" class="mr-2">
             Giulia × SIA
           </v-btn>
-          <v-btn variant="tonal" color="primary" prepend-icon="pin" to="/produtos/codigo-cadastro">
+          <v-btn v-if="podeVer('codigo-cadastro')" variant="tonal" color="primary" prepend-icon="pin" to="/produtos/codigo-cadastro">
             Abrir a reconciliação
           </v-btn>
         </v-card-text>
@@ -252,7 +252,7 @@ onMounted(() => {
             a planilha não traz entra vazio, e linha sem o mínimo para ser produto
             fica de fora com o motivo à vista.
           </p>
-          <v-btn variant="tonal" color="primary" prepend-icon="library_add" to="/produtos/importar-mix">
+          <v-btn v-if="podeVer('importar-mix')" variant="tonal" color="primary" prepend-icon="library_add" to="/produtos/importar-mix">
             Abrir a importação
           </v-btn>
         </v-card-text>
@@ -270,7 +270,7 @@ onMounted(() => {
             na base de discriminação de mercadorias. Mostra o custo antigo ao lado do novo
             antes de gravar — custo alimenta o preço de venda calculado.
           </p>
-          <v-btn variant="tonal" color="primary" prepend-icon="payments" to="/produtos/custo-discriminacao">
+          <v-btn v-if="podeVer('custo-discriminacao')" variant="tonal" color="primary" prepend-icon="payments" to="/produtos/custo-discriminacao">
             Abrir a carga de custo
           </v-btn>
         </v-card-text>
@@ -448,7 +448,7 @@ onMounted(() => {
         <v-card-title class="text-subtitle-1">Depois de zerar</v-card-title>
         <v-card-text>
           O catálogo se repovoa pela
-          <NuxtLink to="/produtos/central">Central de Produtos</NuxtLink>, que junta a
+          <NuxtLink v-if="podeVer('central-de-produtos')" to="/produtos/central">Central de Produtos</NuxtLink><span v-else>Central de Produtos</span>, que junta a
           planilha nova com as demais fontes e deixa você decidir o grupo de cada produto.
           Quem entra sem grupo entra como <strong>A CLASSIFICAR</strong> — nunca com regra
           fiscal adivinhada.

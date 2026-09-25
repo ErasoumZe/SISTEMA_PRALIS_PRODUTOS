@@ -3,7 +3,7 @@ import { VendasDatas } from '@pralis/shared';
 import type { ProdutosUnicos } from '~/composables/useApi';
 
 const api = useApi();
-const { user } = useAuth();
+const { user, podeVer } = useAuth();
 const isAdmin = computed(() => user.value?.role === 'admin');
 
 const LOJAS = [
@@ -74,7 +74,7 @@ const dia = (d: string) => { const [a, m, x] = d.split('-'); return `${x}/${m}/$
 <template>
   <div>
     <div class="d-flex align-center mb-4">
-      <v-btn icon="arrow_back" variant="text" to="/vendas" />
+      <v-btn v-if="podeVer('vendas')" icon="arrow_back" variant="text" to="/vendas" />
       <h1 class="text-h6 font-weight-bold ml-2">Produtos vendidos no período</h1>
     </div>
 

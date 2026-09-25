@@ -15,7 +15,7 @@ import type { BaldeCodigo, BaldeEmLote, ItemCodigoCadastro, PreviaCodigoCadastro
  */
 const api = useApi();
 const flash = useFlash();
-const { user } = useAuth();
+const { user, podeVer } = useAuth();
 const isAdmin = computed(() => user.value?.role === 'admin');
 
 const dados = ref<PreviaCodigoCadastro | null>(null);
@@ -331,7 +331,7 @@ async function decidir(item: ItemCodigoCadastro, corpo: { codigo?: string; cunha
                 </v-btn>
 
                 <v-btn
-                  v-if="item.balde === 'disputado'"
+                  v-if="item.balde === 'disputado' && podeVer('central-de-produtos')"
                   size="small" variant="text" color="primary"
                   to="/produtos/central"
                 >
