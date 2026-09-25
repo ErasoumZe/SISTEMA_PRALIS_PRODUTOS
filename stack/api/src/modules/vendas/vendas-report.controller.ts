@@ -33,8 +33,10 @@ export class VendasReportController {
 
   async report(request: FastifyRequest<{ Querystring: VendasReportQuery }>, reply: FastifyReply) {
     const store = reportStore(request, request.query.loja);
-    const { setor, grupo, produto } = request.query;
-    const data = await this.service.report(store, request.query.inicio, request.query.fim, { setor, grupo, produto });
+    const { setor, grupo, produto, hi, hf, pdv, granularidade } = request.query;
+    const data = await this.service.report(
+      store, request.query.inicio, request.query.fim, { setor, grupo, produto }, { hi, hf, pdv, granularidade },
+    );
     return reply.status(200).send(buildResponse(data, 'Relatório de vendas'));
   }
 }
@@ -63,6 +65,7 @@ export class VendasRankingController {
       request.query.dimensao,
       request.query.campoSetor,
       { setor: request.query.setor, grupo: request.query.grupo, produto: request.query.produto, campoSetor: request.query.campoSetor },
+      { hi: request.query.hi, hf: request.query.hf, pdv: request.query.pdv },
     );
     /*
      * O corte do dinheiro acontece AQUI, na saída, e não na tela.
@@ -135,6 +138,7 @@ export class VendasAbcController {
     const data = await this.service.produtos(
       store, request.query.inicio, request.query.fim, request.query.classe,
       { setor: request.query.setor, grupo: request.query.grupo, produto: request.query.produto },
+      { hi: request.query.hi, hf: request.query.hf, pdv: request.query.pdv },
     );
     return reply.status(200).send(buildResponse(data, 'Produtos da curva ABC'));
   }

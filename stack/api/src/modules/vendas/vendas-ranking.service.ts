@@ -3,6 +3,7 @@ import { VendasRanking } from '@pralis/shared';
 import { AppError } from '@/config/api.replies';
 import { VendasReportRepository } from './vendas-report.repository';
 import { filtroVazio, indexarPorCodigo, passaNoFiltro, resolverProduto, type FiltroCadastro, type ProdutoCadastro } from './vendas-margem';
+import { chaveProduto, escolherFonte, porPdvItens, produtosItens, type Fonte, type PedidoFonte } from './vendas-fonte';
 import { agruparPorChave, type LinhaClassificada } from './vendas-ranking';
 /** Lojas com relatório nesta etapa — mesma definição dos demais serviços. */
 type Loja = 'TNP' | 'LI';
@@ -29,6 +30,7 @@ export class VendasRankingService {
     dimensao: VendasRanking.Dimensao,
     campoSetor: 'setorEstoque' | 'setorVenda1' = 'setorEstoque',
     filtro: FiltroCadastro = {},
+    pedido: PedidoFonte = {},
   ): Promise<VendasRanking.VendasRanking> {
     const dias = Math.floor(
       (new Date(`${fim}T00:00:00Z`).getTime() - new Date(`${inicio}T00:00:00Z`).getTime()) / 86_400_000,
@@ -36,10 +38,15 @@ export class VendasRankingService {
     if (dias < 0) throw new AppError('Data inicial deve ser anterior à final.', 422, 'INVALID_PERIOD');
     if (dias > 366) throw new AppError('O período máximo do relatório é de 366 dias.', 422, 'PERIOD_TOO_LARGE');
 
-    if (dimensao === 'pdv') return this.porPdv(loja, inicio, fim);
+    const fonte = escolherFonte(inicio, fim, pedido, (await this.repository.desdeItens?.(loja)) ?? null);
+    if (dimensao === 'pdv') {
+      return fonte.tipo === 'itens'
+        ? this.porPdvDosItens(loja, inicio, fim, fonte, filtro)
+        : this.porPdv(loja, inicio, fim);
+    }
 
     const [vendas, cadastro, dePara] = await Promise.all([
-      this.repository.produtos(loja, inicio, fim),
+      fonte.tipo === 'itens' ? produtosItens(loja, fonte) : this.repository.produtos(loja, inicio, fim),
       this.repository.produtosDaLoja(loja),
       this.repository.deParaDaLoja(loja),
     ]);
@@ -105,6 +112,43 @@ export class VendasRankingService {
    * que precisou casar com cadastro. Dizer 100% aqui não é otimismo: é o que
    * a fonte garante.
    */
+  /**
+   * PDV pelos CUPONS: faturamento e nº de vendas de cada dispositivo no
+   * recorte, com hora e — ao contrário do fechamento — filtro de cadastro
+   * (cupons com itens do setor/grupo/produto escolhido). Não inclui o que só o
+   * fechamento conhece: crediário, sobra/perda e outros lançamentos de caixa.
+   */
+  private async porPdvDosItens(
+    loja: Loja, inicio: string, fim: string, fonte: Fonte, filtro: FiltroCadastro,
+  ): Promise<VendasRanking.VendasRanking> {
+    let chaves: string[] | null = null;
+    if (!filtroVazio(filtro)) {
+      const [vendas, cadastro, dePara] = await Promise.all([
+        produtosItens(loja, fonte), this.repository.produtosDaLoja(loja), this.repository.deParaDaLoja(loja),
+      ]);
+      const indice = indexarPorCodigo(cadastro);
+      chaves = vendas
+        .filter((v) => passaNoFiltro(resolverProduto(v.produtoCodigo, v.produto, indice, dePara), v, filtro))
+        .map((v) => chaveProduto(v.produtoCodigo, v.produto));
+    }
+    const linhas = await porPdvItens(loja, fonte, chaves);
+    const r = agruparPorChave(linhas.map((l) => ({
+      chave: l.dispositivoIdErp,
+      rotulo: l.pdv || `dispositivo ${l.dispositivoIdErp}`,
+      faturamento: l.total,
+      quantidade: 0,
+      numeroVendas: l.numeroVendas,
+    })));
+    return {
+      loja,
+      periodo: { inicio, fim },
+      dimensao: 'pdv',
+      campo: null,
+      ...r,
+      itens: r.itens.map((i) => ({ ...i, quantidade: null })),
+    };
+  }
+
   private async porPdv(loja: Loja, inicio: string, fim: string): Promise<VendasRanking.VendasRanking> {
     const linhas = await this.repository.porPdv(loja, inicio, fim);
     const r = agruparPorChave(linhas.map((l) => ({

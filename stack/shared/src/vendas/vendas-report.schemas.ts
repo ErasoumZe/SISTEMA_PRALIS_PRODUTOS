@@ -13,11 +13,32 @@ export const filtrosCadastroSchema = z.object({
   produto: z.string().trim().max(120).optional(),
 });
 
+/**
+ * Hora e PDV. Só valem quando o período está coberto pelos itens de cupom
+ * (`venda_item_pdv`); fora disso a resposta os lista em `fonte.ignorados`.
+ */
+export const recorteItensSchema = z.object({
+  hi: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  hf: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  pdv: z.string().trim().max(60).optional(),
+});
+
+export const fonteSchema = z.object({
+  tipo: z.enum(['itens', 'diario']),
+  /** Primeiro dia com item de cupom desta loja. */
+  desde: z.string().nullable(),
+  horaAplicada: z.boolean(),
+  pdvAplicado: z.boolean(),
+  ignorados: z.array(z.enum(['hora', 'pdv'])),
+});
+
 export const vendasReportQuerySchema = z.object({
   loja: z.enum(['TNP', 'LI']).optional(),
   inicio: z.iso.date(),
   fim: z.iso.date(),
-}).extend(filtrosCadastroSchema.shape);
+  /** Granularidade do gráfico. `hora` só existe com a fonte de itens. */
+  granularidade: z.enum(['hora', 'dia']).optional(),
+}).extend(filtrosCadastroSchema.shape).extend(recorteItensSchema.shape);
 
 /** O que o filtro de cadastro alcançou nesta resposta. */
 export const filtrosAplicadosSchema = z.object({
@@ -25,8 +46,12 @@ export const filtrosAplicadosSchema = z.object({
   grupo: z.string().nullable(),
   produto: z.string().nullable(),
   ativo: z.boolean(),
-  /** Faturamento e quantidade vêm de itens e obedecem ao filtro; o resto não. */
-  alcance: z.literal('itens'),
+  /**
+   * `tudo`: a fonte é de itens, e cards, gráfico, ranking e ABC obedecem.
+   * `itens`: fonte diária — só faturamento/quantidade/produtos obedecem;
+   * número de vendas e pagamentos vêm do fechamento e não filtram.
+   */
+  alcance: z.enum(['itens', 'tudo']),
 });
 
 const produtoRankingSchema = z.object({
@@ -82,8 +107,11 @@ export const vendasReportSchema = z.object({
    * relatório só têm DATA. Hora existe apenas no detalhe por PDV, e quando a
    * tela recebe hora aqui ela precisa saber que o servidor a ignorou.
    */
-  periodo: z.object({ inicio: z.string(), fim: z.string(), granularidade: z.literal('dia') }),
+  periodo: z.object({ inicio: z.string(), fim: z.string(), granularidade: z.enum(['hora', 'dia']) }),
   filtros: filtrosAplicadosSchema,
+  fonte: fonteSchema,
+  /** A série do gráfico da visão geral, na granularidade do período. */
+  serie: z.array(z.object({ t: z.string(), total: z.number(), numeroVendas: z.number() })),
   resumo: z.object({
     faturamento: z.number(),
     quantidade: z.number(),

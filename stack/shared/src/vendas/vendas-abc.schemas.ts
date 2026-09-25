@@ -16,6 +16,9 @@ export const abcProdutosQuerySchema = z.object({
   setor: z.string().trim().max(120).optional(),
   grupo: z.string().trim().max(120).optional(),
   produto: z.string().trim().max(120).optional(),
+  hi: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  hf: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  pdv: z.string().trim().max(60).optional(),
 });
 
 export const produtoAbcSchema = z.object({
@@ -57,6 +60,10 @@ export const abcProdutosSchema = z.object({
   loja: z.enum(['BASE', 'TNP', 'LI']),
   periodo: z.object({ inicio: z.string(), fim: z.string(), dias: z.number() }),
   faturamentoTotal: z.number(),
+  /** Quantos produtos DIFERENTES venderam no recorte — o `n` do "1/n". */
+  totalProdutos: z.number(),
+  /** De onde vieram os números: itens de cupom ou totais diários. */
+  fonte: z.object({ tipo: z.enum(['itens', 'diario']), desde: z.string().nullable(), ignorados: z.array(z.enum(['hora', 'pdv'])) }),
   itens: z.array(produtoAbcSchema),
   /**
    * Quantos itens da lista NÃO casaram com o cadastro.

@@ -12,6 +12,12 @@ const n = (value: unknown): number => Number(value ?? 0);
 
 @injectable()
 export class VendasReportRepository {
+  /** Primeiro dia com item de cupom desta loja — decide a fonte do recorte. */
+  async desdeItens(loja: Loja): Promise<string | null> {
+    const r = await db.execute(sql`SELECT MIN(vendido_em)::date::text AS desde FROM venda_item_pdv WHERE loja = ${loja}`);
+    return r.rows[0]?.desde ? String(r.rows[0].desde) : null;
+  }
+
   async resumo(loja: Loja, inicio: string, fim: string) {
     const vendas = await db.execute(sql`
       SELECT COALESCE(SUM(total), 0) AS faturamento,
@@ -101,7 +107,7 @@ export class VendasReportRepository {
    */
   async produtosDaLoja(loja: Loja | 'BASE'): Promise<ProdutoCadastro[]> {
     const result = await db.execute(sql`
-      SELECT id, nome, codigo_barras, custo, qt_cad, quantidade, medida_base,
+      SELECT id, nome, codigo_barras, codigo_interno, custo, qt_cad, quantidade, medida_base,
              grupo, setor_estoque, setor_venda_1, estoque_min, estoque_max
         FROM products WHERE loja = ${loja}
     `);
@@ -109,6 +115,7 @@ export class VendasReportRepository {
       id: String(row.id),
       nome: String(row.nome ?? ''),
       codigoBarras: row.codigo_barras == null ? null : String(row.codigo_barras),
+      codigoInterno: row.codigo_interno == null ? null : String(row.codigo_interno),
       custo: row.custo == null ? null : Number(row.custo),
       qtCad: Number(row.qt_cad ?? 1),
       quantidade: row.quantidade == null ? null : Number(row.quantidade),

@@ -29,6 +29,9 @@ export const vendasRankingQuerySchema = z.object({
   setor: z.string().trim().max(120).optional(),
   grupo: z.string().trim().max(120).optional(),
   produto: z.string().trim().max(120).optional(),
+  hi: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  hf: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  pdv: z.string().trim().max(60).optional(),
 });
 
 /**

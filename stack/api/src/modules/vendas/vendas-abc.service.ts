@@ -3,6 +3,7 @@ import type { VendasAbc } from '@pralis/shared';
 import { AppError } from '@/config/api.replies';
 import { VendasReportRepository } from './vendas-report.repository';
 import { filtroVazio, indexarPorCodigo, passaNoFiltro, resolverProduto, type FiltroCadastro } from './vendas-margem';
+import { escolherFonte, produtosItens, type Fonte, type PedidoFonte } from './vendas-fonte';
 import { classificarAbc, diasDeMaximo } from './vendas-abc';
 
 type Loja = 'BASE' | 'TNP' | 'LI';
@@ -24,6 +25,7 @@ export class VendasAbcService {
     fim: string,
     classe?: 'A' | 'B' | 'C',
     filtro: FiltroCadastro = {},
+    pedido: PedidoFonte = {},
   ): Promise<VendasAbc.AbcProdutos> {
     const inicioMs = new Date(`${inicio}T00:00:00Z`).getTime();
     const fimMs = new Date(`${fim}T00:00:00Z`).getTime();
@@ -33,10 +35,12 @@ export class VendasAbcService {
     /* O período INCLUI os dois extremos: de 01 a 01 é um dia, não zero. */
     const dias = vao + 1;
 
+    // BASE soma as duas lojas pelo diário; loja própria usa os cupons quando cobrem o período
+    const fonte: Fonte | null = loja === 'BASE' ? null : escolherFonte(inicio, fim, pedido, (await this.repository.desdeItens?.(loja)) ?? null);
     const [vendas, cadastro, dePara] = await Promise.all([
       loja === 'BASE'
         ? this.repository.produtosDaBase(inicio, fim)
-        : this.repository.produtos(loja, inicio, fim),
+        : fonte!.tipo === 'itens' ? produtosItens(loja, fonte!) : this.repository.produtos(loja, inicio, fim),
       this.repository.produtosDaLoja(loja),
       loja === 'BASE' ? Promise.resolve(new Map()) : this.repository.deParaDaLoja(loja),
     ]);
@@ -87,6 +91,10 @@ export class VendasAbcService {
     return {
       loja,
       periodo: { inicio, fim, dias },
+      totalProdutos: classificados.length,
+      fonte: fonte
+        ? { tipo: fonte.tipo, desde: fonte.desde, ignorados: fonte.ignorados }
+        : { tipo: 'diario' as const, desde: null, ignorados: [] },
       faturamentoTotal: Math.round(total * 100) / 100,
       itens,
       semCadastro,
