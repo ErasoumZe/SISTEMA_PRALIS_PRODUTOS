@@ -292,3 +292,122 @@ export const FISCAL_ZERADO = {
   estado: 'zerado-na-carga',
   motivo: 'Carga inicial da Base: o bloco fiscal entrou zerado por decisão de 25/09/2026. O preenchimento real vem do backfill fiscal.',
 } as const;
+
+/**
+ * O VÍNCULO entre a linha da planilha e o produto da Base.
+ *
+ * Existe por causa de um defeito visto em produção em 25/09/2026. A carga enche
+ * a Base LENDO a planilha e sem escrever nada nela — senão devolveria 7.369
+ * linhas para dentro da própria fonte. Só que o resto do sistema descobre "em
+ * que linha mora este produto" procurando o identificador dele na coluna `ID`
+ * da aba. Com a coluna vazia, nenhuma das 7.369 linhas era reconhecida, e
+ * importar um produto da Base para a loja abria uma LINHA NOVA no fim em vez de
+ * preencher o bloco da loja na linha que o produto já ocupava. Resultado
+ * medido: o código 7 em duas linhas, a 11 e a 7380.
+ *
+ * O conserto é carimbar o identificador nas linhas que já existem. Nenhuma
+ * linha nova, uma coluna só. Quem casa linha com produto é esta função, pelo
+ * código interno, que é a chave da rede.
+ */
+
+export interface LinhaParaVincular {
+  linha: number;
+  codigo: string;
+}
+
+export interface ProdutoDaBase {
+  id: string;
+  codigoInterno: string | null;
+}
+
+export interface Vinculo {
+  linha: number;
+  produtoId: string;
+  codigo: string;
+}
+
+export interface Pareamento {
+  vinculos: Vinculo[];
+  /** Linhas da planilha sem produto correspondente na Base. */
+  linhasSemProduto: number[];
+  /** Produtos da Base que não acharam linha — não têm por onde ser espelhados. */
+  produtosSemLinha: string[];
+  /**
+   * Códigos que aparecem em mais de uma linha da planilha. Nenhuma delas é
+   * vinculada: carimbar o identificador em duas linhas faria o sistema
+   * escolher uma por sorte, e a outra viraria cadastro fantasma.
+   */
+  codigosRepetidos: Array<{ codigo: string; linhas: number[] }>;
+}
+
+export const parearLinhasComProdutos = (
+  linhas: readonly LinhaParaVincular[],
+  produtos: readonly ProdutoDaBase[],
+): Pareamento => {
+  const porCodigo = new Map<string, number[]>();
+  for (const l of linhas) {
+    const c = digitos(l.codigo);
+    if (!c) continue;
+    const jah = porCodigo.get(c);
+    if (jah) jah.push(l.linha); else porCodigo.set(c, [l.linha]);
+  }
+
+  const codigosRepetidos = [...porCodigo]
+    .filter(([, ls]) => ls.length > 1)
+    .map(([codigo, ls]) => ({ codigo, linhas: [...ls].sort((a, b) => a - b) }));
+  const repetidos = new Set(codigosRepetidos.map((r) => r.codigo));
+
+  const vinculos: Vinculo[] = [];
+  const produtosSemLinha: string[] = [];
+  const usados = new Set<string>();
+
+  for (const p of produtos) {
+    const c = digitos(p.codigoInterno);
+    const linhasDoCodigo = c ? porCodigo.get(c) : undefined;
+    if (!c || !linhasDoCodigo || repetidos.has(c)) { produtosSemLinha.push(p.id); continue; }
+    usados.add(c);
+    vinculos.push({ linha: linhasDoCodigo[0]!, produtoId: p.id, codigo: c });
+  }
+
+  const linhasSemProduto = linhas
+    .filter((l) => { const c = digitos(l.codigo); return !c || !usados.has(c); })
+    .map((l) => l.linha);
+
+  return {
+    vinculos: vinculos.sort((a, b) => a.linha - b.linha),
+    linhasSemProduto,
+    produtosSemLinha,
+    codigosRepetidos,
+  };
+};
+
+/**
+ * A coluna de identificadores, pronta para UMA escrita contígua.
+ *
+ * Escrever célula a célula seriam 7.369 faixas numa requisição só — o Google
+ * recusa muito antes disso. Aqui sai um bloco único de `de` até `ate`.
+ *
+ * **Nunca apaga o que já está lá.** Valor existente é mantido como está, mesmo
+ * quando diverge do vínculo: apagar identificador de linha que o sistema já
+ * conhece desligaria aquele produto da planilha em silêncio.
+ */
+export const colunaDeIdentificadores = (
+  vinculos: readonly Vinculo[],
+  atuais: readonly string[],
+  primeiraLinha: number,
+): { valores: string[][]; de: number; ate: number; escritas: number } => {
+  const porLinha = new Map(vinculos.map((v) => [v.linha, v.produtoId]));
+  const ultimaComVinculo = vinculos.reduce((m, v) => Math.max(m, v.linha), primeiraLinha - 1);
+  const ate = Math.max(ultimaComVinculo, primeiraLinha + atuais.length - 1);
+  if (ate < primeiraLinha) return { valores: [], de: primeiraLinha, ate: primeiraLinha - 1, escritas: 0 };
+
+  const valores: string[][] = [];
+  let escritas = 0;
+  for (let linha = primeiraLinha; linha <= ate; linha += 1) {
+    const atual = String(atuais[linha - primeiraLinha] ?? '').trim();
+    if (atual) { valores.push([atual]); continue; }
+    const novo = porLinha.get(linha);
+    if (novo) { valores.push([novo]); escritas += 1; } else valores.push(['']);
+  }
+  return { valores, de: primeiraLinha, ate, escritas };
+};

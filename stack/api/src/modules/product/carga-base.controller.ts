@@ -31,7 +31,17 @@ export class CargaBaseController {
     const user = this.exigirAcesso(request);
     const r = await this.service.importar(user, request.body.confirmacao);
     const mensagem = `Base carregada: ${r.criados} produto(s), ${r.ativos} ativos e ${r.inativos} inativos.`
-      + (r.apagados ? ` ${r.apagados} cadastro(s) anteriores da Base foram apagados.` : '');
+      + (r.apagados ? ` ${r.apagados} cadastro(s) anteriores da Base foram apagados.` : '')
+      + (r.vinculadas ? ` ${r.vinculadas} linha(s) da planilha ficaram ligadas ao produto.` : '');
     return reply.status(200).send(buildResponse(r, mensagem));
+  }
+
+  async vincular(request: FastifyRequest<{ Body: { confirmacao: string } }>, reply: FastifyReply) {
+    this.exigirAcesso(request);
+    const r = await this.service.vincular(request.body.confirmacao);
+    const partes = [`${r.vinculadas} linha(s) ligadas ao produto.`];
+    if (r.jaVinculadas) partes.push(`${r.jaVinculadas} já estavam.`);
+    if (r.codigosRepetidos.length) partes.push(`${r.codigosRepetidos.length} código(s) repetido(s) ficaram de fora.`);
+    return reply.status(200).send(buildResponse(r, partes.join(' ')));
   }
 }

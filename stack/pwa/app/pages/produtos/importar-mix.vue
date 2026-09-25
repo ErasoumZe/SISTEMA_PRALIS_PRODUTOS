@@ -19,6 +19,8 @@ const carregando = ref(false);
 const importando = ref(false);
 const erro = ref('');
 const confirmacao = ref('');
+const confirmacaoVinculo = ref('');
+const vinculando = ref(false);
 
 /** O mapeamento, como o José fechou. Escrito aqui para poder ser conferido. */
 const MAPA: Array<{ coluna: string; titulo: string; vira: string }> = [
@@ -51,6 +53,9 @@ const AVISO: Record<Exclude<PreviaCarga['estado'], 'ok'>, string> = {
 };
 
 const fraseOk = computed(() => confirmacao.value.trim().toUpperCase() === (dados.value?.confirmacao ?? ''));
+const fraseVinculoOk = computed(() => confirmacaoVinculo.value.trim().toUpperCase() === (dados.value?.confirmacaoVinculo ?? ''));
+/** Produtos da Base que ainda não sabem em que linha da planilha moram. */
+const semVinculo = computed(() => Math.max(0, (dados.value?.apagar ?? 0) - (dados.value?.vinculados ?? 0)));
 const recusas = computed(() => (Object.entries(dados.value?.recusas ?? {}) as Array<[MotivoRecusaCarga, number]>)
   .filter(([, n]) => n > 0)
   .sort((a, b) => b[1] - a[1]));
@@ -76,6 +81,31 @@ async function carregar() {
 }
 
 onMounted(() => { void carregar(); });
+
+async function vincular() {
+  if (!fraseVinculoOk.value) return;
+  vinculando.value = true;
+  try {
+    const r = await api.cargaBaseVincular(confirmacaoVinculo.value);
+    const extras = [
+      r.jaVinculadas ? `${n(r.jaVinculadas)} já estavam` : '',
+      r.codigosRepetidos.length ? `${r.codigosRepetidos.length} código(s) repetido(s) ficaram de fora` : '',
+    ].filter(Boolean).join('; ');
+    flash.value = {
+      texto: `${n(r.vinculadas)} linha(s) ligadas ao produto${extras ? `. ${extras}.` : '.'}`,
+      tipo: r.codigosRepetidos.length ? 'warning' : 'success',
+    };
+    confirmacaoVinculo.value = '';
+    await carregar();
+  } catch (e: unknown) {
+    flash.value = {
+      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível vincular as linhas.',
+      tipo: 'error',
+    };
+  } finally {
+    vinculando.value = false;
+  }
+}
 
 async function importar() {
   if (!fraseOk.value) return;
@@ -315,6 +345,53 @@ async function importar() {
               </tr>
             </tbody>
           </v-table>
+        </v-card>
+
+        <v-card v-if="dados.apagar" flat border rounded="lg" class="pa-4 mb-4">
+          <div class="d-flex flex-wrap align-center ga-3 mb-2">
+            <div class="text-subtitle-1">Ligar as linhas da planilha aos produtos</div>
+            <v-spacer />
+            <v-chip
+              size="small"
+              variant="tonal"
+              :color="semVinculo ? 'warning' : 'success'"
+            >
+              {{ n(dados.vinculados) }} de {{ n(dados.apagar) }} ligadas
+            </v-chip>
+          </div>
+          <p class="text-body-2 text-medium-emphasis mb-3">
+            O sistema descobre em que linha da planilha mora cada produto por um identificador
+            gravado numa coluna dela. Sem esse identificador, importar da base para uma loja
+            <strong>abre linha nova no fim</strong> em vez de preencher a linha que o produto já
+            ocupa, e a planilha ganha produto repetido. Esta ação grava só essa coluna:
+            não cria linha, não toca em mais nada e não apaga identificador que já exista.
+          </p>
+          <v-alert v-if="!semVinculo" type="success" variant="tonal" density="compact" class="mb-0">
+            Todos os produtos da Base já sabem a linha deles. Importar para a loja preenche a linha certa.
+          </v-alert>
+          <template v-else>
+            <v-alert type="warning" variant="tonal" density="compact" class="mb-3">
+              {{ n(semVinculo) }} produto(s) ainda sem linha conhecida. Enquanto isso,
+              cada importação para a loja cria uma linha repetida na planilha.
+            </v-alert>
+            <div class="d-flex flex-wrap align-center ga-3">
+              <v-text-field
+                v-model="confirmacaoVinculo"
+                :label="`Digite: ${dados.confirmacaoVinculo}`"
+                density="compact" hide-details variant="outlined"
+                style="min-width: 340px; max-width: 480px"
+              />
+              <v-btn
+                color="primary"
+                :disabled="!fraseVinculoOk"
+                :loading="vinculando"
+                prepend-icon="link"
+                @click="vincular"
+              >
+                Ligar {{ n(semVinculo) }} linha(s)
+              </v-btn>
+            </div>
+          </template>
         </v-card>
 
         <v-card flat border rounded="lg" class="pa-4">

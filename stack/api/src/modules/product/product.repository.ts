@@ -92,6 +92,7 @@ function mapProduct(row: typeof products.$inferSelect): Omit<ProductEntity, 'pro
     codigoInterno: row.codigoInterno,
     fotoUrl: row.fotoUrl,
     grupo: row.grupo,
+    grupoId: row.grupoId,
     tipo: row.tipo as ProductEntity['tipo'],
     status: row.status as ProductEntity['status'],
     habilitarAjuda: row.habilitarAjuda,
@@ -440,6 +441,7 @@ export class ProductRepository {
     assign('codigoInterno', p.codigoInterno);
     assign('fotoUrl', p.fotoUrl);
     assign('grupo', p.grupo);
+    assign('grupoId', p.grupoId);
     assign('tipo', p.tipo);
     assign('status', p.status);
     assign('habilitarAjuda', p.habilitarAjuda);

@@ -246,9 +246,18 @@ describe('Herança BASE -> lojas (Postgres real)', () => {
     expect(tnpDepois.nome).toBe('HERANCA REAL EDITADA');
     expect(liDepois.nome).toBe('HERANCA REAL EDITADA');
 
-    // custo: a TNP tinha valor próprio -> preservado; a LI seguia -> herdou
-    expect(Number(tnpDepois.custo)).toBe(99);
-    expect(liDepois.custo).toBeNull();
+    /*
+     * Custo NÃO é campo herdado: é comercial, de cada loja.
+     *
+     * Até 25/09/2026 a cópia nascia sem custo nenhum, e a loja recebia um
+     * cadastro pela metade. Agora ela nasce com o custo que a Base tinha NA
+     * HORA da importação, por regra do José: *"os dados que já sabemos do
+     * produto devem importar exatamente igual, eles editam lá como quiserem
+     * depois"*. A partir daí o valor é da loja — mudar o custo da Base não
+     * desce, nem antes descia.
+     */
+    expect(Number(tnpDepois.custo)).toBe(99); // a TNP editou: é dela
+    expect(Number(liDepois.custo)).toBe(Number(base.custo)); // a LI ficou com o que veio
   });
 
   it('promoção é da loja: a da BASE não desce e a da loja não é apagada', async () => {

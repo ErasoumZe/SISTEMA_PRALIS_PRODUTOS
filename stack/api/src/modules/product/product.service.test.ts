@@ -226,6 +226,63 @@ describe('ProductService.update — o resultado do espelho não pode sumir', () 
   });
 });
 
+describe('ProductService.importFromBase — a loja recebe o que a Base já sabe', () => {
+  it('copia custo, preço, estoque, grupo e fiscal para a cópia da loja', async () => {
+    /*
+     * Até 25/09/2026 isto vinha zerado, e a loja recebia um cadastro pela
+     * metade: sem custo e sem fiscal o produto não é exportável para o PDV, e
+     * a pessoa tinha de redigitar o que a Base já tinha. Regra do José:
+     * *"os dados que já sabemos do produto devem importar exatamente igual"*.
+     */
+    const fiscalDaBase = { ncm: '00000000', cest: '0000000', estado: 'zerado-na-carga' };
+    const base = produto({
+      id: ID,
+      loja: 'BASE',
+      grupo: 'MER FAB. PRÓPRIA - PANIFICAÇÃO',
+      grupoId: '65',
+      estoqueMin: 2,
+      estoqueMax: 9,
+      custo: 7.5,
+      vVendaPontual: 12.9,
+      setorEstoque: 'PROD. - PANIFICAÇÃO',
+      fiscal: fiscalDaBase,
+    } as never);
+    let enviado: Record<string, unknown> | null = null;
+    const repo = {
+      async findById() { return base; },
+      async existsByBase() { return false; },
+      async findDuplicate() { return null; },
+      async findByCodigo() { return null; },
+      async create(payload: Record<string, unknown>) {
+        enviado = payload;
+        return produto({ loja: 'TNP', baseProductId: ID });
+      },
+    } as unknown as ProductRepository;
+    const sheets = {
+      async syncStoreProducts(p: Product[]) { return p.map(() => ({ outcome: 'synced' as const, rowNumber: 11 })); },
+    } as unknown as ProductSheetService;
+    const legado = {
+      async espelharNasAbasDeLoja() { return 'espelhado' as const; },
+    } as unknown as ProductSheetLojaService;
+    const service = new ProductService(repo, sheets, legado, {} as TaxRuleService, creareDriveParado());
+
+    await service.importFromBase({ ...admin, role: 'user', loja: 'TNP' }, [ID]);
+
+    expect(enviado).toMatchObject({
+      custo: 7.5,
+      vVendaPontual: 12.9,
+      estoqueMin: 2,
+      estoqueMax: 9,
+      setorEstoque: 'PROD. - PANIFICAÇÃO',
+      grupo: 'MER FAB. PRÓPRIA - PANIFICAÇÃO',
+      grupoId: '65',
+      fiscal: fiscalDaBase,
+    });
+    // promoção NÃO é herdada: colocaria a loja em campanha que ninguém decidiu
+    expect(enviado).toMatchObject({ promocoes: [] });
+  });
+});
+
 describe('ProductService.importFromBase — faixa da loja na aba geral', () => {
   it('sincroniza o lote novo no espelho principal e não chama o legado', async () => {
     const chamadas: string[] = [];

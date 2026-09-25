@@ -107,6 +107,14 @@ export const baseProductSchema = z.object({
   codigoInterno: z.string().nullable(),
   fotoUrl: z.string().nullable(),
   grupo: z.string().nullable(),
+  /**
+   * Id do grupo no Creare/SIA — o `groupCode` do TXT posicional.
+   *
+   * Viaja junto com o produto, inclusive para a cópia da loja: o nome do grupo
+   * não basta para exportar, e 1.271 produtos da carga de 25/09/2026 têm id e
+   * nenhum nome. Sem ele, a cópia da loja não teria como voltar ao PDV.
+   */
+  grupoId: z.string().nullable().optional(),
   tipo: tipoProduto,
   status: statusProduto.default('ativo'),
   habilitarAjuda: z.boolean().default(false),

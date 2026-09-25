@@ -697,17 +697,35 @@ export class ProductService {
     }
   }
 
+  /**
+   * O que a loja recebe da BASE ao importar: **tudo o que já se sabe**.
+   *
+   * Isto nasceu vazio de propósito — a ideia era que cada loja preenchesse
+   * custo, preço e estoque por conta. Só que na prática a loja recebia um
+   * cadastro pela metade: produto sem custo, sem preço e sem fiscal não é
+   * exportável para o PDV, e a pessoa tinha de redigitar o que a Base já tinha.
+   *
+   * Regra do José em 25/09/2026: *"os dados que já sabemos do produto devem
+   * importar exatamente igual pras abas TNP e LI, eles editam lá como quiserem
+   * depois"*. Copiar é o começo; divergir é escolha da loja, feita depois.
+   *
+   * Promoções continuam de fora: são datas e horários de uma campanha da
+   * Base, e herdá-las colocaria a loja em promoção sem ninguém ter decidido.
+   */
   private toCreatePayload(p: ProductSchemas.ProductEntity): ProductRequests.CreateProductRequest {
     return {
       nome: p.nome, quantidade: p.quantidade, medidaBase: p.medidaBase, codigoBarras: p.codigoBarras,
       marca: p.marca, embalagem: p.embalagem, cDe: p.cDe, qtCad: p.qtCad, medidaCompra: p.medidaCompra,
       compraAproximada: p.compraAproximada,
-      codigoInterno: p.codigoInterno, fotoUrl: p.fotoUrl, grupo: p.grupo, tipo: p.tipo, status: p.status,
-      habilitarAjuda: p.habilitarAjuda, estoqueMin: null, estoqueMax: null,
-      setorEstoque: null, setorVenda1: null, setorVenda2: null,
-      custo: null, margemPontual: null,
-      vVendaPontual: null, auto: false, localVenda1: null, localVenda2: null,
-      promocoes: [], transformacao: p.transformacao, fiscal: null,
+      codigoInterno: p.codigoInterno, fotoUrl: p.fotoUrl, grupo: p.grupo, grupoId: p.grupoId,
+      tipo: p.tipo, status: p.status,
+      habilitarAjuda: p.habilitarAjuda,
+      estoqueMin: p.estoqueMin, estoqueMax: p.estoqueMax, setorEstoque: p.setorEstoque,
+      setorVenda1: p.setorVenda1, setorVenda2: p.setorVenda2,
+      custo: p.custo, margemPontual: p.margemPontual,
+      vVendaPontual: p.vVendaPontual, auto: p.auto,
+      localVenda1: p.localVenda1, localVenda2: p.localVenda2,
+      promocoes: [], transformacao: p.transformacao, fiscal: p.fiscal,
     };
   }
 }

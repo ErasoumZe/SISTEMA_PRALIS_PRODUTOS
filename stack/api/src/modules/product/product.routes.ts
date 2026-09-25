@@ -357,6 +357,8 @@ export async function productRoutes(app: FastifyInstance) {
               quantidade: z.number(),
             })),
             apagar: z.number(),
+            vinculados: z.number(),
+            confirmacaoVinculo: z.string(),
             amostra: z.array(z.looseObject({})),
             confirmacao: z.string(),
           })),
@@ -379,6 +381,7 @@ export async function productRoutes(app: FastifyInstance) {
             criados: z.number(),
             ativos: z.number(),
             inativos: z.number(),
+            vinculadas: z.number(),
           })),
         },
         summary: 'Zerar a Base e carregar todos os produtos da planilha (admin)',
@@ -386,6 +389,33 @@ export async function productRoutes(app: FastifyInstance) {
       },
     },
     cargaBaseController.importar.bind(cargaBaseController),
+  );
+
+  /*
+   * Carimba o identificador do produto nas linhas que JÁ existem na planilha.
+   * Não cria linha e não toca em outra coluna — é o conserto do defeito em que
+   * importar da Base para a loja abria linha nova em vez de preencher a linha
+   * que o produto já ocupava.
+   */
+  a.post(
+    '/admin/produtos/importar-mix/vincular',
+    {
+      schema: {
+        body: z.object({ confirmacao: z.string() }),
+        response: {
+          200: apiResponseSchema(z.object({
+            vinculadas: z.number(),
+            jaVinculadas: z.number(),
+            linhasSemProduto: z.number(),
+            produtosSemLinha: z.number(),
+            codigosRepetidos: z.array(z.object({ codigo: z.string(), linhas: z.array(z.number()) })),
+          })),
+        },
+        summary: 'Ligar cada linha da planilha ao produto da Base (admin)',
+        tags: ['ADMIN', 'PRODUTOS'],
+      },
+    },
+    cargaBaseController.vincular.bind(cargaBaseController),
   );
 
   /*

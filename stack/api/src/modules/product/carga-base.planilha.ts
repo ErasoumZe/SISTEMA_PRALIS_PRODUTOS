@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import { env } from '@/config/env';
 import { SHEETS_GATEWAY } from '@/modules/google-sheets/google-sheets.di';
-import { a1, colToIndex, type SheetsGateway } from '@/modules/google-sheets/google-sheets.client';
+import { a1, colToIndex, indexToCol, type SheetsGateway } from '@/modules/google-sheets/google-sheets.client';
 
 /**
  * Leitura da planilha para a CARGA DA BASE.
@@ -70,6 +70,15 @@ export interface ColunaTrocada {
 export interface LeituraCarga {
   estado: EstadoCarga;
   linhas: LinhaCarga[];
+  /**
+   * Letra da coluna `ID` da aba, ou `null` quando a aba não tem uma.
+   *
+   * É por ela que o resto do sistema descobre em que linha mora cada produto.
+   * A carga não escreve o cadastro na planilha, mas PRECISA carimbar esta
+   * coluna — sem o carimbo, importar da Base para a loja abre linha nova em vez
+   * de preencher a linha que o produto já ocupa.
+   */
+  colunaId: string | null;
   /** Linhas da janela sem nome — rodapé, sobra de fórmula, vazio. */
   descartadas: number;
   /** Cabeçalhos que deixaram de bater. Havendo um, nada é lido. */
@@ -114,8 +123,11 @@ const normalizar = (valor: unknown): string => String(valor ?? '')
 const texto = (v: unknown): string => String(v ?? '').replace(/\s+/g, ' ').trim();
 
 const vazia = (): LeituraCarga => ({
-  estado: 'ok', linhas: [], descartadas: 0, trocadas: [], truncada: false,
+  estado: 'ok', linhas: [], colunaId: null, descartadas: 0, trocadas: [], truncada: false,
 });
+
+/** Título da coluna em que o sistema guarda o identificador do produto. */
+const TITULO_COLUNA_ID = 'ID';
 
 @injectable()
 export class CargaBasePlanilhaService {
@@ -124,9 +136,9 @@ export class CargaBasePlanilhaService {
   async ler(cfg: CargaConfig = env): Promise<LeituraCarga> {
     if (!cfg.GOOGLE_SHEETS_SPREADSHEET_ID.trim()) return { ...vazia(), estado: 'sem-destino' };
     try {
-      const trocadas = await this.conferirCabecalho(cfg);
+      const { trocadas, colunaId } = await this.conferirCabecalho(cfg);
       if (trocadas.length) return { ...vazia(), estado: 'coluna-mudou', trocadas };
-      return await this.dados(cfg);
+      return { ...(await this.dados(cfg)), colunaId };
     } catch (e: unknown) {
       return { ...vazia(), estado: 'falhou', erro: e instanceof Error ? e.message : String(e) };
     }
@@ -139,7 +151,7 @@ export class CargaBasePlanilhaService {
    * Divergência aqui não é aviso, é parada: importar com a coluna trocada grava
    * o dado no campo errado sem que nada reclame.
    */
-  private async conferirCabecalho(cfg: CargaConfig): Promise<ColunaTrocada[]> {
+  private async conferirCabecalho(cfg: CargaConfig): Promise<{ trocadas: ColunaTrocada[]; colunaId: string | null }> {
     const l = cfg.GOOGLE_SHEETS_CARGA_LINHA_CABECALHO;
     const [linha = []] = await this.sheets.batchGetValues(
       cfg.GOOGLE_SHEETS_SPREADSHEET_ID,
@@ -157,7 +169,14 @@ export class CargaBasePlanilhaService {
         trocadas.push({ coluna: letra, esperado: titulo, encontrado: achado || '(vazio)' });
       }
     }
-    return trocadas;
+
+    /*
+     * A coluna do identificador é procurada pelo TÍTULO, não fixada por letra:
+     * ela mora longe do bloco do cadastro e não faz parte do mapa do José, e
+     * fixá-la seria travar num ponto da aba que ninguém combinou.
+     */
+    const iId = titulos.findIndex((t) => normalizar(t) === TITULO_COLUNA_ID);
+    return { trocadas, colunaId: iId >= 0 ? indexToCol(iId) : null };
   }
 
   /**
@@ -211,6 +230,8 @@ export class CargaBasePlanilhaService {
     return {
       estado: 'ok',
       linhas,
+      // quem sabe a coluna do identificador é `conferirCabecalho`; ela preenche
+      colunaId: null,
       descartadas,
       trocadas: [],
       truncada: altura >= fim - inicio + 1,
