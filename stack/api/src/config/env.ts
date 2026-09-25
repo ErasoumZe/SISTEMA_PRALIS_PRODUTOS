@@ -106,6 +106,23 @@ export const env = {
   GOOGLE_SHEETS_GRUPOS_TAB: envVar('GOOGLE_SHEETS_GRUPOS_TAB', '(TNP/LI/HORA - EXP.) GRUPOS/REF. - VLD SAIDA'),
   GOOGLE_SHEETS_DEFAULT_LOJAS: envVar('GOOGLE_SHEETS_DEFAULT_LOJAS', 'TNP,LI,HORA'),
 
+  /*
+   * ---- Carga da Base: a aba de cadastro da planilha oficial (SÓ LEITURA) ----
+   *
+   * Mora na MESMA planilha da `GOOGLE_SHEETS_SPREADSHEET_ID`, então não há ID
+   * novo para configurar — e por isso estes valores TÊM padrão, ao contrário
+   * dos IDs acima: eles descrevem o leiaute de uma aba que o sistema já
+   * alcança, não um destino novo. Assim a carga funciona sem passar pelo
+   * compose, e o override continua disponível se a aba mudar de forma.
+   */
+  GOOGLE_SHEETS_CARGA_TAB: envVar('GOOGLE_SHEETS_CARGA_TAB', '(TNP/LI) CADASTRO PRODUTOS'),
+  /** Linha dos títulos, conferida coluna a coluna antes de qualquer leitura. */
+  GOOGLE_SHEETS_CARGA_LINHA_CABECALHO: envNum('GOOGLE_SHEETS_CARGA_LINHA_CABECALHO', 5),
+  /** Primeira linha de produto. Entre o cabeçalho e ela ficam marcadores e referências. */
+  GOOGLE_SHEETS_CARGA_LINHA_INICIAL: envNum('GOOGLE_SHEETS_CARGA_LINHA_INICIAL', 11),
+  /** Última linha lida. A grade da aba tem 9.930 linhas; ler até o fim dela não custa nada. */
+  GOOGLE_SHEETS_CARGA_LINHA_FINAL: envNum('GOOGLE_SHEETS_CARGA_LINHA_FINAL', 9930),
+
   // ---- Planilha MIX: de onde vem a numeração de cadastro (SÓ LEITURA) ----
   /**
    * SEM VALOR PADRÃO, pela mesma razão da `GOOGLE_SHEETS_SPREADSHEET_ID`: o

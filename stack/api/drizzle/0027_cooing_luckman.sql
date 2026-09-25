@@ -1,0 +1,1 @@
+ALTER TABLE "products" ADD COLUMN "grupo_id" text;
