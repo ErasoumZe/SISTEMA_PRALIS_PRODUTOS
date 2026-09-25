@@ -227,8 +227,25 @@ export type TelaId = (typeof TELAS)[number]['id'];
 
 const POR_PATH = new Map(TELAS.map((t) => [t.path, t]));
 
+/**
+ * Normaliza antes de procurar, e isso é a guarda, não enfeite.
+ *
+ * `telaDoPath` é quem a guarda de rota consulta. Caminho que não casa devolve
+ * `null`, e `null` a guarda entende como "não é tela do catálogo, pode passar".
+ * Logo `/produtos/manutencao/`, só pela barra no fim, abria uma tela de "ações
+ * que não têm volta" para quem não tem a permissão. A query string e o
+ * fragmento têm o mesmo efeito.
+ *
+ * O servidor continua recusando as chamadas dessas telas. Mas tela que abre
+ * ensina que ela existe, que é a razão de a guarda existir.
+ */
+const normalizarPath = (path: string): string => {
+  const semQuery = String(path ?? '').split(/[?#]/)[0] ?? '';
+  return semQuery.length > 1 ? semQuery.replace(/\/+$/, '') || '/' : semQuery;
+};
+
 /** A tela de um caminho, ou `null` quando o caminho não é uma tela do catálogo. */
-export const telaDoPath = (path: string): Tela | null => POR_PATH.get(path) ?? null;
+export const telaDoPath = (path: string): Tela | null => POR_PATH.get(normalizarPath(path)) ?? null;
 
 export const telaPorId = (id: string): Tela | null => TELAS.find((t) => t.id === id) ?? null;
 

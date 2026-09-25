@@ -4,6 +4,7 @@ import type {
 } from '~/composables/useApi';
 
 const api = useApi();
+const { podeVer } = useAuth();
 const flash = useFlash();
 
 const FONTES: Record<string, string> = {
@@ -205,7 +206,7 @@ onMounted(() => void carregar());
         </p>
       </div>
       <div class="central__top-actions">
-        <v-btn variant="tonal" prepend-icon="history" to="/produtos/historico-nomes">
+        <v-btn v-if="podeVer('historico')" variant="tonal" prepend-icon="history" to="/produtos/historico-nomes">
           Histórico de nomes
         </v-btn>
         <v-btn color="primary" variant="tonal" prepend-icon="sync" :loading="atualizandoFontes" @click="atualizarFontes">

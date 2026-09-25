@@ -6,7 +6,7 @@ import type { ProductSchemas } from '@pralis/shared';
 type Product = ProductSchemas.ProductEntity;
 
 const api = useApi();
-const { user } = useAuth();
+const { user, podeVer } = useAuth();
 const flash = useFlash();
 // aviso vindo do formulário (ex.: espelhamento na planilha pendente)
 const mostrarFlash = computed({
@@ -34,6 +34,16 @@ let assinatura = '';
 
 // Admin enxerga o catálogo Geral (BASE) e o de cada loja; usuário comum só a própria loja.
 const isAdmin = computed(() => user.value?.role === 'admin');
+
+/**
+ * Mostrar o botão de importar só para quem pode ABRIR a tela de importar.
+ *
+ * Sem isso, quem não tem a permissão via o botão, clicava, e a guarda de rota
+ * devolvia para cá sem dizer nada — o botão parecia quebrado. Era o caso da
+ * conta da loja em 25/09/2026. Um botão que não leva a lugar nenhum é pior que
+ * botão nenhum: ele faz a pessoa achar que o sistema travou.
+ */
+const podeImportarDaBase = computed(() => !isAdmin.value && podeVer('importar-da-base'));
 const abas = [
   { key: 'BASE', label: 'Geral (Base)' },
   { key: 'TNP', label: 'TNP' },
@@ -463,7 +473,7 @@ function preco(p: Product): string | null {
           <v-btn v-if="selecionados.size" color="error" variant="tonal" prepend-icon="delete" @click="dialogoExclusao = true">Excluir {{ selecionados.size }}</v-btn>
           <v-btn v-if="selecionados.size" size="small" variant="text" @click="limparSelecao">Limpar seleção</v-btn>
         </template>
-        <v-btn v-if="!isAdmin" variant="tonal" color="primary" prepend-icon="download" to="/importar">Importar da base</v-btn>
+        <v-btn v-if="podeImportarDaBase" variant="tonal" color="primary" prepend-icon="download" to="/importar">Importar da base</v-btn>
         <!-- só o admin cadastra produto novo (sempre na base geral) -->
         <v-btn v-if="isAdmin" color="primary" prepend-icon="add" to="/produtos/novo">Novo</v-btn>
       </div>
@@ -731,7 +741,14 @@ function preco(p: Product): string | null {
         exatamente quando a lista está vazia, esse era o único botão à vista.
       -->
       <v-btn v-else-if="isAdmin" color="primary" variant="tonal" class="mt-4" to="/produtos/novo">Cadastrar o primeiro</v-btn>
-      <v-btn v-else color="primary" variant="tonal" class="mt-4" prepend-icon="download" to="/importar">Importar da base</v-btn>
+      <v-btn v-else-if="podeImportarDaBase" color="primary" variant="tonal" class="mt-4" prepend-icon="download" to="/importar">Importar da base</v-btn>
+      <!--
+        Sem permissão de importar, a lista vazia não oferece saída nenhuma — e
+        ficar sem saída e sem explicação é o que faz a pessoa achar que quebrou.
+      -->
+      <p v-else class="text-body-2 text-medium-emphasis mt-4 mb-0">
+        Sua loja ainda não tem produtos. Quem libera a importação da base é o administrador.
+      </p>
     </v-card>
 
     <!-- paginação (10 por página) -->
