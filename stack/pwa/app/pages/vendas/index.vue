@@ -52,6 +52,8 @@ const fimComHora = computed(() => `${fim.value}T${horaFim.value || '23:59'}`);
 const filtroSetor = ref<string | null>(q('setor') || null);
 const filtroGrupo = ref<string | null>(q('grupo') || null);
 const filtroProduto = ref(q('produto'));
+/** PDV (ID do dispositivo no ERP). Só a aba Vendas usa: é a única com PDV por item. */
+const filtroPdv = ref<string | null>(q('pdv') || null);
 /** O texto de produto viaja com atraso: cada letra digitada não pode virar uma consulta. */
 const filtroProdutoAplicado = ref(filtroProduto.value);
 let esperaProduto: ReturnType<typeof setTimeout> | null = null;
@@ -65,6 +67,17 @@ const filtrosQuery = computed(() => ({
   ...(filtroProdutoAplicado.value ? { produto: filtroProdutoAplicado.value } : {}),
 }));
 const filtrosAtivos = computed(() => Object.keys(filtrosQuery.value).length > 0);
+/**
+ * O recorte que vai para relatório, ranking e ABC: cadastro + hora + PDV. O
+ * servidor só aplica hora e PDV quando os cupons cobrem o período e diz
+ * quando não aplicou (`fonte.ignorados`).
+ */
+const recorteQuery = computed(() => ({
+  ...filtrosQuery.value,
+  ...(horaInicio.value ? { hi: horaInicio.value } : {}),
+  ...(horaFim.value ? { hf: horaFim.value } : {}),
+  ...(filtroPdv.value ? { pdv: filtroPdv.value } : {}),
+}));
 function limparFiltros() { filtroSetor.value = null; filtroGrupo.value = null; filtroProduto.value = ''; filtroProdutoAplicado.value = ''; }
 
 /**
@@ -76,8 +89,18 @@ const queryAtual = computed(() => ({
   ...(horaInicio.value ? { hi: horaInicio.value } : {}),
   ...(horaFim.value ? { hf: horaFim.value } : {}),
   ...filtrosQuery.value,
+  ...(filtroPdv.value ? { pdv: filtroPdv.value } : {}),
 }));
-watch(queryAtual, (nova) => { router.replace({ query: { ...route.query, ...nova } }); }, { deep: true });
+/*
+ * As chaves que ESTA tela controla saem inteiras da URL antes de regravar.
+ * Mesclar por cima (`{ ...route.query, ...nova }`) mantinha o valor antigo de
+ * um filtro limpo — a hora apagada continuava na URL e voltava ao recarregar.
+ */
+const CHAVES_DO_RECORTE = ['inicio', 'fim', 'hi', 'hf', 'setor', 'grupo', 'produto', 'pdv'];
+watch(queryAtual, (nova) => {
+  const resto = Object.fromEntries(Object.entries(route.query).filter(([k]) => !CHAVES_DO_RECORTE.includes(k)));
+  router.replace({ query: { ...resto, ...nova } });
+}, { deep: true });
 
 const dados = ref<VendasReport | null>(null);
 const carregando = ref(false);
@@ -117,7 +140,8 @@ async function carregar() {
   erro.value = '';
   try {
     dados.value = await api.vendasReport({
-      ...filtrosQuery.value,
+      ...recorteQuery.value,
+      ...(granularidadeGrafico.value !== 'auto' ? { granularidade: granularidadeGrafico.value } : {}),
       // usuário de loja não manda `loja`: quem decide é o servidor
       ...(isAdmin.value ? { loja: loja.value } : {}),
       inicio: inicio.value,
@@ -159,7 +183,8 @@ const NOME_DA_FONTE: Record<string, string> = {
 };
 
 onMounted(() => { carregar(); carregarPulso(); });
-watch([loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado], carregar);
+const granularidadeGrafico = ref<'auto' | 'hora' | 'dia'>('auto');
+watch([loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado, horaInicio, horaFim, filtroPdv, granularidadeGrafico], carregar);
 
 const semMovimento = computed(() =>
   !!dados.value && dados.value.resumo.faturamento === 0 && dados.value.resumo.numeroVendas === 0);
@@ -182,6 +207,15 @@ const resumoCards = computed(() => {
   // A origem fica escrita no card: faturamento e quantidade vêm das VENDAS por
   // produto; número de vendas e ticket vêm do FECHAMENTO de caixa. São duas
   // fontes e podem divergir — sem dizer isso, o usuário lê como erro de conta.
+  const deCupons = dados.value?.fonte.tipo === 'itens';
+  if (deCupons) {
+    return [
+      { label: 'Faturamento', origem: 'cupons do caixa', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
+      { label: 'Quantidade vendida', origem: 'cupons do caixa', valor: num(r.quantidade), icon: 'inventory_2', cor: 'var(--cx-sales-volume)' },
+      { label: 'Nº de vendas', origem: 'cupons do caixa', valor: num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
+      { label: 'Ticket médio', origem: 'cupons do caixa', valor: brl(r.ticketMedio), icon: 'trending_up', cor: 'var(--cx-sales-volume)' },
+    ];
+  }
   return [
     { label: 'Faturamento', origem: 'vendas por produto', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
     { label: 'Quantidade vendida', origem: 'vendas por produto', valor: num(r.quantidade), icon: 'inventory_2', cor: 'var(--cx-sales-volume)' },
@@ -259,6 +293,11 @@ const GRADE = '#E7EAF0';
 const TINTA_FRACA = '#6B7280';
 
 const eixoDias = computed(() => (dados.value?.pagamentos ?? []).map((p) => diaCurto(p.data)));
+/** Eixo do gráfico grande: hora (`14h`) ou dia (`24/09`), conforme a série. */
+const porHora = computed(() => dados.value?.periodo.granularidade === 'hora');
+const rotuloT = (t: string) => (t.length > 10 ? `${t.slice(11, 13)}h${eixoSerie.value.length > 24 ? ' ' + diaCurto(t.slice(0, 10)) : ''}` : diaCurto(t));
+const eixoSerie = computed(() => (dados.value?.serie ?? []).map((p) => p.t));
+const rotuloCompleto = (t: string) => (t.length > 10 ? `${dia(t.slice(0, 10))} ${t.slice(11, 16)}` : dia(t));
 
 /**
  * A MEDIDA do gráfico grande.
@@ -269,7 +308,7 @@ const eixoDias = computed(() => (dados.value?.pagamentos ?? []).map((p) => diaCu
  * vira uma coincidência de escala que parece significado.
  */
 const MEDIDAS = [
-  { valor: 'total', label: 'Faturamento do dia', sufixo: 'R$' },
+  { valor: 'total', label: 'Faturamento', sufixo: 'R$' },
   { valor: 'numeroVendas', label: 'Nº de vendas', sufixo: '' },
 ] as const;
 const medida = ref<'total' | 'numeroVendas'>('total');
@@ -277,18 +316,18 @@ const medidaAtual = computed(() => MEDIDAS.find((m) => m.valor === medida.value)
 
 const serieGrande = computed(() => [{
   name: medidaAtual.value.label,
-  data: (dados.value?.pagamentos ?? []).map((p) => Number(p[medida.value])),
+  data: (dados.value?.serie ?? []).map((p) => Number(p[medida.value])),
 }]);
 
-const temSerie = computed(() => (dados.value?.pagamentos ?? []).length > 0);
+const temSerie = computed(() => (dados.value?.serie ?? []).length > 0);
 
 /** O maior dia do período — é o único ponto que ganha rótulo direto. */
 const pico = computed(() => {
-  const linhas = dados.value?.pagamentos ?? [];
+  const linhas = dados.value?.serie ?? [];
   if (!linhas.length) return null;
   let melhor = linhas[0]!;
   for (const l of linhas) if (Number(l[medida.value]) > Number(melhor[medida.value])) melhor = l;
-  return { data: melhor.data, valor: Number(melhor[medida.value]) };
+  return { data: melhor.t, valor: Number(melhor[medida.value]) };
 });
 
 const formatarMedida = (v: number) =>
@@ -336,8 +375,8 @@ const opcoesGrande = computed<ApexOptions>(() => ({
     padding: { left: 12, right: 24, top: 8 },
   },
   xaxis: {
-    categories: eixoDias.value,
-    tickAmount: Math.min(12, eixoDias.value.length),
+    categories: eixoSerie.value.map(rotuloT),
+    tickAmount: Math.min(12, eixoSerie.value.length),
     axisBorder: { show: false },
     axisTicks: { show: false },
     labels: { style: { colors: TINTA_FRACA, fontSize: '12px' }, rotate: 0, hideOverlappingLabels: true },
@@ -364,7 +403,7 @@ const opcoesGrande = computed<ApexOptions>(() => ({
   tooltip: {
     shared: true,
     intersect: false,
-    x: { formatter: (_v, o) => dia(dados.value?.pagamentos?.[o?.dataPointIndex ?? 0]?.data ?? '') },
+    x: { formatter: (_v, o) => rotuloCompleto(dados.value?.serie?.[o?.dataPointIndex ?? 0]?.t ?? '') },
     y: { formatter: (v: number) => formatarMedida(v) },
   },
   legend: { show: false },
@@ -508,6 +547,7 @@ async function carregarLista(silencioso = false) {
       inicio: inicioComHora.value,
       fim: fimComHora.value,
       ...filtrosQuery.value,
+      ...(filtroPdv.value ? { dispositivoIdErp: filtroPdv.value } : {}),
       limite: 50,
       pagina: paginaVendas.value,
     });
@@ -533,7 +573,8 @@ watch(aoVivo, (ligado) => {
 }, { immediate: true });
 onBeforeUnmount(() => { if (relogioAoVivo) clearInterval(relogioAoVivo); });
 
-watch([loja, inicio, fim, horaInicio, horaFim, filtroSetor, filtroGrupo, filtroProdutoAplicado], () => {
+watch(loja, () => { filtroPdv.value = null; }); // PDV de uma loja não existe na outra
+watch([loja, inicio, fim, horaInicio, horaFim, filtroSetor, filtroGrupo, filtroProdutoAplicado, filtroPdv], () => {
   paginaVendas.value = 1;
   if (aoVivo.value) void carregarLista();
 });
@@ -569,7 +610,7 @@ async function carregarRanking() {
   erroRanking.value = '';
   try {
     ranking.value = await api.vendasRanking({
-      ...filtrosQuery.value,
+      ...recorteQuery.value,
       ...(isAdmin.value ? { loja: loja.value } : {}),
       inicio: inicio.value,
       fim: fim.value,
@@ -585,9 +626,14 @@ async function carregarRanking() {
 }
 
 /* Só busca quando a aba está aberta — ninguém paga por dado que não vai ver. */
-watch([aba, dimensao, loja, inicio, fim], () => {
+/*
+ * `immediate`: a aba agora vem da URL (`?aba=ranking`). Sem isso, abrir a
+ * página já nela não disparava a carga — a watch só reage a MUDANÇA de aba.
+ * E os filtros entram na lista: antes trocar setor ou PDV não relia o ranking.
+ */
+watch([aba, dimensao, loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado, horaInicio, horaFim, filtroPdv], () => {
   if (aba.value === 'ranking') carregarRanking();
-});
+}, { immediate: true });
 
 /** Cor da cobertura, mesma régua da margem: abaixo de 80% o ranking já não representa. */
 const corCoberturaRanking = computed(() => {
@@ -624,7 +670,7 @@ async function carregarListaAbc() {
   erroAbc.value = '';
   try {
     listaAbc.value = await api.vendasCurvaAbc({
-      ...filtrosQuery.value,
+      ...recorteQuery.value,
       ...(isAdmin.value ? { loja: loja.value } : {}),
       inicio: inicio.value,
       fim: fim.value,
@@ -640,9 +686,9 @@ async function carregarListaAbc() {
 }
 
 /* Só busca com a aba aberta — a consulta cruza a venda inteira com o cadastro. */
-watch([aba, classeAberta, loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado], () => {
+watch([aba, classeAberta, loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado, horaInicio, horaFim, filtroPdv], () => {
   if (aba.value === 'abc') carregarListaAbc();
-});
+}, { immediate: true }); // abrir direto em ?aba=abc também carrega
 
 /**
  * A ordenação da lista.
@@ -655,7 +701,7 @@ watch([aba, classeAberta, loja, inicio, fim, filtroSetor, filtroGrupo, filtroPro
 const ORDENS = [
   { valor: 'faturamento', label: 'Faturamento' },
   { valor: 'giro', label: 'Gira mais rápido' },
-  { valor: 'risco', label: 'Menos dias de estoque' },
+  // 'risco' (dias de estoque) desligada por ora: sem saldo, mín e máx no cadastro ela não diz nada
 ] as const;
 const ordem = ref<'faturamento' | 'giro' | 'risco'>('faturamento');
 // filtroSetor / filtroGrupo / filtroProduto: declarados no topo, valem para a área inteira
@@ -669,10 +715,16 @@ const TAMANHO_PAGINA_ABC = 25;
  * escolher um setor, os demais sumiam do dropdown e não dava para trocar.
  */
 const baseOpcoes = ref<AbcProdutos | null>(null);
+const opcoesPdv = ref<Array<{ dispositivoIdErp: string; pdv: string }>>([]);
 async function carregarOpcoesCadastro() {
+  const lojaQ = isAdmin.value ? { loja: loja.value } : {};
   try {
-    baseOpcoes.value = await api.vendasCurvaAbc({ ...(isAdmin.value ? { loja: loja.value } : {}), inicio: inicio.value, fim: fim.value });
+    baseOpcoes.value = await api.vendasCurvaAbc({ ...lojaQ, inicio: inicio.value, fim: fim.value });
   } catch { baseOpcoes.value = null; }
+  try {
+    // a lista devolve os PDVs que venderam no período; basta uma linha dela
+    opcoesPdv.value = (await api.vendasLista({ ...lojaQ, inicio: `${inicio.value}T00:00`, fim: `${fim.value}T23:59`, limite: 1, pagina: 1 })).pdvs;
+  } catch { opcoesPdv.value = []; }
 }
 onMounted(carregarOpcoesCadastro);
 watch([loja, inicio, fim], carregarOpcoesCadastro);
@@ -835,6 +887,19 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
       <v-select v-model="filtroSetor" :items="setoresAbc" label="Setor" clearable variant="outlined" density="compact" hide-details style="min-width: 190px; max-width: 240px" />
       <v-select v-model="filtroGrupo" :items="gruposAbc" label="Grupo" clearable variant="outlined" density="compact" hide-details style="min-width: 190px; max-width: 240px" />
       <v-text-field v-model="filtroProduto" label="Produto ou código" prepend-inner-icon="search" clearable variant="outlined" density="compact" hide-details style="min-width: 220px; max-width: 260px" />
+      <v-select
+        v-model="filtroPdv"
+        :items="opcoesPdv"
+        item-title="pdv"
+        item-value="dispositivoIdErp"
+        label="PDV"
+        prepend-inner-icon="point_of_sale"
+        clearable
+        variant="outlined"
+        density="compact"
+        hide-details
+        style="min-width: 200px; max-width: 260px"
+      />
       <v-spacer />
       <v-btn variant="tonal" prepend-icon="refresh" :loading="carregando" @click="carregar">Atualizar</v-btn>
       <v-btn variant="tonal" prepend-icon="list" :to="{ path: '/vendas/produtos', query: queryAtual }">Produtos vendidos</v-btn>
@@ -920,12 +985,14 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             DIA (a fonte só tem data, hora vale no detalhe do PDV) e o filtro
             de cadastro só alcança o que sai de itens.
           -->
-          <v-alert v-if="comHora" type="info" variant="tonal" density="compact" class="mb-3" icon="schedule">
-            Este relatório tem granularidade <strong>diária</strong>: as horas informadas valem só no detalhe de cada PDV.
+          <v-alert v-if="dados.fonte.ignorados.length" type="warning" variant="tonal" density="compact" class="mb-3" icon="schedule">
+            <strong>{{ dados.fonte.ignorados.includes('hora') && dados.fonte.ignorados.includes('pdv') ? 'Hora e PDV foram ignorados' : dados.fonte.ignorados.includes('hora') ? 'A hora foi ignorada' : 'O PDV foi ignorado' }}</strong>
+            neste período: ele começa antes de <strong>{{ dados.fonte.desde ? dia(dados.fonte.desde) : '—' }}</strong>, o primeiro dia com cupons
+            detalhados. Os números abaixo são os totais diários. Para usar hora e PDV, comece o período nessa data ou depois.
           </v-alert>
-          <v-alert v-if="dados.filtros.ativo" type="info" variant="tonal" density="compact" class="mb-3" icon="filter_alt">
+          <v-alert v-if="dados.filtros.ativo && dados.filtros.alcance === 'itens'" type="info" variant="tonal" density="compact" class="mb-3" icon="filter_alt">
             Filtro por cadastro ativo — vale para faturamento, quantidade, produtos e curva ABC.
-            <strong>Nº de vendas, ticket médio, pagamentos e ranking de caixas não filtram</strong>: o fechamento de caixa não tem itens.
+            <strong>Nº de vendas, ticket médio e ranking de caixas não filtram</strong> neste período (totais diários, sem itens).
             <v-btn size="x-small" variant="text" class="ml-2" @click="limparFiltros">Limpar</v-btn>
           </v-alert>
           <v-row class="mb-1">
@@ -949,9 +1016,10 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
           <v-card flat border rounded="lg" class="pa-4 mt-3">
             <div class="d-flex align-center flex-wrap ga-3 mb-1">
               <div>
-                <div class="text-subtitle-1 font-weight-bold">{{ medidaAtual.label }} por dia</div>
+                <div class="text-subtitle-1 font-weight-bold">{{ medidaAtual.label }} por {{ porHora ? 'hora' : 'dia' }}</div>
                 <div class="text-caption text-medium-emphasis">
-                  {{ dia(dados.periodo.inicio) }} a {{ dia(dados.periodo.fim) }} · fechamento de caixa
+                  {{ dia(dados.periodo.inicio) }} a {{ dia(dados.periodo.fim) }} ·
+                  {{ dados.fonte.tipo === 'itens' ? 'cupons do caixa' : 'fechamento de caixa' }}
                 </div>
               </div>
               <v-spacer />
@@ -961,18 +1029,31 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 faz o cruzamento das linhas parecer significado quando é só
                 coincidência de escala.
               -->
+              <!-- hora só existe com os cupons: no diário o botão nem aparece -->
+              <v-btn-toggle
+                v-if="dados.fonte.tipo === 'itens'"
+                :model-value="porHora ? 'hora' : 'dia'"
+                density="compact"
+                variant="outlined"
+                divided
+                mandatory
+                @update:model-value="(v: 'hora' | 'dia') => { granularidadeGrafico = v; }"
+              >
+                <v-btn value="hora" size="small">Por hora</v-btn>
+                <v-btn value="dia" size="small">Por dia</v-btn>
+              </v-btn-toggle>
               <v-btn-toggle v-model="medida" density="compact" variant="outlined" divided mandatory>
                 <v-btn v-for="m in MEDIDAS" :key="m.valor" :value="m.valor" size="small">{{ m.label }}</v-btn>
               </v-btn-toggle>
             </div>
 
             <div v-if="!temSerie" class="text-caption text-medium-emphasis py-8 text-center">
-              Nenhum fechamento de caixa importado nesse período — sem ele não há série diária.
+              Nenhuma venda neste recorte.
             </div>
             <template v-else>
               <!-- rótulo direto só no PICO: número em todo ponto não se lê -->
               <div v-if="pico" class="text-caption text-medium-emphasis mb-2">
-                Maior dia: <strong class="text-high-emphasis">{{ dia(pico.data) }}</strong>
+                {{ porHora ? 'Maior hora' : 'Maior dia' }}: <strong class="text-high-emphasis">{{ rotuloCompleto(pico.data) }}</strong>
                 — {{ formatarMedida(pico.valor) }}
               </div>
               <!-- sem altura fixa no container: a altura vive nas opções, e é o
@@ -981,7 +1062,11 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             </template>
           </v-card>
 
-          <div class="text-caption text-medium-emphasis mt-3">
+          <div v-if="dados.fonte.tipo === 'itens'" class="text-caption text-medium-emphasis mt-3">
+            Todos os números acima saem dos cupons do caixa (itens confirmados, sem cancelados).
+            O fechamento de caixa pode diferir: ele inclui crediário, sobra/perda e outros lançamentos que não são venda de produto.
+          </div>
+          <div v-else class="text-caption text-medium-emphasis mt-3">
             O faturamento sai das vendas por produto e o número de vendas sai do fechamento
             de caixa. São registros diferentes do PDV, então os totais podem não bater:
             o fechamento inclui crediário, sobra/perda e outros lançamentos que não são venda de produto.
@@ -1187,7 +1272,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
               </div>
               <div class="text-caption text-medium-emphasis mb-3">
                 {{ num(itensAbcOrdenados.length) }} produto(s) nesta lista após os filtros.
-                Setor, grupo e produto vêm da barra acima e recalculam a curva sobre o recorte: a classe A aqui é a A DENTRO do filtro. O ranking de caixas não os aplica.
+                Setor, grupo e produto vêm da barra acima e recalculam a curva sobre o recorte: a classe A aqui é a A DENTRO do filtro.
               </div>
               <!--
                 O AVISO vem antes da tabela, de propósito.
@@ -1198,26 +1283,15 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 o TETO, não o que resta hoje. Sem esta frase, alguém leria "3,3
                 dias" como "acaba quinta-feira" e compraria errado.
               -->
-              <v-alert type="info" variant="tonal" density="compact" class="mb-3">
-                <strong>Não há saldo de estoque no sistema.</strong>
-                A coluna <em>dias de máximo</em> diz em quantos dias a venda deste ritmo
-                consumiria o estoque <strong>máximo cadastrado</strong> — é o teto, não o que
-                resta hoje na prateleira.
-              </v-alert>
 
               <div
-                v-if="listaAbc.semCadastro || listaAbc.semEstoqueMax"
+                v-if="listaAbc.semCadastro"
                 class="text-caption text-medium-emphasis mb-3"
               >
                 <template v-if="listaAbc.semCadastro">
                   <strong class="text-warning">{{ num(listaAbc.semCadastro) }}</strong>
-                  produto(s) desta classe não casaram com o cadastro — sem custo, mínimo nem máximo.
+                  produto(s) desta classe não casaram com o cadastro — sem setor nem custo.
                   <NuxtLink :to="{ path: '/vendas/de-para', query: queryAtual }" class="text-primary">Resolver no de-para</NuxtLink>.
-                </template>
-                <template v-if="listaAbc.semEstoqueMax">
-                  <span v-if="listaAbc.semCadastro"> · </span>
-                  <strong class="text-warning">{{ num(listaAbc.semEstoqueMax) }}</strong>
-                  estão sem estoque máximo cadastrado.
                 </template>
               </div>
 
@@ -1229,21 +1303,26 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 <v-table density="compact">
                   <thead>
                     <tr>
-                      <th class="text-left">#</th>
+                      <th class="text-left">Posição</th>
                       <th class="text-left">Produto</th>
                       <th class="text-left">Setor</th>
                       <th class="text-right">Vendeu</th>
                       <th class="text-right">Por dia</th>
                       <th class="text-right">Faturou</th>
                       <th class="text-right">% acum.</th>
-                      <th class="text-right">Mín.</th>
-                      <th class="text-right">Máx.</th>
-                      <th class="text-right">Dias de máx.</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="i in itensAbcPagina" :key="`${i.produtoCodigo}-${i.produto}`" :class="{ 'sales-abc-a': i.classe === 'A' }">
-                      <td class="text-medium-emphasis">{{ i.posicao }}</td>
+                      <!--
+                        1/n: n é quantos produtos DIFERENTES venderam no recorte.
+                        A porcentagem é a posição dentro desse universo — "1/100,
+                        top 1%" — e diz mais que o número solto.
+                      -->
+                      <td class="tabular text-no-wrap">
+                        <div class="font-weight-medium">{{ i.posicao }}/{{ listaAbc.totalProdutos }}</div>
+                        <div class="text-caption text-medium-emphasis">top {{ pct((i.posicao / Math.max(1, listaAbc.totalProdutos)) * 100) }}</div>
+                      </td>
                       <td>
                         <div class="text-truncate" style="max-width: 320px">{{ i.produto }}</div>
                         <div class="text-caption text-medium-emphasis">
@@ -1256,19 +1335,6 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                       <td class="text-right">{{ num(i.porDia) }}</td>
                       <td class="text-right font-weight-bold">{{ brl(i.faturamento) }}</td>
                       <td class="text-right text-medium-emphasis">{{ pct(i.acumulado) }}</td>
-                      <td class="text-right">{{ i.estoqueMin != null ? num(i.estoqueMin) : '—' }}</td>
-                      <td class="text-right">{{ i.estoqueMax != null ? num(i.estoqueMax) : '—' }}</td>
-                      <!--
-                        Vermelho abaixo de 7 dias, âmbar até 15: é a faixa em que
-                        a reposição precisa ser semanal ou mais frequente. Cor
-                        NUNCA sozinha — o número está escrito ao lado.
-                      -->
-                      <td
-                        class="text-right font-weight-bold"
-                        :class="i.diasDeMaximo == null ? 'text-disabled'
-                          : i.diasDeMaximo < 7 ? 'text-error'
-                            : i.diasDeMaximo < 15 ? 'text-warning' : ''"
-                      >{{ i.diasDeMaximo != null ? `${num(i.diasDeMaximo)} d` : 'sem máx.' }}</td>
                     </tr>
                   </tbody>
                 </v-table>
@@ -1372,6 +1438,10 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
         </v-window-item>
 
         <v-window-item value="graficos">
+          <v-alert type="info" variant="tonal" density="compact" class="mb-3" icon="info">
+            As <strong>formas de pagamento</strong> vêm do fechamento de caixa, que é um total por dia:
+            respeitam as datas, mas não a hora, o PDV nem os filtros de cadastro.
+          </v-alert>
           <v-card flat border rounded="lg" class="pa-4">
             <div class="text-subtitle-1 font-weight-bold mb-1">Formas de pagamento por dia</div>
             <div class="text-caption text-medium-emphasis mb-3">

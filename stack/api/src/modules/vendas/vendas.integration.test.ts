@@ -158,6 +158,10 @@ describe('ingestão de vendas e fechamentos (Postgres real)', () => {
     expect(cancelada).toMatchObject({ itens: 0, total: 0, cancelada: true, confirmada: false });
     expect(confirmada.vendidoEm).toBe('2026-09-24T14:30:15');
     expect(r.atualizadoEm).toMatch(/^2026-09-24T/);
+    // opções do filtro de PDV: quem vendeu no período, pelo ID do dispositivo
+    expect(r.pdvs).toEqual([{ dispositivoIdErp: '7', pdv: 'PDV 07' }]);
+    const soPdv = await listaService.lista('TNP', { ...q, dispositivoIdErp: '7' }, true);
+    expect(soPdv.pdvs).toEqual(r.pdvs); // o filtro não apaga as outras opções
   });
 
   it('filtra por dispositivo e por texto de produto, e diz quando nao ha detalhe', async () => {
@@ -168,6 +172,32 @@ describe('ingestão de vendas e fechamentos (Postgres real)', () => {
     expect(porTexto.filtros.ativo).toBe(true);
     // Lisboa nao recebeu lote nenhum: a tela precisa saber que e ausencia de dado
     expect((await listaService.lista('LI', q, true)).disponivel).toBe(false);
+  });
+
+  /*
+   * Visão geral lendo os CUPONS: com o período coberto (a venda 101 é de
+   * 24/09 14:30), hora e PDV passam a valer no relatório inteiro.
+   */
+  it('relatório usa os cupons quando cobrem o período, com hora e PDV', async () => {
+    const { VendasReportService } = await import('./vendas-report.service');
+    const { VendasReportRepository } = await import('./vendas-report.repository');
+    const report = new VendasReportService(new VendasReportRepository());
+
+    const dia = await report.report('TNP', '2026-09-24', '2026-09-24', {}, { hi: '14:00', hf: '15:00' });
+    expect(dia.fonte).toMatchObject({ tipo: 'itens', horaAplicada: true, ignorados: [] });
+    expect(dia.resumo).toMatchObject({ faturamento: 9.5, numeroVendas: 1, ticketMedio: 9.5 }); // a 102 cancelada não conta
+    expect(dia.periodo.granularidade).toBe('hora'); // um dia só: série por hora
+    expect(dia.serie).toEqual([{ t: '2026-09-24T14:00', total: 9.5, numeroVendas: 1 }]);
+
+    const foraDaHora = await report.report('TNP', '2026-09-24', '2026-09-24', {}, { hi: '16:00', hf: '17:00' });
+    expect(foraDaHora.resumo.numeroVendas).toBe(0);
+
+    const outroPdv = await report.report('TNP', '2026-09-24', '2026-09-24', {}, { pdv: '99' });
+    expect(outroPdv.resumo.faturamento).toBe(0);
+
+    // começando antes do primeiro cupom: diário, e a hora pedida volta como ignorada
+    const antes = await report.report('TNP', '2026-09-20', '2026-09-24', {}, { hi: '14:00' });
+    expect(antes.fonte).toMatchObject({ tipo: 'diario', ignorados: ['hora'] });
   });
 
   it('abre o cupom com os itens e esconde dinheiro de quem nao pode ver', async () => {

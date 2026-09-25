@@ -67,6 +67,11 @@ export const listaVendasSchema = z.object({
   limite: z.number(),
   /** Hora local em que a fonte foi atualizada pela última vez — é o "atualizado há". */
   atualizadoEm: z.string().nullable(),
+  /**
+   * PDVs que venderam no período — as opções do filtro de PDV. Ignoram o
+   * próprio filtro de PDV (senão escolher um apagaria os outros do menu).
+   */
+  pdvs: z.array(z.object({ dispositivoIdErp: z.string(), pdv: z.string() })),
   vendas: z.array(vendaResumoSchema),
 });
 

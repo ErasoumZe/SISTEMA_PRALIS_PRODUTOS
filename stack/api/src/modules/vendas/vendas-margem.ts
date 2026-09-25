@@ -6,6 +6,12 @@ export interface ProdutoCadastro {
   id: string;
   nome: string;
   codigoBarras: string | null;
+  /**
+   * O código interno (= `coditem` do Creare). É por ELE que casa a venda de
+   * produto sem etiqueta: o PDV manda `00000000010824`, que é o coditem 10824
+   * zero-preenchido, não um código de barras.
+   */
+  codigoInterno?: string | null;
   custo: number | null;
   qtCad: number;
   /** Só para montar a descrição nas sugestões de de-para. */
@@ -70,8 +76,34 @@ export function indexarPorCodigo(produtos: ProdutoCadastro[]): Map<string, Produ
       indice.set(chave, produto);
     }
   }
+  /*
+   * Índice pelo CÓDIGO INTERNO, com prefixo `ci:` para nunca colidir com uma
+   * chave de código de barras. Dois cadastros com o mesmo código interno são
+   * duplicata: a chave vira ambígua e ninguém casa por ela, como no barras.
+   */
+  for (const produto of produtos) {
+    const ci = soDigitosSemZero(produto.codigoInterno);
+    if (!ci) continue;
+    const chave = `ci:${ci}`;
+    const existente = indice.get(chave);
+    if (existente && existente.id !== produto.id) { ambiguas.add(chave); continue; }
+    indice.set(chave, produto);
+  }
   for (const chave of ambiguas) indice.delete(chave);
   return indice;
+}
+
+const soDigitosSemZero = (v: unknown) => String(v ?? '').replace(/\D/g, '').replace(/^0+/, '');
+
+/**
+ * O código da venda É o código interno quando, sem os zeros, sobra menos que
+ * um código de barras de verdade (8 dígitos, o EAN-8). Mesma linha que separa
+ * `00000000012067` (coditem 12067) de `07891000460207` (etiqueta) — medida
+ * no export do SIA em 21/09/2026, sem sobreposição no catálogo.
+ */
+export function codigoInternoDaVenda(produtoCodigo: string): string | null {
+  const n = soDigitosSemZero(produtoCodigo);
+  return n && n.length < 8 ? n : null;
 }
 
 /**
@@ -91,6 +123,16 @@ export function resolverProduto(
 ): ProdutoCadastro | null {
   const manual = dePara.get(chaveDePara(produtoCodigo, produto));
   if (manual) return manual;
+  /*
+   * Código curto = código interno. Vem ANTES do barras: um número de 5
+   * dígitos como código de barras só casaria por coincidência (a armadilha do
+   * PR #62); como código interno ele é a identidade do produto na rede.
+   */
+  const ci = codigoInternoDaVenda(produtoCodigo);
+  if (ci) {
+    const porCodigo = indice.get(`ci:${ci}`);
+    if (porCodigo) return porCodigo;
+  }
   for (const chave of barcodeCandidates(produtoCodigo)) {
     const achado = indice.get(chave);
     if (achado) return achado;
