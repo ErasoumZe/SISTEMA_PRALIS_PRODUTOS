@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { FISCAL_ZERADO, GRUPOS_DE_FABRICACAO_PROPRIA, planejarCarga } from './carga-base.motor';
+import {
+  FISCAL_ZERADO, GRUPOS_DE_FABRICACAO_PROPRIA, colunaDeIdentificadores, parearLinhasComProdutos, planejarCarga,
+} from './carga-base.motor';
 import type { LinhaCarga } from './carga-base.planilha';
 
 /**
@@ -173,5 +175,87 @@ describe('FISCAL_ZERADO', () => {
   it('deixa rastro de que o fiscal ainda não é o de verdade', () => {
     expect(FISCAL_ZERADO.estado).toBe('zerado-na-carga');
     expect(FISCAL_ZERADO.motivo).toMatch(/backfill/i);
+  });
+});
+
+describe('parearLinhasComProdutos', () => {
+  it('casa a linha com o produto pelo código interno, ignorando formato', () => {
+    // a planilha mostra `10.000`; o cadastro guarda `10000`
+    const r = parearLinhasComProdutos(
+      [{ linha: 11, codigo: '10.000' }, { linha: 12, codigo: '10.001' }],
+      [{ id: 'p1', codigoInterno: '10000' }, { id: 'p2', codigoInterno: '10001' }],
+    );
+    expect(r.vinculos).toEqual([
+      { linha: 11, produtoId: 'p1', codigo: '10000' },
+      { linha: 12, produtoId: 'p2', codigo: '10001' },
+    ]);
+    expect(r.linhasSemProduto).toEqual([]);
+    expect(r.produtosSemLinha).toEqual([]);
+  });
+
+  it('casa mesmo com zeros à esquerda dos dois lados', () => {
+    const r = parearLinhasComProdutos([{ linha: 11, codigo: '7' }], [{ id: 'p1', codigoInterno: '00007' }]);
+    expect(r.vinculos).toEqual([{ linha: 11, produtoId: 'p1', codigo: '7' }]);
+  });
+
+  it('não vincula código que aparece em duas linhas, e diz quais são', () => {
+    /*
+     * O caso real de 25/09/2026: o código 7 nas linhas 11 e 7380. Carimbar o
+     * identificador nas duas faria o sistema escolher uma por sorte.
+     */
+    const r = parearLinhasComProdutos(
+      [{ linha: 11, codigo: '7' }, { linha: 7380, codigo: '00007' }, { linha: 12, codigo: '8' }],
+      [{ id: 'p1', codigoInterno: '7' }, { id: 'p2', codigoInterno: '8' }],
+    );
+    expect(r.codigosRepetidos).toEqual([{ codigo: '7', linhas: [11, 7380] }]);
+    expect(r.vinculos).toEqual([{ linha: 12, produtoId: 'p2', codigo: '8' }]);
+    expect(r.produtosSemLinha).toEqual(['p1']);
+  });
+
+  it('separa linha sem produto de produto sem linha', () => {
+    const r = parearLinhasComProdutos(
+      [{ linha: 11, codigo: '7' }, { linha: 12, codigo: '99' }],
+      [{ id: 'p1', codigoInterno: '7' }, { id: 'pX', codigoInterno: null }],
+    );
+    expect(r.linhasSemProduto).toEqual([12]);
+    expect(r.produtosSemLinha).toEqual(['pX']);
+  });
+});
+
+describe('colunaDeIdentificadores', () => {
+  it('monta um bloco contíguo da primeira linha até a última com vínculo', () => {
+    const r = colunaDeIdentificadores(
+      [{ linha: 11, produtoId: 'p1', codigo: '7' }, { linha: 13, produtoId: 'p3', codigo: '9' }],
+      [],
+      11,
+    );
+    expect(r.de).toBe(11);
+    expect(r.ate).toBe(13);
+    expect(r.valores).toEqual([['p1'], [''], ['p3']]);
+    expect(r.escritas).toBe(2);
+  });
+
+  it('nunca apaga identificador que já está na planilha', () => {
+    // manter o valor divergente é de propósito: apagar desligaria o produto do espelho
+    const r = colunaDeIdentificadores(
+      [{ linha: 11, produtoId: 'novo', codigo: '7' }],
+      ['ja-estava'],
+      11,
+    );
+    expect(r.valores).toEqual([['ja-estava']]);
+    expect(r.escritas).toBe(0);
+  });
+
+  it('cobre as linhas que já tinham identificador mesmo sem vínculo novo', () => {
+    const r = colunaDeIdentificadores([], ['a', '', 'c'], 11);
+    expect(r.ate).toBe(13);
+    expect(r.valores).toEqual([['a'], [''], ['c']]);
+    expect(r.escritas).toBe(0);
+  });
+
+  it('não escreve nada quando não há vínculo nem coluna', () => {
+    const r = colunaDeIdentificadores([], [], 11);
+    expect(r.valores).toEqual([]);
+    expect(r.escritas).toBe(0);
   });
 });

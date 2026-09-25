@@ -211,6 +211,9 @@ export interface PreviaCarga {
   porGrupo: Array<{ grupoId: string; grupo: string | null; tipo: 'revenda' | 'transformacao'; quantidade: number }>;
   /** Quantos cadastros da Base seriam apagados antes da carga. */
   apagar: number;
+  /** Quantos produtos da Base já sabem em que linha da planilha moram. */
+  vinculados: number;
+  confirmacaoVinculo: string;
   amostra: ProdutoDaCarga[];
   confirmacao: string;
 }
@@ -641,8 +644,21 @@ export function useApi() {
      * pé, ou nada muda.
      */
     cargaBaseImportar: (confirmacao: string) =>
-      unwrap($fetch<{ data: { apagados: number; criados: number; ativos: number; inativos: number } }>(
+      unwrap($fetch<{ data: { apagados: number; criados: number; ativos: number; inativos: number; vinculadas: number } }>(
         '/admin/produtos/importar-mix',
+        { ...base, method: 'POST', body: { confirmacao }, timeout: 300_000 },
+      )),
+
+    /**
+     * Carimba o identificador do produto nas linhas que já existem na planilha.
+     * Não cria linha nenhuma e não toca em outra coluna.
+     */
+    cargaBaseVincular: (confirmacao: string) =>
+      unwrap($fetch<{ data: {
+        vinculadas: number; jaVinculadas: number; linhasSemProduto: number; produtosSemLinha: number;
+        codigosRepetidos: Array<{ codigo: string; linhas: number[] }>;
+      } }>(
+        '/admin/produtos/importar-mix/vincular',
         { ...base, method: 'POST', body: { confirmacao }, timeout: 300_000 },
       )),
 

@@ -328,8 +328,8 @@ export class ProductSheetLojaService {
   async espelharNasAbasDeLoja(
     itens: readonly ProdutoNaLinhaDaBase[],
   ): Promise<EspelhoLojaResultado> {
-    return this.emCadaAbaDeLoja(itens, (meta, aba, loja) =>
-      this.escreverNaAbaDaLoja(meta, aba, loja, itens));
+    return this.emCadaAbaDeLoja(itens, (meta, aba, loja, seus) =>
+      this.escreverNaAbaDaLoja(meta, aba, loja, seus));
   }
 
   /**
@@ -348,8 +348,8 @@ export class ProductSheetLojaService {
   async limparNasAbasDeLoja(
     itens: readonly ProdutoNaLinhaDaBase[],
   ): Promise<EspelhoLojaResultado> {
-    return this.emCadaAbaDeLoja(itens, (meta, aba, loja) =>
-      this.limparNaAbaDaLoja(meta, aba, loja, itens));
+    return this.emCadaAbaDeLoja(itens, (meta, aba, loja, seus) =>
+      this.limparNaAbaDaLoja(meta, aba, loja, seus));
   }
 
   /**
@@ -361,21 +361,44 @@ export class ProductSheetLojaService {
    */
   private async emCadaAbaDeLoja(
     itens: readonly ProdutoNaLinhaDaBase[],
-    acao: (meta: SheetMeta, aba: string, loja: LojaEspelhada) => Promise<void>,
+    acao: (meta: SheetMeta, aba: string, loja: LojaEspelhada, seus: readonly ProdutoNaLinhaDaBase[]) => Promise<void>,
   ): Promise<EspelhoLojaResultado> {
     if (itens.length === 0) return 'espelhado';
 
-    const destinos = LOJAS_ESPELHADAS
-      .map((loja) => ({ loja, aba: this.abaDaLoja(loja) }))
-      .filter((d): d is { loja: LojaEspelhada; aba: string } => !!d.aba);
+    /*
+     * SÓ a aba da loja de cada item.
+     *
+     * Até 25/09/2026 esta função escrevia em TODAS as abas de loja, para
+     * manter as três alinhadas linha a linha. O efeito foi o que o José viu:
+     * importar um produto para a TNP fez a linha aparecer também na
+     * `(LI) CADASTRO PRODUTOS`, numa loja que nunca pediu aquele produto.
+     *
+     * Regra dele: *"só vai pra (LI) CADASTRO PRODUTOS se eu importar pra aba
+     * da LI no sistema"*. O alinhamento por número de linha continua de pé —
+     * cada produto ocupa a MESMA linha em qualquer aba, porque a linha vem da
+     * aba combinada. O que muda é que a aba de uma loja só recebe escrita dos
+     * produtos daquela loja.
+     */
+    const porLoja = new Map<LojaEspelhada, ProdutoNaLinhaDaBase[]>();
+    for (const item of itens) {
+      const loja = item.produto.loja as LojaEspelhada;
+      if (!(LOJAS_ESPELHADAS as readonly string[]).includes(loja)) continue;
+      const jah = porLoja.get(loja);
+      if (jah) jah.push(item); else porLoja.set(loja, [item]);
+    }
+    if (porLoja.size === 0) return 'sem-aba';
+
+    const destinos = [...porLoja]
+      .map(([loja, seus]) => ({ loja, seus, aba: this.abaDaLoja(loja) }))
+      .filter((d): d is { loja: LojaEspelhada; seus: ProdutoNaLinhaDaBase[]; aba: string } => !!d.aba);
     if (destinos.length === 0) return 'sem-aba';
 
     try {
       const abas = await this.sheets.getSheets(this.spreadsheetId);
-      for (const { loja, aba } of destinos) {
+      for (const { loja, aba, seus } of destinos) {
         const meta = abas.find((a) => a.title === aba);
         if (!meta) return 'falhou';
-        await acao(meta, aba, loja);
+        await acao(meta, aba, loja, seus);
       }
       return 'espelhado';
     } catch {

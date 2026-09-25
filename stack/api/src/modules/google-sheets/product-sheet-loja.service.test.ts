@@ -396,7 +396,17 @@ const porColuna = (
 };
 
 describe('espelharNasAbasDeLoja — as abas de loja na MESMA linha da combinada', () => {
-  it('leva a faixa da loja so para a aba dela, e as gerais para as duas', async () => {
+  it('escreve SÓ na aba da loja do produto, nem as colunas gerais vazam', async () => {
+    /*
+     * REGRA NOVA, do José em 25/09/2026: *"quando importei pra TNP, ele foi
+     * junto pra LI, na planilha isso não pode acontecer, só vai pra (LI)
+     * CADASTRO PRODUTOS se eu importar pra aba da LI no sistema"*.
+     *
+     * Antes disto, toda aba de loja recebia as colunas gerais de todo produto,
+     * para as três abas ficarem alinhadas linha a linha. O preço foi produto
+     * aparecendo numa loja que nunca pediu por ele. O alinhamento por NÚMERO de
+     * linha continua: a linha vem da aba combinada, não da ordem de chegada.
+     */
     const escritas: Array<{ range: string; values: unknown[][] }> = [];
     const s = new ProductSheetLojaService(gatewayDasAbasDeLoja(escritas));
     const li = produto({
@@ -411,28 +421,34 @@ describe('espelharNasAbasDeLoja — as abas de loja na MESMA linha da combinada'
     expect(naLi.get('L')).toBe('04091'); // CODIGO INT. dentro de "LI - CADASTRO"
     expect(naLi.get('M')).toBe('11');
     expect(naLi.get('N')).toBe('72');
-    // a aba da TNP nao pode ganhar nenhum dado de cadastro da LI
-    expect(naTnp.has('L')).toBe(false);
-    expect(naTnp.has('M')).toBe(false);
-    expect(naTnp.has('N')).toBe(false);
-    // ...mas recebe as colunas gerais, senao a linha 20 desalinha das outras
-    expect(naTnp.get('D')).toBe('TESTE ZE 2 LT');
     expect(naLi.get('D')).toBe('TESTE ZE 2 LT');
+    // a aba da TNP não recebe NADA: nem faixa da LI, nem as colunas gerais
+    expect(naTnp.size).toBe(0);
   });
 
-  it('produto da BASE alinha as duas abas sem tocar em faixa de loja', async () => {
+  it('cada loja recebe só o seu, quando o lote tem as duas', async () => {
+    const escritas: Array<{ range: string; values: unknown[][] }> = [];
+    const s = new ProductSheetLojaService(gatewayDasAbasDeLoja(escritas));
+    const naLoja = (loja: 'TNP' | 'LI', nome: string) => produto({ loja, nome, codigoInterno: '04091' });
+
+    await s.espelharNasAbasDeLoja([
+      { produto: naLoja('TNP', 'PAO DA TNP'), linha: 20 },
+      { produto: naLoja('LI', 'PAO DA LI'), linha: 21 },
+    ]);
+
+    expect(porColuna(escritas, '(TNP) CADASTRO PRODUTOS').get('D')).toBe('PAO DA TNP');
+    expect(porColuna(escritas, '(LI) CADASTRO PRODUTOS').get('D')).toBe('PAO DA LI');
+    expect(escritas.every((e) => /!\w+20$/.test(e.range) || /!\w+21$/.test(e.range))).toBe(true);
+  });
+
+  it('produto da BASE não entra em aba de loja nenhuma', async () => {
+    // a Base não é loja: quem decide o que a loja tem é a importação dela
     const escritas: Array<{ range: string; values: unknown[][] }> = [];
     const s = new ProductSheetLojaService(gatewayDasAbasDeLoja(escritas));
     const base = produto({ loja: 'BASE', nome: 'PAO FRANCES', codigoInterno: '00042', custo: 3 });
 
-    await expect(s.espelharNasAbasDeLoja([{ produto: base, linha: 20 }])).resolves.toBe('espelhado');
-
-    for (const aba of ['(TNP) CADASTRO PRODUTOS', '(LI) CADASTRO PRODUTOS']) {
-      const escrito = porColuna(escritas, aba);
-      expect(escrito.get('D')).toBe('PAO FRANCES');
-      expect(escrito.has('L')).toBe(false); // CODIGO INT. e da loja, nao da BASE
-      expect(escrito.has('N')).toBe(false); // CUSTO idem
-    }
+    await expect(s.espelharNasAbasDeLoja([{ produto: base, linha: 20 }])).resolves.toBe('sem-aba');
+    expect(escritas).toEqual([]);
   });
 
   it('preserva as colunas que a propria planilha calcula na linha', async () => {
@@ -455,20 +471,24 @@ describe('espelharNasAbasDeLoja — as abas de loja na MESMA linha da combinada'
  * na `(TNP)` e na `(LI) CADASTRO PRODUTOS` depois de sumir de todo o resto.
  */
 describe('limparNasAbasDeLoja — a exclusão também esvazia as abas de loja', () => {
-  it('esvazia a MESMA linha nas duas abas, nas colunas que o espelho escreve', async () => {
+  it('esvazia a linha na aba da loja do produto, nas colunas que o espelho escreve', async () => {
+    /*
+     * A limpeza segue a mesma regra da escrita: a aba de uma loja só é tocada
+     * pelos produtos DAQUELA loja. Limpar a aba da LI por causa de uma exclusão
+     * na TNP apagaria cadastro de quem não pediu nada.
+     */
     const escritas: Array<{ range: string; values: unknown[][] }> = [];
     const s = new ProductSheetLojaService(gatewayDasAbasDeLoja(escritas));
-    const base = produto({ loja: 'BASE', nome: 'PAO FRANCES', codigoBarras: '7891000100103' });
+    const daTnp = produto({ loja: 'TNP', nome: 'PAO FRANCES', codigoBarras: '7891000100103' });
 
-    await expect(s.limparNasAbasDeLoja([{ produto: base, linha: 20 }])).resolves.toBe('espelhado');
+    await expect(s.limparNasAbasDeLoja([{ produto: daTnp, linha: 20 }])).resolves.toBe('espelhado');
 
-    for (const aba of ['(TNP) CADASTRO PRODUTOS', '(LI) CADASTRO PRODUTOS']) {
-      const escrito = porColuna(escritas, aba);
-      // as MESMAS colunas do espelho, agora vazias — nao o valor do produto
-      expect(escrito.get('D')).toBe(''); // nome
-      expect(escrito.get('F')).toBe(''); // codigo de barras
-      expect(escrito.get('C')).toBe(''); // status
-    }
+    const naTnp = porColuna(escritas, '(TNP) CADASTRO PRODUTOS');
+    // as MESMAS colunas do espelho, agora vazias — nao o valor do produto
+    expect(naTnp.get('D')).toBe(''); // nome
+    expect(naTnp.get('F')).toBe(''); // codigo de barras
+    expect(naTnp.get('C')).toBe(''); // status
+    expect(porColuna(escritas, '(LI) CADASTRO PRODUTOS').size).toBe(0);
     // tudo o que foi escrito e vazio: nenhuma sobra do produto excluido
     expect(escritas.every((e) => String(e.values[0]?.[0] ?? '') === '')).toBe(true);
     // e sempre na linha do produto, nunca em outra
