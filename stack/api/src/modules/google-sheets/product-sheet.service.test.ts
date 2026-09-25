@@ -77,6 +77,14 @@ function fakeSyncRepo() {
     async findByProductId(productId: string) {
       return rows.get(productId) ?? null;
     },
+    async linhasPorProduto(ids: readonly string[]) {
+      const mapa = new Map<string, number>();
+      for (const id of ids) {
+        const linha = rows.get(id)?.rowNumber;
+        if (linha != null) mapa.set(id, linha);
+      }
+      return mapa;
+    },
     async markSynced(productId: string, rowNumber: number) {
       const r = rows.get(productId)!;
       rows.set(productId, { ...r, status: 'synced', rowNumber, attempts: r.attempts + 1, lastError: null });
@@ -826,6 +834,44 @@ describe('ProductSheetService — importação em lote no leiaute novo', () => {
     await service.syncStoreProducts([tnp]);
 
     expect(sheets.get('G11')).toBe('=UPPER(D11)');
+    expect(sheets.get('L11')).toBe('1.25');
+  });
+
+  it('NÃO recadastra o produto quando a linha da BASE não é achada', async () => {
+    /*
+     * O defeito de 25/09/2026. A cópia de loja caía num caminho que RESERVAVA
+     * linha nova no fim da aba, e importar para a loja um produto que já estava
+     * na Base o recadastrava na planilha: o código 7 passou a existir nas
+     * linhas 11 e 7380.
+     *
+     * Cópia de loja nasce de um produto que JÁ está na Base, então a linha dele
+     * existe. Não achar a linha é problema de vínculo, e vínculo se resolve
+     * ligando — nunca escrevendo de novo.
+     */
+    const sheets = planilhaNovaComBase().set('Z11', ''); // a coluna ID vazia, como ficou após a carga
+    const { rows, repo: syncRepo } = fakeSyncRepo();
+    const tnp = produto({ id: OUTRO_ID, loja: 'TNP', baseProductId: ID, custo: 1.25 });
+    const service = new ProductSheetService(fakeProductRepo(tnp), syncRepo, sheets);
+
+    const res = await service.syncStoreProducts([tnp]);
+
+    expect(res[0]).toMatchObject({ outcome: 'skipped', rowNumber: null });
+    expect(res[0]?.message).toMatch(/Ligar as linhas/);
+    expect(sheets.writes).toHaveLength(0);
+    expect(rows.get(OUTRO_ID)).toMatchObject({ status: 'failed' });
+  });
+
+  it('acha a linha pelo que o banco registrou quando a coluna ID está vazia', async () => {
+    // é isto que o botão "Ligar as linhas" deixa gravado; sem ele nada é escrito
+    const sheets = planilhaNovaComBase().set('Z11', '');
+    const { rows, repo: syncRepo } = fakeSyncRepo();
+    rows.set(ID, { status: 'synced', rowNumber: 11 } as never);
+    const tnp = produto({ id: OUTRO_ID, loja: 'TNP', baseProductId: ID, custo: 1.25 });
+    const service = new ProductSheetService(fakeProductRepo(tnp), syncRepo, sheets);
+
+    const res = await service.syncStoreProducts([tnp]);
+
+    expect(res[0]).toMatchObject({ outcome: 'synced', rowNumber: 11 });
     expect(sheets.get('L11')).toBe('1.25');
   });
 
