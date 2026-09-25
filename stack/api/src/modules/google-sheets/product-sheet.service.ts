@@ -368,18 +368,35 @@ export class ProductSheetService {
           if (id && !linhaPorId.has(id)) linhaPorId.set(id, FIRST_DATA_ROW + i);
         });
 
-        const existentes = elegiveis.filter(({ product }) => linhaPorId.has(product.baseProductId!));
-        const semLinha = elegiveis.filter(({ product }) => !linhaPorId.has(product.baseProductId!));
+        /*
+         * Segunda fonte para a linha: o que o banco já registrou sobre o
+         * produto da BASE.
+         *
+         * A coluna `ID` da aba é a primeira fonte, mas ela pode estar vazia —
+         * é o caso dos 7.369 produtos da carga de 25/09/2026, que entraram
+         * lendo a planilha e sem escrever nela. Sem esta segunda consulta, a
+         * cópia da loja não achava a linha do produto e caía no caminho de
+         * criar linha nova.
+         */
+        const doBanco = await this.syncRepo.linhasPorProduto(
+          elegiveis.map(({ product }) => product.baseProductId!),
+        );
+        const linhaDaBase = ({ product }: { product: Product }): number | undefined =>
+          linhaPorId.get(product.baseProductId!) ?? doBanco.get(product.baseProductId!);
+
+        const existentes = elegiveis.filter((e) => linhaDaBase(e) !== undefined);
+        const semLinha = elegiveis.filter((e) => linhaDaBase(e) === undefined);
 
         if (existentes.length > 0) {
           const raw: ValueRange[] = [];
           const userEntered: ValueRange[] = [];
           // uma leitura só para o lote inteiro: as fórmulas de cada linha alvo
           const calculadas = await this.calculadasPorLinha(
-            aba, existentes.map(({ product }) => linhaPorId.get(product.baseProductId!)!),
+            aba, existentes.map((e) => linhaDaBase(e)!),
           );
-          for (const { product } of existentes) {
-            const linha = linhaPorId.get(product.baseProductId!)!;
+          for (const e of existentes) {
+            const { product } = e;
+            const linha = linhaDaBase(e)!;
             const ranges = this.rangesParaGravar(
               product, linha, layout, calculadas.get(linha) ?? new Set<string>(),
             );
@@ -393,8 +410,9 @@ export class ProductSheetService {
             }
             if (raw.length) await this.sheets.batchUpdateValues(this.spreadsheetId, raw, 'RAW');
 
-            await Promise.all(existentes.map(async ({ product, index }) => {
-              const linha = linhaPorId.get(product.baseProductId!)!;
+            await Promise.all(existentes.map(async (e) => {
+              const { product, index } = e;
+              const linha = linhaDaBase(e)!;
               await this.syncRepo.markSynced(product.id, linha);
               resultados[index] = {
                 outcome: 'synced',
@@ -416,26 +434,31 @@ export class ProductSheetService {
           }
         }
 
+        /*
+         * SEM LINHA DA BASE: não escreve nada, e não cria linha.
+         *
+         * Antes daqui a cópia caía em `escrever`, que RESERVA uma linha nova no
+         * fim da aba. O efeito, visto em produção em 25/09/2026: importar para
+         * a loja um produto que já estava na Base recadastrava esse produto na
+         * planilha. O código 7 passou a existir nas linhas 11 e 7380.
+         *
+         * Cópia de loja nunca cria cadastro: por definição ela nasce de um
+         * produto que JÁ está na Base, logo a linha dele existe. Não achar a
+         * linha é problema de vínculo, e problema de vínculo se resolve
+         * ligando, não escrevendo de novo. Quem cria linha na planilha é o
+         * cadastro de produto NOVO, que é outro caminho.
+         */
         for (const { product, index } of semLinha) {
-          try {
-            const linha = await this.escrever(product);
-            await this.syncRepo.markSynced(product.id, linha);
-            resultados[index] = {
-              outcome: 'synced',
-              rowNumber: linha,
-              message: `Produto espelhado na planilha (linha ${linha}).`,
-            };
-          } catch (e) {
-            const error = sanitizeError(e);
-            await this.syncRepo.markFailed(product.id, error).catch(() => {});
-            resultados[index] = {
-              outcome: 'failed',
-              rowNumber: null,
-              message: 'Produto salvo no banco. Sincronização com a planilha pendente.',
-              error,
-            };
-          }
+          await this.syncRepo.markFailed(product.id, 'Linha do produto da BASE desconhecida.').catch(() => {});
+          resultados[index] = {
+            outcome: 'skipped',
+            rowNumber: null,
+            message: 'O produto da BASE ainda não tem linha conhecida na planilha; '
+              + 'nada foi escrito para não recadastrá-lo. '
+              + 'Rode "Ligar as linhas da planilha aos produtos" em Importar da planilha.',
+          };
         }
+
       } catch (e) {
         const error = sanitizeError(e);
         await Promise.all(elegiveis.map(async ({ product, index }) => {
