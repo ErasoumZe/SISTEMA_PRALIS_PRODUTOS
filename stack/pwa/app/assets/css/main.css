@@ -41,15 +41,32 @@
   --cx-warning: #9a5b08;
   --cx-information: #2563a8;
   /* Métricas de vendas: cor comunica o significado, não a posição do card. */
-  --cx-sales-revenue: #a96e00;
-  --cx-sales-revenue-wash: #fff5d6;
-  --cx-sales-volume: #157f3c;
-  --cx-sales-volume-wash: #e7f6ec;
-  --cx-sales-profit: #2563a8;
-  --cx-sales-profit-wash: #e9f2ff;
-  --cx-sales-expense: #c62828;
-  --cx-sales-expense-wash: #fff0f0;
-  --cx-sales-transfer: #b65c0a;
+  /*
+   * Paleta VIVA, na família do logo do Google (pedido do José em 24/09):
+   * amarelo #FBBC05, verde #34A853, azul #4285F4, vermelho #EA4335.
+   *
+   * Cada cor tem duas faces, e a diferença é legibilidade, não gosto:
+   *  - `--cx-sales-X`      → PREENCHIMENTO (avatar, barra, borda, gráfico).
+   *  - `--cx-sales-X-ink`  → TEXTO sobre branco. O amarelo vivo como texto
+   *    tem contraste ~1.9:1 — ilegível; a face `-ink` é o mesmo matiz,
+   *    escurecido até ler. Azul e verde usam os tons de texto do próprio
+   *    Google (#1A73E8, #1E8E3E), que já foram calibrados para isso.
+   */
+  /* Valores exatos enviados pelo José em 24/09: #f3fb05 #07e816 #0595fb #fb0505. */
+  --cx-sales-revenue: #f3fb05;
+  --cx-sales-revenue-ink: #8f9400;
+  --cx-sales-revenue-wash: #fdfee0;
+  --cx-sales-volume: #07e816;
+  --cx-sales-volume-ink: #049a0f;
+  --cx-sales-volume-wash: #e3fde5;
+  --cx-sales-profit: #0595fb;
+  --cx-sales-profit-ink: #0468b3;
+  --cx-sales-profit-wash: #e3f2fe;
+  --cx-sales-expense: #fb0505;
+  --cx-sales-expense-ink: #c40404;
+  --cx-sales-expense-wash: #fee3e3;
+  --cx-sales-transfer: #f57c00;
+  --cx-sales-transfer-ink: #c25e00;
   --cx-sales-transfer-wash: #fff0e3;
 
   /* Escala compartilhada para páginas, filtros e formulários. */

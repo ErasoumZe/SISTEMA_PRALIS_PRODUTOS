@@ -10,11 +10,11 @@ import {
 } from './vendas.schemas';
 import { vendasImportAuth } from './vendas.auth';
 import { authMiddleware } from '@/middlewares/auth-handler';
-import { VendasReportController, VendasRankingController, VendasPdvController, VendasAbcController, VendasPulsoController } from './vendas-report.controller';
+import { VendasReportController, VendasRankingController, VendasPdvController, VendasAbcController, VendasPulsoController, VendasListaController } from './vendas-report.controller';
 import { VendasDeParaController } from './vendas-depara.controller';
 import { VendasUnicosController } from './vendas-unicos.controller';
 import { z } from 'zod/v4';
-import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasPdv, VendasAbc, VendasPulso } from '@pralis/shared';
+import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasPdv, VendasAbc, VendasPulso, VendasLista } from '@pralis/shared';
 
 export async function vendasRoutes(app: FastifyInstance) {
   const controller = container.resolve(VendasController);
@@ -23,6 +23,7 @@ export async function vendasRoutes(app: FastifyInstance) {
   const pdvController = container.resolve(VendasPdvController);
   const abcController = container.resolve(VendasAbcController);
   const pulsoController = container.resolve(VendasPulsoController);
+  const listaController = container.resolve(VendasListaController);
   const deParaController = container.resolve(VendasDeParaController);
   const unicosController = container.resolve(VendasUnicosController);
   const typed = app.withTypeProvider<ZodTypeProvider>();
@@ -89,6 +90,41 @@ export async function vendasRoutes(app: FastifyInstance) {
       },
     },
     pdvController.detalhe.bind(pdvController),
+  );
+
+  /*
+   * A LISTA DE VENDAS, cupom a cupom, e o detalhe de um cupom.
+   *
+   * Existem só sobre `venda_item_pdv`: as tabelas diárias não sabem o que é
+   * "uma venda". A tela relê a lista a cada poucos segundos — o que ela chama
+   * de tempo real é isso, e a latência é do robô, não desta rota.
+   */
+  typed.get<{ Querystring: VendasLista.ListaVendasQuery }>(
+    '/vendas/lista',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: VendasLista.listaVendasQuerySchema,
+        response: { 200: apiResponseSchema(VendasLista.listaVendasSchema) },
+        summary: 'Vendas do período, uma por cupom, com hora e PDV comprovados',
+        tags: ['VENDAS'],
+      },
+    },
+    listaController.lista.bind(listaController),
+  );
+
+  typed.get<{ Querystring: VendasLista.VendaDetalheQuery }>(
+    '/vendas/venda',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: VendasLista.vendaDetalheQuerySchema,
+        response: { 200: apiResponseSchema(VendasLista.vendaDetalheSchema) },
+        summary: 'Itens de uma venda, pelo ID original do ERP',
+        tags: ['VENDAS'],
+      },
+    },
+    listaController.detalhe.bind(listaController),
   );
 
   /*

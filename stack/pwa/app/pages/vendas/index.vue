@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ApexOptions } from 'apexcharts';
 import { VendasDatas } from '@pralis/shared';
-import type { VendasReport, VendasRankingResposta, DetalhePdv, AbcProdutos, Pulso } from '~/composables/useApi';
+import type { VendasReport, VendasRankingResposta, DetalhePdv, AbcProdutos, Pulso, ListaVendas, VendaResumo, VendaDetalhe } from '~/composables/useApi';
 
 const api = useApi();
 const { user } = useAuth();
@@ -84,7 +84,7 @@ const carregando = ref(false);
 const erro = ref('');
 
 /** Aba visível. As três dividem o MESMO período — o filtro fica acima delas. */
-const aba = ref<'visao' | 'ranking' | 'abc' | 'graficos'>('visao');
+const aba = ref<'visao' | 'ranking' | 'vendas' | 'abc' | 'graficos'>((q('aba') as 'visao' | 'ranking' | 'vendas' | 'abc' | 'graficos') || 'visao');
 
 /**
  * Atalhos de período.
@@ -183,9 +183,9 @@ const resumoCards = computed(() => {
   // produto; número de vendas e ticket vêm do FECHAMENTO de caixa. São duas
   // fontes e podem divergir — sem dizer isso, o usuário lê como erro de conta.
   return [
-    { label: 'Faturamento', origem: 'vendas por produto', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)' },
+    { label: 'Faturamento', origem: 'vendas por produto', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
     { label: 'Quantidade vendida', origem: 'vendas por produto', valor: num(r.quantidade), icon: 'inventory_2', cor: 'var(--cx-sales-volume)' },
-    { label: 'Nº de vendas', origem: 'fechamento de caixa', valor: num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)' },
+    { label: 'Nº de vendas', origem: 'fechamento de caixa', valor: num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
     { label: 'Ticket médio', origem: 'fechamento de caixa', valor: brl(r.ticketMedio), icon: 'trending_up', cor: 'var(--cx-sales-volume)' },
   ];
 });
@@ -320,7 +320,7 @@ const opcoesGrande = computed<ApexOptions>(() => ({
     fontFamily: 'inherit',
     animations: { enabled: true, speed: 400 },
   },
-  colors: ['#a96e00'],
+  colors: ['#f3fb05'], // amarelo de faturamento, mesma paleta dos tokens --cx-sales-*
   dataLabels: { enabled: false },
   stroke: { curve: 'smooth', width: 2, lineCap: 'round' },
   // o preenchimento é uma lavagem, não um bloco: a linha é que carrega o dado
@@ -466,7 +466,7 @@ const seriePdvTempo = computed(() => {
 });
 const opcoesPdvTempo = computed<ApexOptions>(() => ({
   chart: { toolbar: { show: false }, animations: { enabled: false } },
-  colors: ['#a96e00'],
+  colors: ['#f3fb05'], // amarelo de faturamento, mesma paleta dos tokens --cx-sales-*
   dataLabels: { enabled: false },
   plotOptions: { bar: { borderRadius: 3, columnWidth: '60%' } },
   xaxis: { categories: seriePdvTempo.value.categorias, labels: { rotate: -45, style: { fontSize: '11px' } } },
@@ -474,6 +474,95 @@ const opcoesPdvTempo = computed<ApexOptions>(() => ({
   tooltip: { y: { formatter: (v: number) => (detalhePdv.value?.faturamentoItens === null ? num(v) : brl(v)) } },
 }));
 watch([loja, inicio, fim, filtroSetor, filtroGrupo, filtroProdutoAplicado], () => { pdvAberto.value = null; });
+
+/* ===================== VENDAS AO VIVO ===================== */
+
+/**
+ * Uma linha por cupom, como saiu do caixa.
+ *
+ * Só existe sobre `venda_item_pdv` — a tabela em que cada item traz o ID da
+ * venda, o dispositivo e a hora, comprovados pelo ERP. Até o robô da loja
+ * mandar esse detalhe, a aba diz "aguardando" em vez de inventar cupom a partir
+ * das tabelas diárias, que não sabem o que é uma venda.
+ *
+ * "Ao vivo" aqui é reler a cada INTERVALO_AO_VIVO segundos enquanto a aba está
+ * aberta. A latência real é do robô: se ele roda a cada minuto, o cupom aparece
+ * em até um minuto; se roda às 22:10, aparece às 22:10.
+ */
+const INTERVALO_AO_VIVO = 15;
+const listaVendas = ref<ListaVendas | null>(null);
+const carregandoLista = ref(false);
+const erroLista = ref('');
+const paginaVendas = ref(1);
+const ultimaLeitura = ref<Date | null>(null);
+let relogioAoVivo: ReturnType<typeof setInterval> | null = null;
+let pedidoLista = 0;
+
+async function carregarLista(silencioso = false) {
+  const pedido = ++pedidoLista;
+  if (!silencioso) carregandoLista.value = true;
+  erroLista.value = '';
+  try {
+    const r = await api.vendasLista({
+      ...(isAdmin.value ? { loja: loja.value } : {}),
+      inicio: inicioComHora.value,
+      fim: fimComHora.value,
+      ...filtrosQuery.value,
+      limite: 50,
+      pagina: paginaVendas.value,
+    });
+    if (pedido !== pedidoLista) return; // resposta velha: uma mais nova já saiu
+    listaVendas.value = r;
+    ultimaLeitura.value = new Date();
+  } catch (e: unknown) {
+    if (pedido === pedidoLista) {
+      erroLista.value = (e as { data?: { message?: string } })?.data?.message || 'Não foi possível carregar as vendas.';
+    }
+  } finally {
+    if (pedido === pedidoLista) carregandoLista.value = false;
+  }
+}
+
+const aoVivo = computed(() => aba.value === 'vendas');
+watch(aoVivo, (ligado) => {
+  if (relogioAoVivo) { clearInterval(relogioAoVivo); relogioAoVivo = null; }
+  if (!ligado) return;
+  void carregarLista();
+  // recarga silenciosa: não pisca o carregando a cada ciclo, senão a tela treme
+  relogioAoVivo = setInterval(() => { void carregarLista(true); }, INTERVALO_AO_VIVO * 1000);
+}, { immediate: true });
+onBeforeUnmount(() => { if (relogioAoVivo) clearInterval(relogioAoVivo); });
+
+watch([loja, inicio, fim, horaInicio, horaFim, filtroSetor, filtroGrupo, filtroProdutoAplicado], () => {
+  paginaVendas.value = 1;
+  if (aoVivo.value) void carregarLista();
+});
+watch(paginaVendas, () => { if (aoVivo.value) void carregarLista(); });
+watch(aba, (a) => { router.replace({ query: { ...route.query, aba: a } }); });
+
+const paginasVendas = computed(() => listaVendas.value ? Math.max(1, Math.ceil(listaVendas.value.total / listaVendas.value.limite)) : 1);
+const horaDe = (s: string) => s.slice(11, 19);
+const diaHoraDe = (s: string) => `${diaCurto(s.slice(0, 10))} ${s.slice(11, 19)}`;
+const horaLocal = (d: Date) => d.toLocaleTimeString('pt-BR');
+
+/** O cupom aberto: os itens vêm por chamada própria, só quando alguém clica. */
+const vendaAberta = ref<VendaResumo | null>(null);
+const vendaDetalhe = ref<VendaDetalhe | null>(null);
+const carregandoVenda = ref(false);
+const erroVenda = ref('');
+watch(vendaAberta, async (v) => {
+  vendaDetalhe.value = null;
+  erroVenda.value = '';
+  if (!v) return;
+  carregandoVenda.value = true;
+  try {
+    vendaDetalhe.value = await api.vendasVenda({ ...(isAdmin.value ? { loja: loja.value } : {}), vendaIdErp: v.vendaIdErp });
+  } catch (e: unknown) {
+    erroVenda.value = (e as { data?: { message?: string } })?.data?.message || 'Não foi possível abrir esta venda.';
+  } finally {
+    carregandoVenda.value = false;
+  }
+});
 
 async function carregarRanking() {
   carregandoRanking.value = true;
@@ -515,7 +604,8 @@ const fatiaDoLider = (v: number) => {
 /* ----------------------------------------------------------------- curva ABC */
 
 /** Indicadores textuais e lista substituem as faixas gráficas da curva ABC. */
-const CORES_ABC = { A: '#a96e00', B: '#2563a8', C: '#6B7280' } as const;
+/* A em amarelo e B em azul: os mesmos vivos dos tokens --cx-sales-*; C fica neutro. */
+const CORES_ABC = { A: '#f3fb05', B: '#0595fb', C: '#6B7280' } as const;
 
 const abcTemDados = computed(() => (dados.value?.curvaAbc ?? []).some((c) => c.produtos > 0));
 
@@ -813,6 +903,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
       <v-tabs v-model="aba" class="mb-4" color="primary" density="comfortable">
         <v-tab value="visao" prepend-icon="show_chart">Visão geral</v-tab>
         <v-tab value="ranking" prepend-icon="leaderboard">Ranking</v-tab>
+        <v-tab value="vendas" prepend-icon="receipt_long">Vendas</v-tab>
         <v-tab value="abc" prepend-icon="donut_large">Curva ABC</v-tab>
         <v-tab value="graficos" prepend-icon="bar_chart">Gráficos</v-tab>
       </v-tabs>
@@ -841,8 +932,9 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             <v-col v-for="c in resumoCards" :key="c.label" cols="12" sm="6" md="3">
               <v-card flat border rounded="lg" class="pa-4 h-100">
                 <div class="d-flex align-center ga-3">
+                  <!-- ícone escuro sobre o amarelo vivo: branco sobre #FBBC05 não se lê -->
                   <v-avatar :color="c.cor" size="46" rounded="lg" variant="flat">
-                    <v-icon color="white">{{ c.icon }}</v-icon>
+                    <v-icon :color="c.corIcone ?? 'white'">{{ c.icon }}</v-icon>
                   </v-avatar>
                   <div style="min-width: 0">
                     <div class="text-caption text-medium-emphasis text-uppercase">{{ c.label }}</div>
@@ -1002,7 +1094,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 <!-- barra proporcional ao LÍDER: compara dentro da própria lista -->
                 <v-progress-linear
                   :model-value="fatiaDoLider(i.pontos)"
-                  :color="i.posicao === 1 ? '#a96e00' : 'grey-lighten-1'"
+                  :color="i.posicao === 1 ? '#f3fb05' : 'grey-lighten-1'"
                   height="4"
                   rounded
                   class="mt-1"
@@ -1195,6 +1287,90 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
         <!-- ──────────────────────────────────────────────── RELATÓRIOS ── -->
 
         <!-- ────────────────────────────────────────────────── GRÁFICOS ── -->
+        <v-window-item value="vendas">
+          <v-card flat border rounded="lg" class="pa-4">
+            <div class="d-flex align-center flex-wrap ga-3 mb-3">
+              <div>
+                <div class="text-subtitle-1 font-weight-bold d-flex align-center ga-2">
+                  Vendas do período
+                  <span class="ao-vivo" :class="{ ligado: aoVivo && !erroLista }" aria-hidden="true" />
+                  <span class="text-caption text-medium-emphasis font-weight-regular">
+                    {{ erroLista ? 'sem conexão' : `ao vivo · relê a cada ${INTERVALO_AO_VIVO}s` }}
+                  </span>
+                </div>
+                <div class="text-caption text-medium-emphasis">
+                  Uma linha por cupom, com hora e PDV comprovados pelo ERP.
+                  <template v-if="ultimaLeitura"> Lida às {{ horaLocal(ultimaLeitura) }}.</template>
+                  <template v-if="listaVendas?.atualizadoEm"> Última venda recebida do robô: {{ diaHoraDe(listaVendas.atualizadoEm) }}.</template>
+                </div>
+              </div>
+              <v-spacer />
+              <v-btn size="small" variant="tonal" prepend-icon="refresh" :loading="carregandoLista" @click="carregarLista()">Atualizar agora</v-btn>
+            </div>
+
+            <v-alert v-if="erroLista" type="error" variant="tonal" density="compact" class="mb-3">{{ erroLista }}</v-alert>
+
+            <!--
+              Ausência de dado, dita como ausência: as tabelas diárias não sabem o
+              que é "uma venda". Sem o lote detalhado do robô, não há o que listar
+              — e listar cupons inventados seria pior do que uma lista vazia.
+            -->
+            <v-alert v-if="listaVendas && !listaVendas.disponivel" type="info" variant="tonal" icon="hourglass_empty">
+              <strong>Aguardando o robô da loja.</strong> Esta lista precisa do detalhe por venda
+              (lote <code>venda_item_pdv</code>), que o robô instalado na padaria ainda não envia.
+              Quando ele passar a enviar, cada cupom aparece aqui em até um ciclo do robô.
+            </v-alert>
+
+            <template v-else-if="listaVendas">
+              <div v-if="listaVendas.filtros.ativo" class="text-caption text-medium-emphasis mb-2">
+                Filtro por cadastro ativo: entram as vendas com ao menos um item que passa no filtro.
+              </div>
+              <div v-if="!listaVendas.vendas.length" class="text-caption text-medium-emphasis py-8 text-center">
+                Nenhuma venda neste recorte.
+              </div>
+              <div v-else class="tabela-rolavel">
+                <table class="tabela-vendas">
+                  <thead>
+                    <tr>
+                      <th>Hora</th><th>Venda</th><th>PDV</th>
+                      <th class="num">Itens</th><th class="num">Qtd.</th><th class="num">Total</th><th>Situação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="v in listaVendas.vendas"
+                      :key="v.vendaIdErp"
+                      class="venda-linha"
+                      :class="{ cancelada: v.cancelada }"
+                      tabindex="0"
+                      role="button"
+                      :aria-label="`Abrir venda ${v.vendaIdErp}`"
+                      @click="vendaAberta = v"
+                      @keydown.enter="vendaAberta = v"
+                    >
+                      <td class="tabular"><span class="font-weight-medium">{{ horaDe(v.vendidoEm) }}</span> <span class="text-caption text-medium-emphasis">{{ diaCurto(v.vendidoEm.slice(0, 10)) }}</span></td>
+                      <td class="tabular">#{{ v.vendaIdErp }}</td>
+                      <td>{{ v.pdv || `dispositivo ${v.dispositivoIdErp}` }}</td>
+                      <td class="num tabular">{{ v.itens }}</td>
+                      <td class="num tabular sales-volume">{{ num(v.quantidade) }}</td>
+                      <td class="num tabular sales-revenue font-weight-bold">{{ v.total === null ? 'Restrito' : brl(v.total) }}</td>
+                      <td>
+                        <v-chip v-if="v.cancelada" size="x-small" color="error" variant="tonal">cancelada</v-chip>
+                        <v-chip v-else-if="!v.confirmada" size="x-small" color="warning" variant="tonal">{{ v.status || 'em aberto' }}</v-chip>
+                        <v-chip v-else size="x-small" color="success" variant="tonal">confirmada</v-chip>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="paginasVendas > 1" class="d-flex align-center justify-space-between flex-wrap ga-2 mt-3">
+                <span class="text-caption text-medium-emphasis">{{ num(listaVendas.total) }} venda(s) · página {{ listaVendas.pagina }} de {{ paginasVendas }}</span>
+                <v-pagination v-model="paginaVendas" :length="paginasVendas" density="compact" total-visible="7" />
+              </div>
+            </template>
+          </v-card>
+        </v-window-item>
+
         <v-window-item value="graficos">
           <v-card flat border rounded="lg" class="pa-4">
             <div class="text-subtitle-1 font-weight-bold mb-1">Formas de pagamento por dia</div>
@@ -1244,6 +1420,52 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
         </v-window-item>
       </v-window>
     </template>
+
+    <v-dialog :model-value="vendaAberta !== null" max-width="640" @update:model-value="v => { if (!v) vendaAberta = null; }">
+      <v-card v-if="vendaAberta" rounded="lg" class="pa-5">
+        <div class="d-flex align-start ga-3 mb-3">
+          <div>
+            <div class="text-h6 font-weight-bold">Venda #{{ vendaAberta.vendaIdErp }}</div>
+            <div class="text-caption text-medium-emphasis">
+              {{ diaHoraDe(vendaAberta.vendidoEm) }} · {{ vendaAberta.pdv || `dispositivo ${vendaAberta.dispositivoIdErp}` }}
+              <v-chip v-if="vendaAberta.cancelada" size="x-small" color="error" variant="tonal" class="ml-1">cancelada</v-chip>
+            </div>
+          </div>
+          <v-spacer />
+          <v-btn icon="close" variant="text" aria-label="Fechar venda" @click="vendaAberta = null" />
+        </div>
+
+        <v-progress-linear v-if="carregandoVenda" indeterminate color="primary" class="mb-3" />
+        <v-alert v-if="erroVenda" type="error" variant="tonal" density="compact">{{ erroVenda }}</v-alert>
+
+        <template v-if="vendaDetalhe">
+          <div class="tabela-rolavel">
+            <table class="tabela-vendas">
+              <thead><tr><th>Produto</th><th class="num">Qtd.</th><th class="num">Unit.</th><th class="num">Total</th></tr></thead>
+              <tbody>
+                <tr v-for="i in vendaDetalhe.itens" :key="i.itemIdErp" :class="{ cancelada: i.cancelado }">
+                  <td>
+                    <div class="font-weight-medium">{{ i.produto }}</div>
+                    <div class="text-caption text-medium-emphasis">
+                      {{ i.produtoCodigo || 'sem código' }}
+                      <template v-if="i.produtoCadastro"> · cadastro: {{ i.produtoCadastro }}</template>
+                      <span v-else class="text-warning"> · fora do cadastro</span>
+                      <span v-if="i.cancelado"> · cancelado</span>
+                    </div>
+                  </td>
+                  <td class="num tabular sales-volume">{{ num(i.quantidade) }}</td>
+                  <td class="num tabular">{{ i.valorUnitario === null ? '—' : brl(i.valorUnitario) }}</td>
+                  <td class="num tabular sales-revenue">{{ i.total === null ? '—' : brl(i.total) }}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr><td colspan="3" class="text-right font-weight-bold">Total da venda</td><td class="num tabular sales-revenue font-weight-bold">{{ vendaDetalhe.total === null ? 'Restrito' : brl(vendaDetalhe.total) }}</td></tr>
+              </tfoot>
+            </table>
+          </div>
+        </template>
+      </v-card>
+    </v-dialog>
 
     <v-dialog :model-value="pdvAberto !== null" max-width="650" @update:model-value="v => { if (!v) pdvAberto = null; }">
       <v-card v-if="pdvAberto" rounded="lg" class="pa-5">
@@ -1311,11 +1533,28 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
 </template>
 
 <style scoped>
+/* ponto "ao vivo": pulsa só enquanto a leitura está ligada e saudável */
+.ao-vivo { width: 8px; height: 8px; border-radius: 50%; background: var(--cx-ink-faint); display: inline-block; }
+.ao-vivo.ligado { background: var(--cx-sales-volume); animation: pulsar 1.6s ease-in-out infinite; }
+@keyframes pulsar { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.tabela-rolavel { overflow-x: auto; }
+.tabela-vendas { width: 100%; border-collapse: collapse; }
+.tabela-vendas th { text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--cx-ink-soft); padding: 8px 10px; border-bottom: 1px solid var(--cx-line); white-space: nowrap; }
+.tabela-vendas td { padding: 10px; border-bottom: 1px solid var(--cx-line-soft); vertical-align: middle; }
+.tabela-vendas .num { text-align: right; }
+.tabela-vendas tfoot td { border-bottom: 0; border-top: 1px solid var(--cx-line); }
+.venda-linha { cursor: pointer; transition: background 120ms var(--cx-ease); }
+.venda-linha:hover, .venda-linha:focus-visible { background: var(--cx-surface-sunken); outline: none; }
+.tabela-vendas tr.cancelada td { opacity: 0.55; text-decoration: line-through; }
+.tabela-vendas tr.cancelada td:last-child { text-decoration: none; }
+
 .sales-abc-a { background: var(--cx-sales-revenue-wash); }
 .sales-abc-a td:first-child { border-left: 3px solid var(--cx-sales-revenue); }
-.sales-profit { color: var(--cx-sales-profit); }
-.sales-volume { color: var(--cx-sales-volume); }
-.sales-revenue { color: var(--cx-sales-revenue); }
+/* Texto usa a face `-ink`: o amarelo vivo de preenchimento não se lê sobre branco. */
+.sales-profit { color: var(--cx-sales-profit-ink); }
+.sales-volume { color: var(--cx-sales-volume-ink); }
+.sales-revenue { color: var(--cx-sales-revenue-ink); }
 .sales-rank-row { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--cx-line-soft); }
 .sales-pdv-link { text-transform: none; padding-inline: 0; max-width: 100%; }
 .sales-pdv-products { max-height: 360px; overflow-y: auto; }

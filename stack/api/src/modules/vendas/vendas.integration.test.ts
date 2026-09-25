@@ -14,6 +14,7 @@ let container: StartedPostgreSqlContainer;
 let repository: VendasRepository;
 let service: VendasService;
 let pdvService: import('./vendas-pdv.service').VendasPdvService;
+let listaService: import('./vendas-lista.service').VendasListaService;
 let db: { execute: (query: unknown) => Promise<{ rows: Record<string, unknown>[] }>; $client: { end: () => Promise<void> } };
 let sqlTag: typeof import('drizzle-orm')['sql'];
 
@@ -40,6 +41,8 @@ beforeAll(async () => {
   const { VendasPdvService } = await import('./vendas-pdv.service');
   const { VendasReportRepository } = await import('./vendas-report.repository');
   pdvService = new VendasPdvService(new VendasReportRepository());
+  const { VendasListaService } = await import('./vendas-lista.service');
+  listaService = new VendasListaService(new VendasReportRepository());
 }, 120000);
 
 afterAll(async () => {
@@ -136,5 +139,45 @@ describe('ingestão de vendas e fechamentos (Postgres real)', () => {
     const sigiloso = await pdvService.detalhe('TNP', query, false);
     expect(sigiloso.faturamentoItens).toBeNull();
     expect(sigiloso.itens[0]?.faturamento).toBeNull();
+  });
+
+  /*
+   * A lista de vendas agrupa por cupom o que o ERP mandou: a 101 (confirmada,
+   * 1 item) e a 102 (cancelada) já existem dos testes acima. Nada e inferido:
+   * a venda e o venda_id_erp, o PDV e o dispositivo_id_erp, a hora e vendido_em.
+   */
+  it('lista as vendas por cupom, com cancelada marcada e sem inventar PDV', async () => {
+    const q = { inicio: '2026-09-24T14:00', fim: '2026-09-24T15:00', limite: 50, pagina: 1 };
+    const r = await listaService.lista('TNP', q, true);
+    expect(r.disponivel).toBe(true);
+    expect(r.total).toBe(2);
+    expect(r.vendas.map((v) => v.vendaIdErp)).toEqual(['102', '101']); // mais recente primeiro
+    const confirmada = r.vendas.find((v) => v.vendaIdErp === '101')!;
+    expect(confirmada).toMatchObject({ dispositivoIdErp: '7', pdv: 'PDV 07', itens: 1, quantidade: 2, total: 9.5, confirmada: true, cancelada: false });
+    const cancelada = r.vendas.find((v) => v.vendaIdErp === '102')!;
+    expect(cancelada).toMatchObject({ itens: 0, total: 0, cancelada: true, confirmada: false });
+    expect(confirmada.vendidoEm).toBe('2026-09-24T14:30:15');
+    expect(r.atualizadoEm).toMatch(/^2026-09-24T/);
+  });
+
+  it('filtra por dispositivo e por texto de produto, e diz quando nao ha detalhe', async () => {
+    const q = { inicio: '2026-09-24T14:00', fim: '2026-09-24T15:00', limite: 50, pagina: 1 };
+    expect((await listaService.lista('TNP', { ...q, dispositivoIdErp: '99' }, true)).vendas).toEqual([]);
+    const porTexto = await listaService.lista('TNP', { ...q, produto: 'produto teste' }, true);
+    expect(porTexto.vendas.map((v) => v.vendaIdErp)).toEqual(['101']); // o cancelado nao conta
+    expect(porTexto.filtros.ativo).toBe(true);
+    // Lisboa nao recebeu lote nenhum: a tela precisa saber que e ausencia de dado
+    expect((await listaService.lista('LI', q, true)).disponivel).toBe(false);
+  });
+
+  it('abre o cupom com os itens e esconde dinheiro de quem nao pode ver', async () => {
+    const aberta = await listaService.detalhe('TNP', '101', true);
+    expect(aberta).toMatchObject({ vendaIdErp: '101', pdv: 'PDV 07', total: 9.5, confirmada: true });
+    expect(aberta.itens).toHaveLength(1);
+    expect(aberta.itens[0]).toMatchObject({ itemIdErp: '501', produto: 'PRODUTO TESTE', quantidade: 2, total: 9.5, cancelado: false });
+    const sigilosa = await listaService.detalhe('TNP', '101', false);
+    expect(sigilosa.total).toBeNull();
+    expect(sigilosa.itens[0]?.total).toBeNull();
+    await expect(listaService.detalhe('LI', '101', true)).rejects.toThrow(/não encontrada/);
   });
 });

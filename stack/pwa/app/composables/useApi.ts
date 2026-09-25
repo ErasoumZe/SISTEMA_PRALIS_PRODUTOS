@@ -1,4 +1,5 @@
 import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasPdv, VendasAbc, VendasPulso } from '@pralis/shared';
+import type { VendasLista } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
@@ -12,6 +13,11 @@ export type VendasRankingQuery = VendasRanking.VendasRankingQuery;
 export type ItemRanking = VendasRanking.ItemRanking;
 export type AbcProdutos = VendasAbc.AbcProdutos;
 export type AbcProdutosQuery = VendasAbc.AbcProdutosQuery;
+export type ListaVendasQuery = VendasLista.ListaVendasQuery;
+export type ListaVendas = VendasLista.ListaVendas;
+export type VendaResumo = VendasLista.VendaResumo;
+export type VendaDetalheQuery = VendasLista.VendaDetalheQuery;
+export type VendaDetalhe = VendasLista.VendaDetalhe;
 export type Pulso = VendasPulso.Pulso;
 export type DeParaLista = VendasDePara.DeParaLista;
 export type DeParaQuery = VendasDePara.DeParaQuery;
@@ -467,6 +473,14 @@ export function useApi() {
 
     vendasPdvDetalhe: (query: DetalhePdvQuery) =>
       unwrap($fetch<{ data: DetalhePdv }>('/vendas/pdv/detalhe', { ...base, query })),
+
+    /** Vendas do período, uma por cupom. A tela relê a cada poucos segundos. */
+    vendasLista: (query: ListaVendasQuery) =>
+      unwrap($fetch<{ data: ListaVendas }>('/vendas/lista', { ...base, query })),
+
+    /** Os itens de um cupom, pelo ID original do ERP. */
+    vendasVenda: (query: VendaDetalheQuery) =>
+      unwrap($fetch<{ data: VendaDetalhe }>('/vendas/venda', { ...base, query })),
 
     /** Códigos do PDV sem produto no cadastro, com sugestões por semelhança. */
     vendasDePara: (query: DeParaQuery) =>
