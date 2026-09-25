@@ -1,54 +1,72 @@
 <script setup lang="ts">
-import type { MotivoPuloMix, PreviaImportacaoMix } from '~/composables/useApi';
+import type { MotivoRecusaCarga, PreviaCarga } from '~/composables/useApi';
 
 /**
- * Traz para a Base os produtos que existem na planilha MIX e ainda não no
- * sistema.
+ * CARGA DA BASE — põe no sistema todos os produtos da planilha.
  *
- * A regra que molda a tela: **campo que a planilha não traz entra vazio, e
- * linha sem o mínimo para ser produto não entra**. Por isso o que ela mostra
- * com mais destaque não é quanto vai entrar — é quanto fica de fora e por quê.
- * Um custo ou uma unidade chutados viram preço errado na etiqueta.
+ * A tela existe para uma coisa: deixar conferir ANTES. A carga zera a Base e
+ * grava 7 mil cadastros de uma vez, e a pior falha possível aqui é silenciosa —
+ * coluna trocada de lugar grava custo no campo de preço sem erro nenhum. Por
+ * isso o mapeamento das colunas aparece escrito na tela, e não só no código.
  */
 const api = useApi();
 const flash = useFlash();
 const { user } = useAuth();
 const isAdmin = computed(() => user.value?.role === 'admin');
 
-const dados = ref<PreviaImportacaoMix | null>(null);
+const dados = ref<PreviaCarga | null>(null);
 const carregando = ref(false);
 const importando = ref(false);
 const erro = ref('');
 const confirmacao = ref('');
 
-const MOTIVO: Record<MotivoPuloMix, string> = {
-  'ja-existe-por-codigo': 'Já cadastrado (mesmo código)',
-  'ja-existe-por-barras': 'Já cadastrado (mesmo código de barras)',
-  'barras-repetida-na-planilha': 'Duas linhas da planilha com o mesmo código de barras',
+/** O mapeamento, como o José fechou. Escrito aqui para poder ser conferido. */
+const MAPA: Array<{ coluna: string; titulo: string; vira: string }> = [
+  { coluna: 'C', titulo: 'ATIVO / INATIVO', vira: 'Situação do cadastro' },
+  { coluna: 'D', titulo: 'CADASTRO PRODUTOS ATUALIZADO NOVO', vira: 'Nome' },
+  { coluna: 'F', titulo: 'CODIGO BARRAS', vira: 'Código de barras' },
+  { coluna: 'H', titulo: 'EMB', vira: 'Unidade de medida' },
+  { coluna: 'M', titulo: 'GRUPO MERCADORIAS', vira: 'Nome do grupo' },
+  { coluna: 'X', titulo: 'CODIGO INT.', vira: 'Código interno do PDV' },
+  { coluna: 'Z', titulo: 'ESTOQUE MIN', vira: 'Estoque mínimo' },
+  { coluna: 'AB', titulo: 'ESTOQUE MAX', vira: 'Estoque máximo' },
+  { coluna: 'AE', titulo: 'CUSTO', vira: 'Custo' },
+  { coluna: 'AH', titulo: 'V. VENDA PONTUAL', vira: 'Preço de venda' },
+  { coluna: 'HX', titulo: 'ID GRUPO', vira: 'Código do grupo no Creare' },
+];
+
+const MOTIVO: Record<MotivoRecusaCarga, string> = {
+  'codigo-invalido': 'Código interno fora da faixa que o PDV aceita',
+  'codigo-repetido-na-planilha': 'O mesmo código interno aparece em duas linhas',
   'sem-nome': 'A linha não tem descrição',
+  'situacao-desconhecida': 'A coluna C não diz ATIVO nem INATIVO',
   'unidade-desconhecida': 'Unidade que o cadastro não conhece',
-  'tipo-desconhecido': 'Sem IPPT: não dá para saber se é revenda ou produção',
-  'codigo-invalido': 'Código fora da faixa do PDV',
-  'codigo-repetido-na-planilha': 'O mesmo código aparece em duas linhas',
+  'sem-id-de-grupo': 'Sem id de grupo, e o arquivo do Creare exige',
 };
 
-const AVISO: Record<Exclude<PreviaImportacaoMix['estado'], 'ok'>, string> = {
-  'sem-destino': 'Falta a variável GOOGLE_SHEETS_MIX_SPREADSHEET_ID no ambiente. Sem ela a tela não lê nada — de propósito, para não ler a planilha errada.',
-  'sem-coluna': 'O cabeçalho da aba mudou de nome. As colunas são procuradas pelo título, não pela posição.',
-  falhou: 'O Google recusou a leitura. Pode ser credencial, permissão ou indisponibilidade. Nada foi criado.',
+const AVISO: Record<Exclude<PreviaCarga['estado'], 'ok'>, string> = {
+  'sem-destino': 'Falta a variável GOOGLE_SHEETS_SPREADSHEET_ID no ambiente. Sem ela a tela não lê nada, de propósito, para não ler a planilha errada.',
+  'coluna-mudou': 'O cabeçalho da planilha saiu do lugar. A carga não roda assim: com a coluna trocada, o dado entraria no campo errado sem dar erro nenhum.',
+  falhou: 'O Google recusou a leitura. Pode ser credencial, permissão ou indisponibilidade. Nada foi alterado.',
 };
 
-const foraDeTotal = computed(() => Object.values(dados.value?.pular ?? {}).reduce((a, b) => a + b, 0));
 const fraseOk = computed(() => confirmacao.value.trim().toUpperCase() === (dados.value?.confirmacao ?? ''));
-const motivos = computed(() => (Object.entries(dados.value?.pular ?? {}) as Array<[MotivoPuloMix, number]>)
+const recusas = computed(() => (Object.entries(dados.value?.recusas ?? {}) as Array<[MotivoRecusaCarga, number]>)
   .filter(([, n]) => n > 0)
   .sort((a, b) => b[1] - a[1]));
+const totalRecusado = computed(() => recusas.value.reduce((a, [, n]) => a + n, 0));
+const semNomeDeGrupo = computed(() => (dados.value?.porGrupo ?? []).filter((g) => !g.grupo));
+const deTransformacao = computed(() => (dados.value?.porGrupo ?? [])
+  .filter((g) => g.tipo === 'transformacao').reduce((a, g) => a + g.quantidade, 0));
+
+const n = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR');
+const dinheiro = (v: number | null) => (v === null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 
 async function carregar() {
   carregando.value = true;
   erro.value = '';
   try {
-    dados.value = await api.importarMixPrevia();
+    dados.value = await api.cargaBasePrevia();
   } catch (e: unknown) {
     dados.value = null;
     erro.value = (e as { data?: { message?: string } })?.data?.message || 'Não foi possível montar a prévia.';
@@ -63,19 +81,16 @@ async function importar() {
   if (!fraseOk.value) return;
   importando.value = true;
   try {
-    const r = await api.importarMix(confirmacao.value);
-    const extras = [
-      r.falhas.length ? `${r.falhas.length} falharam` : '',
-      r.restantes ? `faltam ${r.restantes} — clique de novo` : '',
-    ].filter(Boolean).join('; ');
+    const r = await api.cargaBaseImportar(confirmacao.value);
     flash.value = {
-      texto: `${r.criados} produto(s) criado(s)${extras ? `. ${extras}.` : '.'}`,
-      tipo: r.falhas.length ? 'warning' : 'success',
+      texto: `Base carregada: ${n(r.criados)} produtos, ${n(r.ativos)} ativos e ${n(r.inativos)} inativos.`,
+      tipo: 'success',
     };
+    confirmacao.value = '';
     await carregar();
   } catch (e: unknown) {
     flash.value = {
-      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível importar.',
+      texto: (e as { data?: { message?: string } })?.data?.message || 'Não foi possível carregar a Base.',
       tipo: 'error',
     };
   } finally {
@@ -86,12 +101,11 @@ async function importar() {
 
 <template>
   <v-container class="py-6" style="max-width: 1100px">
-    <div class="d-flex flex-wrap align-center ga-3 mb-2">
+    <div class="d-flex flex-wrap align-center ga-3 mb-4">
       <div>
         <h1 class="text-h5 mb-1">Importar da planilha</h1>
         <p class="text-body-2 text-medium-emphasis mb-0">
-          Cria na Base os produtos que existem na planilha MIX e ainda não no sistema,
-          já com o código do PDV.
+          Zera a Base e traz todos os produtos da planilha, iguais ao que está lá.
         </p>
       </div>
       <v-spacer />
@@ -101,7 +115,7 @@ async function importar() {
     </div>
 
     <v-alert v-if="!isAdmin" type="warning" variant="tonal" class="mb-4">
-      Esta tela é restrita ao administrador: ela cria cadastro para a rede inteira.
+      Esta tela é restrita ao administrador: ela refaz o cadastro da rede inteira.
     </v-alert>
 
     <v-alert v-else-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
@@ -109,105 +123,221 @@ async function importar() {
     <template v-else-if="dados">
       <v-alert v-if="dados.estado !== 'ok'" type="error" variant="tonal" class="mb-4">
         <div class="text-body-2">{{ AVISO[dados.estado] }}</div>
-        <div v-if="dados.faltando.length" class="text-body-2 mt-1">
-          Colunas não encontradas: {{ dados.faltando.join(', ') }}
-        </div>
-        <div v-if="dados.erro" class="text-body-2 mt-1 text-medium-emphasis">{{ dados.erro }}</div>
+        <v-table v-if="dados.trocadas.length" density="compact" class="mt-3 bg-transparent">
+          <thead>
+            <tr><th>Coluna</th><th>Esperava</th><th>Achou</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in dados.trocadas" :key="t.coluna">
+              <td class="font-weight-medium">{{ t.coluna }}</td>
+              <td>{{ t.esperado }}</td>
+              <td>{{ t.encontrado }}</td>
+            </tr>
+          </tbody>
+        </v-table>
+        <div v-if="dados.erro" class="text-body-2 mt-2 text-medium-emphasis">{{ dados.erro }}</div>
       </v-alert>
 
       <template v-else>
         <v-alert v-if="dados.truncada" type="warning" variant="tonal" class="mb-4">
-          A leitura chegou ao fim da janela configurada — pode haver produto além dela.
-          Aumente <code>GOOGLE_SHEETS_MIX_LINHA_FINAL</code> antes de importar, senão
+          A leitura chegou ao fim da janela configurada e pode haver produto além dela.
+          Aumente <code>GOOGLE_SHEETS_CARGA_LINHA_FINAL</code> antes de carregar, senão
           parte da planilha fica de fora sem aviso.
         </v-alert>
 
-        <v-row dense class="mb-3">
+        <v-row dense class="mb-4">
           <v-col cols="6" md="3">
             <v-card flat border rounded="lg" class="pa-4">
-              <div class="text-h5">{{ dados.importar.toLocaleString('pt-BR') }}</div>
-              <div class="text-caption">Entram como cadastro novo</div>
+              <div class="text-h5">{{ n(dados.importar) }}</div>
+              <div class="text-caption">Produtos entram</div>
             </v-card>
           </v-col>
           <v-col cols="6" md="3">
             <v-card flat border rounded="lg" class="pa-4">
-              <div class="text-h5">{{ foraDeTotal.toLocaleString('pt-BR') }}</div>
-              <div class="text-caption">Ficam de fora</div>
+              <div class="text-h5 text-success">{{ n(dados.ativos) }}</div>
+              <div class="text-caption">Entram ativos</div>
             </v-card>
           </v-col>
           <v-col cols="6" md="3">
             <v-card flat border rounded="lg" class="pa-4">
-              <div class="text-h5">{{ dados.linhasLidas.toLocaleString('pt-BR') }}</div>
-              <div class="text-caption">Linhas lidas</div>
+              <div class="text-h5 text-medium-emphasis">{{ n(dados.inativos) }}</div>
+              <div class="text-caption">Entram inativos</div>
             </v-card>
           </v-col>
           <v-col cols="6" md="3">
             <v-card flat border rounded="lg" class="pa-4">
-              <div class="text-h5">{{ dados.loteMaximo }}</div>
-              <div class="text-caption">Por vez</div>
+              <div class="text-h5" :class="dados.apagar ? 'text-error' : ''">{{ n(dados.apagar) }}</div>
+              <div class="text-caption">Saem da Base antes</div>
             </v-card>
           </v-col>
         </v-row>
 
-        <v-card flat border rounded="lg" class="mb-4">
-          <v-card-title class="text-subtitle-1">Quem fica de fora, e por quê</v-card-title>
+        <v-alert
+          :type="totalRecusado ? 'warning' : 'success'"
+          variant="tonal"
+          density="compact"
+          class="mb-4"
+        >
+          <span v-if="totalRecusado">
+            {{ n(totalRecusado) }} linha(s) não entram. A carga só faz sentido com todas,
+            então resolva na planilha antes de confirmar.
+          </span>
+          <span v-else>
+            Nenhuma linha ficou de fora: as {{ n(dados.linhasLidas) }} linhas com produto entram.
+          </span>
+        </v-alert>
+
+        <v-card v-if="recusas.length" flat border rounded="lg" class="mb-4">
+          <v-card-title class="text-subtitle-1">Quem não entra, e por quê</v-card-title>
           <v-list density="compact">
-            <v-list-item v-for="[motivo, n] in motivos" :key="motivo">
+            <v-list-item v-for="[motivo, qtd] in recusas" :key="motivo">
               <template #prepend>
-                <v-chip size="small" variant="tonal" class="mr-3">{{ n.toLocaleString('pt-BR') }}</v-chip>
+                <v-chip size="small" variant="tonal" color="warning" class="mr-3">{{ n(qtd) }}</v-chip>
               </template>
               <v-list-item-title class="text-body-2">{{ MOTIVO[motivo] }}</v-list-item-title>
             </v-list-item>
-            <v-list-item v-if="motivos.length === 0">
-              <v-list-item-title class="text-body-2 text-medium-emphasis">
-                Nenhuma linha ficou de fora.
+          </v-list>
+          <v-divider />
+          <v-list density="compact" lines="two">
+            <v-list-item v-for="d in dados.recusadas.slice(0, 20)" :key="`${d.linha}-${d.codigo}`">
+              <v-list-item-title class="text-body-2">
+                <v-chip size="x-small" variant="tonal" class="mr-2">{{ d.codigo || '—' }}</v-chip>
+                {{ d.nome || '(sem nome)' }}
               </v-list-item-title>
+              <v-list-item-subtitle>
+                linha {{ d.linha }} · {{ d.motivo ? MOTIVO[d.motivo] : '' }}
+              </v-list-item-subtitle>
             </v-list-item>
           </v-list>
+        </v-card>
+
+        <v-card flat border rounded="lg" class="mb-4">
+          <v-card-title class="text-subtitle-1">De onde vem cada campo</v-card-title>
+          <v-card-subtitle class="pb-2">
+            A leitura confere estes títulos antes de começar. Se algum sair do lugar,
+            ela para em vez de gravar no campo errado.
+          </v-card-subtitle>
+          <v-table density="compact">
+            <thead>
+              <tr><th style="width: 70px">Coluna</th><th>Título na planilha</th><th>Vira no cadastro</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in MAPA" :key="m.coluna">
+                <td><v-chip size="x-small" variant="tonal">{{ m.coluna }}</v-chip></td>
+                <td class="text-caption">{{ m.titulo }}</td>
+                <td class="text-body-2">{{ m.vira }}</td>
+              </tr>
+            </tbody>
+          </v-table>
         </v-card>
 
         <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-          O que a planilha não traz entra <strong>vazio</strong>, nunca chutado — e o
-          <strong>fiscal não vem daqui</strong>: quem preenche é a carga fiscal, pela
-          fonte já aprovada. O <strong>custo</strong> também fica vazio, porque a aba
-          tem um por loja e o cadastro da Base vale para a rede.
+          O bloco fiscal inteiro entra com <strong>sequências de zero</strong>, no tamanho
+          que o arquivo do Creare exige, e cada produto fica marcado como fiscal pendente.
+          Campo que a planilha deixou em branco entra <strong>vazio</strong>, nunca como zero.
+          Nada é escrito de volta na planilha.
         </v-alert>
 
-        <v-card v-if="dados.amostra.length" flat border rounded="lg" class="mb-4">
+        <v-card v-if="dados.barrasRepetidas.length" flat border rounded="lg" class="mb-4">
           <v-card-title class="text-subtitle-1">
-            Amostra do que entraria ({{ dados.amostra.length }} de {{ dados.importar }})
+            Código de barras repetido ({{ dados.barrasRepetidas.length }})
           </v-card-title>
-          <v-list density="compact" lines="two">
-            <v-list-item v-for="d in dados.amostra" :key="d.linha">
+          <v-card-subtitle class="pb-2">
+            Entram assim mesmo, porque você pediu todos os produtos. Mas o caixa bipa um
+            código e espera um produto só.
+          </v-card-subtitle>
+          <v-list density="compact">
+            <v-list-item v-for="b in dados.barrasRepetidas.slice(0, 20)" :key="b.codigoBarras">
               <v-list-item-title class="text-body-2">
-                <v-chip size="x-small" variant="tonal" class="mr-2">{{ d.codigo }}</v-chip>
-                {{ d.nome }}
+                <v-chip size="x-small" variant="tonal" color="warning" class="mr-2">{{ b.codigoBarras }}</v-chip>
+                nos códigos {{ b.codigos.join(', ') }}
               </v-list-item-title>
-              <v-list-item-subtitle>linha {{ d.linha }} da planilha</v-list-item-subtitle>
             </v-list-item>
           </v-list>
         </v-card>
 
-        <v-card flat border rounded="lg" class="pa-3">
-          <div class="text-body-2 mb-2">
-            Importar cria cadastro de verdade. Repetir continua de onde parou — não duplica.
-          </div>
+        <v-card flat border rounded="lg" class="mb-4">
+          <v-card-title class="text-subtitle-1">
+            Grupos ({{ dados.porGrupo.length }})
+          </v-card-title>
+          <v-card-subtitle class="pb-2">
+            {{ n(deTransformacao) }} produtos entram como fabricação própria; o resto como revenda.
+            <span v-if="semNomeDeGrupo.length">
+              {{ semNomeDeGrupo.length }} grupos não têm nome na coluna M e entram só com o id.
+            </span>
+          </v-card-subtitle>
+          <v-table density="compact" fixed-header height="320">
+            <thead>
+              <tr><th style="width: 70px">Id</th><th>Grupo</th><th>Tipo</th><th class="text-right">Produtos</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="g in dados.porGrupo" :key="g.grupoId">
+                <td><v-chip size="x-small" variant="tonal">{{ g.grupoId }}</v-chip></td>
+                <td class="text-body-2">
+                  <span v-if="g.grupo">{{ g.grupo }}</span>
+                  <span v-else class="text-medium-emphasis font-italic">sem nome na coluna M</span>
+                </td>
+                <td>
+                  <v-chip size="x-small" variant="tonal" :color="g.tipo === 'transformacao' ? 'primary' : undefined">
+                    {{ g.tipo === 'transformacao' ? 'fabricação própria' : 'revenda' }}
+                  </v-chip>
+                </td>
+                <td class="text-right">{{ n(g.quantidade) }}</td>
+              </tr>
+            </tbody>
+          </v-table>
+        </v-card>
+
+        <v-card v-if="dados.amostra.length" flat border rounded="lg" class="mb-4">
+          <v-card-title class="text-subtitle-1">
+            Como os primeiros {{ dados.amostra.length }} entrariam
+          </v-card-title>
+          <v-table density="compact">
+            <thead>
+              <tr>
+                <th>Código</th><th>Nome</th><th>Barras</th><th>Un.</th>
+                <th class="text-right">Custo</th><th class="text-right">Venda</th><th>Situação</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in dados.amostra" :key="p.codigoInterno">
+                <td><v-chip size="x-small" variant="tonal">{{ p.codigoInterno }}</v-chip></td>
+                <td class="text-body-2">{{ p.nome }}</td>
+                <td class="text-caption">{{ p.codigoBarras ?? '—' }}</td>
+                <td class="text-caption">{{ p.medidaBase }}</td>
+                <td class="text-right text-caption">{{ dinheiro(p.custo) }}</td>
+                <td class="text-right text-caption">{{ dinheiro(p.precoVenda) }}</td>
+                <td>
+                  <v-chip size="x-small" variant="tonal" :color="p.status === 'ativo' ? 'success' : undefined">
+                    {{ p.status }}
+                  </v-chip>
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+        </v-card>
+
+        <v-card flat border rounded="lg" class="pa-4">
+          <v-alert type="error" variant="tonal" density="compact" class="mb-3">
+            Carregar <strong>apaga os {{ n(dados.apagar) }} cadastros da Base</strong> e grava
+            os {{ n(dados.importar) }} da planilha no lugar. É tudo ou nada: se algo falhar,
+            nada muda. O cadastro próprio de TNP e LI não é tocado.
+          </v-alert>
           <div class="d-flex flex-wrap align-center ga-3">
             <v-text-field
               v-model="confirmacao"
               :label="`Digite: ${dados.confirmacao}`"
               density="compact" hide-details variant="outlined"
-              style="min-width: 340px; max-width: 460px"
+              style="min-width: 360px; max-width: 520px"
             />
             <v-btn
-              color="primary"
+              color="error"
               :disabled="!fraseOk || dados.importar === 0"
               :loading="importando"
-              prepend-icon="library_add"
+              prepend-icon="database"
               @click="importar"
             >
-              Importar {{ Math.min(dados.importar, dados.loteMaximo) }}
-              <span v-if="dados.importar > dados.loteMaximo" class="ml-1">de {{ dados.importar }}</span>
+              Zerar e carregar {{ n(dados.importar) }}
             </v-btn>
           </div>
         </v-card>

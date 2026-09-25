@@ -164,33 +164,55 @@ export interface PreviaCustoMer {
 }
 
 /** Por que uma linha da planilha não virou cadastro. */
-export type MotivoPuloMix =
+export type MotivoRecusaCarga =
   | 'codigo-invalido' | 'codigo-repetido-na-planilha' | 'sem-nome'
-  | 'unidade-desconhecida' | 'tipo-desconhecido' | 'ja-existe-por-codigo' | 'ja-existe-por-barras'
-  | 'barras-repetida-na-planilha';
+  | 'situacao-desconhecida' | 'unidade-desconhecida' | 'sem-id-de-grupo';
 
-export interface DecisaoImportacaoMix {
+export interface DecisaoCarga {
   linha: number;
   codigo: string;
   nome: string;
-  acao: 'importar' | 'pular';
-  motivo?: MotivoPuloMix;
+  acao: 'importar' | 'recusar';
+  motivo?: MotivoRecusaCarga;
   produto?: Record<string, unknown>;
 }
 
-export interface PreviaImportacaoMix {
-  estado: 'ok' | 'sem-destino' | 'sem-coluna' | 'falhou';
-  /** A leitura encheu a janela: pode haver produto além dela. */
-  truncada: boolean;
-  faltando: string[];
+/** Um produto do jeito que entraria no cadastro. */
+export interface ProdutoDaCarga {
+  codigoInterno: string;
+  nome: string;
+  codigoBarras: string | null;
+  medidaBase: string;
+  tipo: 'revenda' | 'transformacao';
+  status: 'ativo' | 'inativo';
+  grupo: string | null;
+  grupoId: string;
+  estoqueMin: number | null;
+  estoqueMax: number | null;
+  custo: number | null;
+  precoVenda: number | null;
+}
+
+export interface PreviaCarga {
+  estado: 'ok' | 'sem-destino' | 'coluna-mudou' | 'falhou';
   erro?: string;
+  /** Colunas cujo título saiu do lugar. Havendo uma, a carga não roda. */
+  trocadas: Array<{ coluna: string; esperado: string; encontrado: string }>;
+  truncada: boolean;
   linhasLidas: number;
-  linhasDescartadas: number;
+  linhasSemNome: number;
   importar: number;
-  pular: Record<MotivoPuloMix, number>;
-  amostra: DecisaoImportacaoMix[];
+  ativos: number;
+  inativos: number;
+  comBarras: number;
+  recusas: Record<MotivoRecusaCarga, number>;
+  recusadas: DecisaoCarga[];
+  barrasRepetidas: Array<{ codigoBarras: string; codigos: string[] }>;
+  porGrupo: Array<{ grupoId: string; grupo: string | null; tipo: 'revenda' | 'transformacao'; quantidade: number }>;
+  /** Quantos cadastros da Base seriam apagados antes da carga. */
+  apagar: number;
+  amostra: ProdutoDaCarga[];
   confirmacao: string;
-  loteMaximo: number;
 }
 
 /** Uma linha de fonte dentro do grupo, como veio do staging. */
@@ -610,14 +632,18 @@ export function useApi() {
 
     // ---- importar da planilha MIX para a Base ----
     /** Prévia da importação. NÃO cria nada. */
-    importarMixPrevia: () =>
-      unwrap($fetch<{ data: PreviaImportacaoMix }>('/admin/produtos/importar-mix/previa', { ...base })),
+    cargaBasePrevia: () =>
+      unwrap($fetch<{ data: PreviaCarga }>('/admin/produtos/importar-mix/previa', { ...base })),
 
-    /** Cria os produtos, em lote. Repetir continua de onde parou. */
-    importarMix: (confirmacao: string) =>
-      unwrap($fetch<{ data: { criados: number; restantes: number; falhas: Array<{ linha: number; codigo: string; erro: string }> } }>(
+    /**
+     * Zera a Base e cria TODOS os produtos da planilha, numa transação só.
+     * Não tem lote nem "continuar de onde parou": ou a Base inteira fica de
+     * pé, ou nada muda.
+     */
+    cargaBaseImportar: (confirmacao: string) =>
+      unwrap($fetch<{ data: { apagados: number; criados: number; ativos: number; inativos: number } }>(
         '/admin/produtos/importar-mix',
-        { ...base, method: 'POST', body: { confirmacao } },
+        { ...base, method: 'POST', body: { confirmacao }, timeout: 300_000 },
       )),
 
     // ---- de-para do SIA ----

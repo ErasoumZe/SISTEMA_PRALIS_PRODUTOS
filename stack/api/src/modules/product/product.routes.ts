@@ -8,7 +8,7 @@ import { ProductZerarController } from './product-zerar.controller';
 import { CodigoCadastroController } from './codigo-cadastro.controller';
 import { GiuliaSiaController } from './giulia-sia.controller';
 import { BALDES_EM_LOTE } from './codigo-cadastro.service';
-import { ImportarMixController } from './importar-mix.controller';
+import { CargaBaseController } from './carga-base.controller';
 import { CustoMerController } from './custo-mer.controller';
 import { HistoricalDuplicatesController } from './historical-duplicates.controller';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
@@ -21,7 +21,7 @@ export async function productRoutes(app: FastifyInstance) {
   const zerarController = container.resolve(ProductZerarController);
   const codigoCadastroController = container.resolve(CodigoCadastroController);
   const giuliaSiaController = container.resolve(GiuliaSiaController);
-  const importarMixController = container.resolve(ImportarMixController);
+  const cargaBaseController = container.resolve(CargaBaseController);
   const custoMerController = container.resolve(CustoMerController);
   const historicalDuplicatesController = container.resolve(HistoricalDuplicatesController);
   const a = app.withTypeProvider<ZodTypeProvider>();
@@ -318,11 +318,18 @@ export async function productRoutes(app: FastifyInstance) {
    * para ser produto não entra — cada recusa vem com o motivo na prévia.
    * O fiscal NÃO vem daqui: quem preenche é o backfill, pela fonte aprovada.
    */
-  const motivoPulo = z.enum([
+  const motivoRecusa = z.enum([
     'codigo-invalido', 'codigo-repetido-na-planilha', 'sem-nome',
-    'unidade-desconhecida', 'tipo-desconhecido', 'ja-existe-por-codigo', 'ja-existe-por-barras',
-    'barras-repetida-na-planilha',
+    'situacao-desconhecida', 'unidade-desconhecida', 'sem-id-de-grupo',
   ]);
+  const decisaoSchema = z.object({
+    linha: z.number(),
+    codigo: z.string(),
+    nome: z.string(),
+    acao: z.enum(['importar', 'recusar']),
+    motivo: motivoRecusa.optional(),
+    produto: z.looseObject({}).optional(),
+  });
 
   a.get(
     '/admin/produtos/importar-mix/previa',
@@ -330,31 +337,35 @@ export async function productRoutes(app: FastifyInstance) {
       schema: {
         response: {
           200: apiResponseSchema(z.object({
-            estado: z.enum(['ok', 'sem-destino', 'sem-coluna', 'falhou']),
-            truncada: z.boolean(),
-            faltando: z.array(z.string()),
+            estado: z.enum(['ok', 'sem-destino', 'coluna-mudou', 'falhou']),
             erro: z.string().optional(),
+            trocadas: z.array(z.object({ coluna: z.string(), esperado: z.string(), encontrado: z.string() })),
+            truncada: z.boolean(),
             linhasLidas: z.number(),
-            linhasDescartadas: z.number(),
+            linhasSemNome: z.number(),
             importar: z.number(),
-            pular: z.record(motivoPulo, z.number()),
-            amostra: z.array(z.object({
-              linha: z.number(),
-              codigo: z.string(),
-              nome: z.string(),
-              acao: z.enum(['importar', 'pular']),
-              motivo: motivoPulo.optional(),
-              produto: z.looseObject({}).optional(),
+            ativos: z.number(),
+            inativos: z.number(),
+            comBarras: z.number(),
+            recusas: z.record(motivoRecusa, z.number()),
+            recusadas: z.array(decisaoSchema),
+            barrasRepetidas: z.array(z.object({ codigoBarras: z.string(), codigos: z.array(z.string()) })),
+            porGrupo: z.array(z.object({
+              grupoId: z.string(),
+              grupo: z.string().nullable(),
+              tipo: z.enum(['revenda', 'transformacao']),
+              quantidade: z.number(),
             })),
+            apagar: z.number(),
+            amostra: z.array(z.looseObject({})),
             confirmacao: z.string(),
-            loteMaximo: z.number(),
           })),
         },
-        summary: 'Prévia da importação de produtos da planilha MIX (admin)',
+        summary: 'Prévia da carga da Base a partir da planilha (admin)',
         tags: ['ADMIN', 'PRODUTOS'],
       },
     },
-    importarMixController.previa.bind(importarMixController),
+    cargaBaseController.previa.bind(cargaBaseController),
   );
 
   a.post(
@@ -364,16 +375,17 @@ export async function productRoutes(app: FastifyInstance) {
         body: z.object({ confirmacao: z.string() }),
         response: {
           200: apiResponseSchema(z.object({
+            apagados: z.number(),
             criados: z.number(),
-            restantes: z.number(),
-            falhas: z.array(z.object({ linha: z.number(), codigo: z.string(), erro: z.string() })),
+            ativos: z.number(),
+            inativos: z.number(),
           })),
         },
-        summary: 'Criar na Base os produtos que só existem na planilha MIX (admin)',
+        summary: 'Zerar a Base e carregar todos os produtos da planilha (admin)',
         tags: ['ADMIN', 'PRODUTOS'],
       },
     },
-    importarMixController.importar.bind(importarMixController),
+    cargaBaseController.importar.bind(cargaBaseController),
   );
 
   /*

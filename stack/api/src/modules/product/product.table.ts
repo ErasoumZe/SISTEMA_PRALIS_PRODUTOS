@@ -55,6 +55,19 @@ export const products = pgTable(
     codigoInterno: text('codigo_interno'),
     fotoUrl: text('foto_url'),
     grupo: text('grupo'),
+    /*
+     * Id do grupo no Creare/SIA — o `groupCode` do layout posicional.
+     *
+     * Existe porque o NOME do grupo não basta para exportar: o TXT pede o
+     * código, e a tradução nome → código vivia numa tabela de configuração que
+     * só cobre os grupos que têm nome. Na carga de 25/09/2026, 1.271 produtos
+     * vieram com id de grupo e sem nome nenhum — sem esta coluna eles não
+     * teriam como voltar para o PDV.
+     *
+     * Nulo é aceitável: produto cadastrado à mão pela Central continua
+     * resolvendo o código pelo nome, como sempre.
+     */
+    grupoId: text('grupo_id'),
     tipo: text('tipo').notNull(), // 'revenda' | 'transformacao'
     status: text('status').notNull().default('ativo'),
     habilitarAjuda: boolean('habilitar_ajuda').notNull().default(false),

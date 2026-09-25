@@ -58,6 +58,13 @@ services:
       GOOGLE_SHEETS_FISCAL_TAB: ${GOOGLE_SHEETS_FISCAL_TAB}
       GOOGLE_SHEETS_TIMEOUT_MS: ${GOOGLE_SHEETS_TIMEOUT_MS}
       GOOGLE_SHEETS_DEFAULT_LOJAS: ${GOOGLE_SHEETS_DEFAULT_LOJAS}
+      # Carga da Base: leiaute da aba de cadastro. Todas têm padrão no código,
+      # então ficar sem valor no painel não desliga nada — mas a chave precisa
+      # chegar ao container para poder ser ajustada sem subir versão.
+      GOOGLE_SHEETS_CARGA_TAB: ${GOOGLE_SHEETS_CARGA_TAB}
+      GOOGLE_SHEETS_CARGA_LINHA_CABECALHO: ${GOOGLE_SHEETS_CARGA_LINHA_CABECALHO}
+      GOOGLE_SHEETS_CARGA_LINHA_INICIAL: ${GOOGLE_SHEETS_CARGA_LINHA_INICIAL}
+      GOOGLE_SHEETS_CARGA_LINHA_FINAL: ${GOOGLE_SHEETS_CARGA_LINHA_FINAL}
       GOOGLE_SERVICE_ACCOUNT_EMAIL: ${GOOGLE_SERVICE_ACCOUNT_EMAIL}
       GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
       # Aba com os grupos oficiais e a margem padrao de cada um (colunas M e N).

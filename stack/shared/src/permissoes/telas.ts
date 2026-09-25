@@ -78,7 +78,7 @@ export const TELAS: readonly Tela[] = [
   {
     id: 'importar-mix',
     titulo: 'Importar da planilha',
-    subtitulo: 'O que existe na planilha e não no sistema',
+    subtitulo: 'Refaz a Base com todos os produtos da planilha',
     path: '/produtos/importar-mix',
     secao: 'Catálogo',
     icone: 'upload_file',

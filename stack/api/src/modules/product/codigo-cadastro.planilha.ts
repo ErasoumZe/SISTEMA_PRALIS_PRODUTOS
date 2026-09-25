@@ -3,7 +3,34 @@ import { env } from '@/config/env';
 import { SHEETS_GATEWAY } from '@/modules/google-sheets/google-sheets.di';
 import { a1, indexToCol, type SheetsGateway } from '@/modules/google-sheets/google-sheets.client';
 import { codigoCadastroValido } from './codigo-cadastro.motor';
-import type { LinhaMixCompleta } from './importar-mix.motor';
+
+/**
+ * Uma linha da aba MIX.
+ *
+ * Morava em `importar-mix.motor`, que saiu em 25/09/2026 junto com a
+ * importação antiga — a carga da Base passou a vir da aba
+ * `(TNP/LI) CADASTRO PRODUTOS` (ver `carga-base.planilha`). O que sobrou desta
+ * leitura é o **teto da numeração**, que a tela de código de cadastro usa e
+ * que não tem outra fonte.
+ */
+export interface LinhaMixCompleta {
+  linha: number;
+  /** `COD INTERNO` — é o `coditem` do PDV. */
+  codigo: string;
+  nome: string;
+  codigoBarras: string | null;
+  ativo: string;
+  ippt: string;
+  grupo: string;
+  marca: string;
+  embalagem: string;
+  quantidadeEmbalagem: string;
+  unidade: string;
+  setor: string;
+  estoqueMin: string;
+  estoqueMax: string;
+  custo: string;
+}
 
 /**
  * Leitura da aba MIX.
