@@ -1,0 +1,109 @@
+{
+  "implementationDir": ".",
+  "spreadsheetId": "1xoPA6FqhLgix0cQSiyEgX56sO_X8QErz-9aZtrkGZAY",
+  "sheetName": "(TNP/LI) CADASTRO PRODUTOS",
+  "firstDataRow": 11,
+  "pollIntervalSeconds": 60,
+  "outputDir": "C:\\Users\\José\\Desktop\\Cicluz\\CADASTRO DE PRODUTOS\\pralis\\automacao\\robo-sia\\teste-creare",
+  "referenceTxtFiles": [
+    "../../../docs/arquivo_importar_tnp.txt"
+  ],
+  "fiscal": {
+    "officialSheetName": "(TNP) FISCAL - DE PARA PRODUTOS",
+    "legacySpreadsheetId": "1itKr_GIBE7u0xCpsfM3YtzhaIFqhpVnC4pGFSj0B2nA",
+    "legacySheetName": "MIX PRODUTOS LOJA E PRODUÇÃO ASSOCIAÇÃO",
+    "productOverrides": {
+      "7891095911486": {
+        "ncm": "19019090",
+        "cest": "1704600",
+        "ecfTaxCode": "10",
+        "groupCode": "0010",
+        "categoryCode": "000000005",
+        "icmsReduction": "0000",
+        "fullTaxRate": "00000",
+        "fcpRate": "0000",
+        "pisRate": "00000000",
+        "cofinsRate": "00000000",
+        "source": "EAN confirmado; NCM/CEST do produto; perfil SUBST TRIB da FAROFA PRONTA no cadastro legado TNP"
+      }
+    }
+  },
+  "stores": {
+    "TNP": {
+      "enabled": true,
+      "groupCodes": {},
+      "categoryCodes": {},
+      "units": {
+        "UN": "UN",
+        "G": "UN",
+        "KG": "KG",
+        "ML": "UN",
+        "LT": "LT"
+      },
+      "decimalPlaces": {
+        "unitPrice": 2,
+        "cost": 3,
+        "icmsReduction": 2,
+        "fullTaxRate": 3,
+        "fcpRate": 2,
+        "pisRate": 4,
+        "cofinsRate": 4,
+        "maximumQuantity": 3,
+        "minimumQuantity": 3
+      },
+      "barcodeField": "extended",
+      "lineEnding": "LF",
+      "noPromotionDate": "30/12/99",
+      "iat": "A",
+      "weighableUnits": [
+        "KG"
+      ],
+      "stockControlled": "S",
+      "fiscalDefaults": {
+        "ncm": "00000000",
+        "cest": "0000000",
+        "ecfTaxCode": "00",
+        "pisCofinsCst": "00",
+        "categoryCode": "000000000"
+      }
+    },
+    "LI": {
+      "enabled": false,
+      "groupCodes": {},
+      "categoryCodes": {},
+      "units": {
+        "UN": "UN",
+        "G": "UN",
+        "KG": "KG",
+        "ML": "UN",
+        "LT": "LT"
+      },
+      "decimalPlaces": {
+        "unitPrice": 2,
+        "cost": 2,
+        "icmsReduction": 2,
+        "fullTaxRate": 3,
+        "fcpRate": 2,
+        "pisRate": 4,
+        "cofinsRate": 4,
+        "maximumQuantity": 3,
+        "minimumQuantity": 3
+      },
+      "barcodeField": "extended",
+      "lineEnding": "LF",
+      "noPromotionDate": "30/12/99",
+      "iat": "A",
+      "weighableUnits": [
+        "KG"
+      ],
+      "stockControlled": "S",
+      "fiscalDefaults": {
+        "ncm": "00000000",
+        "cest": "0000000",
+        "ecfTaxCode": "00",
+        "pisCofinsCst": "00",
+        "categoryCode": "000000000"
+      }
+    }
+  }
+}
