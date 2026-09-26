@@ -442,7 +442,13 @@ function rowToResult(
   if (!barcode) missing.push('código de barras');
   if (!internalCode) missing.push(`código interno ${store}`);
   if (cost == null) missing.push(`custo ${store}`);
-  if (salePrice == null) missing.push(`preço de venda ${store}`);
+  /*
+   * Sem preço, vai R$ 0,10 — a mesma regra do gerador do sistema
+   * (`PRECO_DE_VENDA_MINIMO`). O caso é o produto inativo, que a planilha traz
+   * sem preço e que precisa chegar ao Creare mesmo assim: o PDV só marca
+   * inativo quem ele conhece.
+   */
+  const precoDeVenda = salePrice ?? Creare.PRECO_DE_VENDA_MINIMO;
   if (!ncm) missing.push('NCM');
   if (!ecfTaxCode) missing.push('alíquota ECF ID');
   if (!pisCofinsCst) missing.push('CST PIS/COFINS');
@@ -496,7 +502,7 @@ function rowToResult(
     barcode: shortBarcode,
     groupCode,
     shortDescription: description,
-    unitPrice: salePrice,
+    unitPrice: precoDeVenda,
     unit,
     ecfTaxCode,
     promotionPrice: 0,

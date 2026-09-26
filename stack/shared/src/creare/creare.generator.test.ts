@@ -183,8 +183,19 @@ describe('gerador Criare estrito', () => {
     expect(() => generateCreareRecord(bread(overrides as Partial<ProductEntity>), config)).toThrow(expected as RegExp);
   });
 
-  it('recusa preco automatico sem margem', () => {
-    expect(() => generateCreareRecord(bread({ auto: true, margemPontual: null }), config)).toThrow(/Margem pontual ausente/);
+  it('preco ausente vira R$ 0,10 em vez de recusar', () => {
+    /*
+     * Desde 26/09/2026 preço ausente não recusa: vai R$ 0,10. O caso é o
+     * produto inativo, que a planilha traz sem preço e que precisa chegar ao
+     * Creare para o PDV saber que ele está inativo.
+     */
+    const semMargem = parseCreareRecord(generateCreareRecord(bread({ auto: true, margemPontual: null }), config));
+    // o layout guarda o preço em 10 posições com 2 decimais implícitos: 0,10 = 0000000010
+    expect(semMargem.unitPrice).toBe('0000000010');
+    const semPreco = parseCreareRecord(generateCreareRecord(bread({ auto: false, vVendaPontual: null }), config));
+    expect(semPreco.unitPrice).toBe('0000000010');
+    // quem tem preço continua com o seu
+    expect(parseCreareRecord(generateCreareRecord(bread(), config)).unitPrice).toBe('0000002199');
   });
 
   it('gera arquivo com a quebra explicitamente configurada', () => {

@@ -214,15 +214,22 @@ function barcodeCodes(
   return { barcode: '', extendedBarcode: code };
 }
 
+/**
+ * Preço de venda quando o cadastro não tem um: R$ 0,10.
+ *
+ * Decisão do José em 26/09/2026: *"coloque 0,10 centavos se não tiver"*. O
+ * caso concreto era o produto INATIVO, que a planilha traz sem preço e que
+ * ainda assim precisa chegar ao Creare — senão ele continua vendável no caixa,
+ * porque o PDV só marca inativo quem ele conhece. Zero não serve: o layout
+ * trata preço zero como ausência. Dez centavos é um valor que existe e que
+ * ninguém confunde com preço de prateleira.
+ */
+export const PRECO_DE_VENDA_MINIMO = 0.1;
+
 function salePrice(product: ProductEntity): number {
-  if (!product.auto) {
-    if (product.vVendaPontual == null) throw new CreareValidationError('Preco de venda pontual ausente.');
-    return product.vVendaPontual;
-  }
-  if (product.custo == null) throw new CreareValidationError('Custo ausente para calcular o preco automatico.');
-  if (product.margemPontual == null) {
-    throw new CreareValidationError('Margem pontual ausente para calcular o preco automatico.');
-  }
+  if (!product.auto) return product.vVendaPontual ?? PRECO_DE_VENDA_MINIMO;
+  // preço automático sem custo ou sem margem não tem como ser calculado
+  if (product.custo == null || product.margemPontual == null) return PRECO_DE_VENDA_MINIMO;
   return calcularVVenda({
     auto: true,
     custo: product.custo,
