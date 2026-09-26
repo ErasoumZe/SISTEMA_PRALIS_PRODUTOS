@@ -163,6 +163,41 @@ describe('exportação Criare: só sai o que casou no SIA', () => {
     expect(diagnostico.exemplosInvalidos[0]!.motivo).toMatch(/diverge do coditem/);
   });
 
+  it('sem par no de-para, o codigo interno vale como coditem e o produto SAI', async () => {
+    /*
+     * O caso de 26/09/2026: a TNP tinha 2 produtos e o TXT saia com 1. O que
+     * ficava de fora nao estava no de-para por barras -- mas tinha codigo
+     * interno, que desde a carga E o coditem do SIA, e trazia grupo e fiscal
+     * zerado no proprio cadastro.
+     */
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    await db.execute(sqlTag`
+      INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
+                            habilitar_ajuda, auto, codigo_barras, codigo_interno, grupo_id, custo, v_venda_pontual)
+      VALUES ('p2', 'LI', 'PR-p2', 'INATIVO BISC LEVISSIMO', 'UN', 'revenda', 'inativo', 0, 1,
+              false, false, '7', '00007', '102', 1.47, NULL)`);
+    await db.execute(sqlTag`
+      INSERT INTO product_fiscal (product_id, ncm, cest, categoria, cst_pis_cofins, aliquota_ecf_id)
+      VALUES ('p2', '00000000', '0000000', NULL, '00', '00')`);
+
+    const linhas = (await service.generate('LI')).toString('ascii').split('\n').filter((l) => l);
+    const d = (await service.health()).lojas[0]!;
+
+    expect(linhas).toHaveLength(2);
+    expect(d.casados).toBe(2);
+    expect(d.naoCasados).toBe(0);
+    const { Creare } = await import('@pralis/shared');
+    const inativo = linhas.map((l) => Creare.parseCreareRecord(l)).find((r) => r.description.startsWith('INATIVO'))!;
+    expect(inativo.internalCode).toBe('000007');
+    expect(inativo.groupCode).toBe('0102');
+    expect(inativo.ecfTaxCode).toBe('00');
+    expect(inativo.ncm).toBe('00000000');
+    expect(inativo.categoryCode).toBe('000000000');
+    expect(inativo.unitPrice).toBe('0000000010'); // sem preco: R$ 0,10
+    expect(inativo.active).toBe('N');
+  });
+
   it('limite gera só os primeiros — a primeira importação real começa pequena', async () => {
     for (let i = 1; i <= 5; i += 1) {
       await produto(`p${i}`, `PRODUTO ${i}`, `789100010010${i}`);

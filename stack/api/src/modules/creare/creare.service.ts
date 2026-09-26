@@ -108,6 +108,40 @@ export class CreareService {
     return undefined;
   }
 
+  /**
+   * Sem par no de-para, o CÓDIGO INTERNO do produto vale como coditem.
+   *
+   * O de-para por código de barras nasceu quando o Pralis não sabia o coditem
+   * de nada, e casar pelas barras era o único jeito de não INSERIR duplicado
+   * no Criare. Desde a carga de 25/09/2026 isso mudou: o código interno de
+   * cada produto É o coditem do SIA (coluna X da planilha, "isso é fato, já
+   * conferi no sistema real" — José), e a numeração nova continua a sequência
+   * dele. Exigir o de-para agora deixava de fora produto legítimo — em
+   * 26/09/2026 a TNP tinha 2 produtos e o TXT saía com 1.
+   *
+   * O que o SIA fornecia além do coditem (grupo, ECF, NCM) o produto já traz
+   * consigo, e o gerador prefere o produto. Aqui só se preenche o suficiente
+   * para o casamento existir; o resto é do cadastro.
+   */
+  private casarPeloCodigoInterno(produto: ProductEntity): SiaDePara | undefined {
+    const coditem = String(produto.codigoInterno ?? '').replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+    if (!coditem) return undefined;
+    return {
+      chaveBarras: '',
+      codigoBarras: produto.codigoBarras ?? '',
+      coditem,
+      descricao: produto.nome,
+      codGrupo: produto.grupoId ?? '',
+      aliqSaidaEcf: produto.fiscal?.aliquotaEcfId ?? '',
+      reducao: null,
+      aliquotaInterna: null,
+      cstSaida: '',
+      csosn: '',
+      ncm: produto.fiscal?.ncm ?? '',
+      ativo: produto.status === 'ativo' ? 'S' : 'N',
+    };
+  }
+
   private async montarLote(store: CreareStore, config: Creare.CreareStoreConfig): Promise<Lote> {
     const [produtos, sia] = await Promise.all([
       this.products.list(store, {}),
@@ -120,9 +154,9 @@ export class CreareService {
     const porCoditem = new Map<string, string[]>();
 
     for (const produto of produtos) {
-      const linha = this.casar(produto, sia);
+      const linha = this.casar(produto, sia) ?? this.casarPeloCodigoInterno(produto);
       if (!linha) {
-        naoCasados.push(resumo(produto, 'sem produto correspondente no SIA para este codigo de barras'));
+        naoCasados.push(resumo(produto, 'sem par no SIA pelo codigo de barras e sem codigo interno para valer como coditem'));
         continue;
       }
       /*
