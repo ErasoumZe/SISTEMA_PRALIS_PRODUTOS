@@ -38,27 +38,34 @@ interface StoreConfig {
   weighableUnits: string[];
   stockControlled: 'S' | 'N';
   /**
-   * ÚLTIMO recurso para os campos fiscais, quando nenhuma fonte tem o valor.
+   * O bloco fiscal INTEIRO sai zerado, para TODO produto, ignorando qualquer
+   * outra fonte.
    *
-   * Existe para a decisão do José de 25/09/2026, de carregar a Base com o
-   * bloco fiscal zerado: as colunas fiscais da planilha (DC a DP) estão vazias
-   * nas 7.369 linhas, e sem isto o robô bloqueia todas por NCM, alíquota ECF
-   * ID e CST PIS/COFINS.
+   * Decisão do José em 26/09/2026: *"o espaço fiscal não são alguns completos
+   * com zero, é tudo, tudo será completado com zeros"*. A versão anterior
+   * zerava só quem não achava valor em lugar nenhum, e o resultado era um
+   * arquivo com dois critérios: 1.462 produtos com NCM e ECF reais vindos das
+   * tabelas antigas, 5.884 zerados. Ninguém escolheu isso.
    *
-   * **Vem VAZIO por padrão, de propósito.** Preencher aqui é dizer "mande este
-   * valor ao PDV", e valor fiscal errado não fica só errado: ele tributa. Quem
-   * liga isto assume que o Criare aceita o valor como chave — `ecfTaxCode` e
-   * `categoryCode` são chave estrangeira lá, e chave que não existe derruba o
-   * arquivo inteiro, não só a linha.
+   * Com isto ligado o robô nem lê as tabelas fiscais — duas planilhas a menos
+   * por rodada. O preenchimento fiscal de verdade é assunto do sistema, pelo
+   * backfill, e não deste arquivo.
+   *
+   * Zero também é valor fiscal: ele tributa. E `ecfTaxCode` e `categoryCode`
+   * são chave estrangeira no Criare — chave que não existe derruba o arquivo
+   * inteiro. Subir num ambiente de teste antes do de verdade.
    */
-  fiscalDefaults?: {
-    ncm?: string;
-    cest?: string;
-    ecfTaxCode?: string;
-    pisCofinsCst?: string;
-    categoryCode?: string;
-  };
+  fiscalZerado?: boolean;
 }
+
+/** O bloco fiscal zerado, na largura exata de cada campo do layout. */
+const FISCAL_ZERADO = {
+  ncm: '00000000',
+  cest: '0000000',
+  ecfTaxCode: '00',
+  pisCofinsCst: '00',
+  categoryCode: '000000000',
+} as const;
 
 interface BotConfig {
   spreadsheetId: string;
@@ -416,20 +423,21 @@ function rowToResult(
   const legacyFiscal = fiscal.byBarcode.get(barcodeKey);
   const officialFiscal = fiscal.officialByBarcode.get(barcodeKey);
   const override = fiscal.overrides.get(barcodeKey);
-  // último recurso, e só quando a configuração da loja pedir: ver `fiscalDefaults`
-  const padroes = config.fiscalDefaults ?? {};
-  const ncm = reference?.ncm.trim() || digits(cell('NCM')) || legacyFiscal?.ncm || officialFiscal?.ncm
-    || digits(override?.ncm) || digits(padroes.ncm);
-  const cest = reference?.cest.trim() || digits(cell('CODIGO CEST')) || legacyFiscal?.cest
-    || digits(override?.cest) || digits(padroes.cest);
+  // com `fiscalZerado`, nenhuma fonte fiscal é consultada: ver `StoreConfig`
+  const zerado = config.fiscalZerado === true;
+  const ncm = zerado ? FISCAL_ZERADO.ncm
+    : (reference?.ncm.trim() || digits(cell('NCM')) || legacyFiscal?.ncm || officialFiscal?.ncm || digits(override?.ncm));
+  const cest = zerado ? FISCAL_ZERADO.cest
+    : (reference?.cest.trim() || digits(cell('CODIGO CEST')) || legacyFiscal?.cest || digits(override?.cest));
   const categoryName = cell('CATEGORIA');
-  const ecfTaxCode = reference?.ecfTaxCode.trim() || digits(cell('ALIQUOTA ECF ID')) || legacyFiscal?.ecfTaxCode || digits(override?.ecfTaxCode) || digits(padroes.ecfTaxCode);
-  const pisCofinsCst = reference?.pisCofinsCst.trim()
-    || legacyFiscal?.pisCofinsCst
-    || digits(cell('CST PIS/COFINS'))
-    || officialFiscal?.pisCofinsCst
-    || fiscal.groupCst.get(normalized(groupName))
-    || digits(padroes.pisCofinsCst);
+  const ecfTaxCode = zerado ? FISCAL_ZERADO.ecfTaxCode
+    : (reference?.ecfTaxCode.trim() || digits(cell('ALIQUOTA ECF ID')) || legacyFiscal?.ecfTaxCode || digits(override?.ecfTaxCode));
+  const pisCofinsCst = zerado ? FISCAL_ZERADO.pisCofinsCst
+    : (reference?.pisCofinsCst.trim()
+      || legacyFiscal?.pisCofinsCst
+      || digits(cell('CST PIS/COFINS'))
+      || officialFiscal?.pisCofinsCst
+      || fiscal.groupCst.get(normalized(groupName)));
 
   if (!barcode) missing.push('código de barras');
   if (!internalCode) missing.push(`código interno ${store}`);
@@ -455,10 +463,11 @@ function rowToResult(
     || fiscal.inferredGroupCodes.get(normalized(groupName))
     || digits(override?.groupCode);
   if (!groupCode) missing.push(`código numérico do grupo (sem ID GRUPO nem de-para para "${groupName}")`);
-  const categoryCode = reference?.categoryCode.trim()
-    || text(config.categoryCodes[categoryName] ?? config.categoryCodes[normalized(categoryName)])
-    || legacyFiscal?.categoryCode
-    || digits(override?.categoryCode) || digits(padroes.categoryCode);
+  const categoryCode = zerado ? FISCAL_ZERADO.categoryCode
+    : (reference?.categoryCode.trim()
+      || text(config.categoryCodes[categoryName] ?? config.categoryCodes[normalized(categoryName)])
+      || legacyFiscal?.categoryCode
+      || digits(override?.categoryCode));
   if (!categoryCode) missing.push(`código da categoria Criare (sem fonte para "${categoryName || 'vazio'}")`);
   const unit = requireMapped(config.units, measure, 'unidade Criare', missing);
 
@@ -511,12 +520,13 @@ function rowToResult(
     weighable: reference?.weighable.trim() || weighable,
     scaleKey: reference ? impliedNumber(reference.scaleKey, 0) : 0,
     cest: cest || null,
-    icmsReduction: reference ? impliedNumber(reference.icmsReduction, config.decimalPlaces.icmsReduction) : parseImplied(cell('REDUCAO_ICMS') || legacyFiscal?.icmsReduction || override?.icmsReduction, config.decimalPlaces.icmsReduction) ?? 0,
-    fullTaxRate: reference ? impliedNumber(reference.fullTaxRate, config.decimalPlaces.fullTaxRate) : parseImplied(cell('ALIQUOTA CHEIA') || legacyFiscal?.fullTaxRate || override?.fullTaxRate, config.decimalPlaces.fullTaxRate) ?? 0,
-    fcpRate: reference ? impliedNumber(reference.fcpRate, config.decimalPlaces.fcpRate) : parseImplied(cell('ALIQUOTA FCP') || legacyFiscal?.fcpRate || override?.fcpRate, config.decimalPlaces.fcpRate) ?? 0,
+    // as alíquotas seguem a mesma regra dos códigos: zeradas quando `fiscalZerado`
+    icmsReduction: zerado ? 0 : reference ? impliedNumber(reference.icmsReduction, config.decimalPlaces.icmsReduction) : parseImplied(cell('REDUCAO_ICMS') || legacyFiscal?.icmsReduction || override?.icmsReduction, config.decimalPlaces.icmsReduction) ?? 0,
+    fullTaxRate: zerado ? 0 : reference ? impliedNumber(reference.fullTaxRate, config.decimalPlaces.fullTaxRate) : parseImplied(cell('ALIQUOTA CHEIA') || legacyFiscal?.fullTaxRate || override?.fullTaxRate, config.decimalPlaces.fullTaxRate) ?? 0,
+    fcpRate: zerado ? 0 : reference ? impliedNumber(reference.fcpRate, config.decimalPlaces.fcpRate) : parseImplied(cell('ALIQUOTA FCP') || legacyFiscal?.fcpRate || override?.fcpRate, config.decimalPlaces.fcpRate) ?? 0,
     pisCofinsCst,
-    pisRate: reference ? impliedNumber(reference.pisRate, config.decimalPlaces.pisRate) : parseImplied(cell('ALIQUOTA PIS') || legacyFiscal?.pisRate || override?.pisRate, config.decimalPlaces.pisRate) ?? 0,
-    cofinsRate: reference ? impliedNumber(reference.cofinsRate, config.decimalPlaces.cofinsRate) : parseImplied(cell('ALIQUOTA COFINS') || legacyFiscal?.cofinsRate || override?.cofinsRate, config.decimalPlaces.cofinsRate) ?? 0,
+    pisRate: zerado ? 0 : reference ? impliedNumber(reference.pisRate, config.decimalPlaces.pisRate) : parseImplied(cell('ALIQUOTA PIS') || legacyFiscal?.pisRate || override?.pisRate, config.decimalPlaces.pisRate) ?? 0,
+    cofinsRate: zerado ? 0 : reference ? impliedNumber(reference.cofinsRate, config.decimalPlaces.cofinsRate) : parseImplied(cell('ALIQUOTA COFINS') || legacyFiscal?.cofinsRate || override?.cofinsRate, config.decimalPlaces.cofinsRate) ?? 0,
     maximumQuantity: parseLocaleNumber(cell('ESTOQUE MAX', store)) ?? 0,
     minimumQuantity: parseLocaleNumber(cell('ESTOQUE MIN', store)) ?? 0,
     extendedBarcode,
@@ -547,7 +557,22 @@ async function runOnce(config: BotConfig): Promise<void> {
   const reportFile = path.join(config.outputDir, 'ultimo-diagnostico.json');
   const state = await loadState(stateFile);
   const sheet = await readSheet(config);
-  const fiscal = await loadFiscalContext(config, sheet);
+  /*
+   * As tabelas fiscais só são lidas se alguma loja ligada ainda precisar
+   * delas. Com tudo zerado, são duas planilhas a menos por rodada — e uma
+   * delas é a planilha antiga, que não deveria mais ser fonte de nada.
+   */
+  const algumaLojaComFiscal = Object.values(config.stores)
+    .some((loja) => loja?.enabled && loja.fiscalZerado !== true);
+  const fiscal: FiscalContext = algumaLojaComFiscal
+    ? await loadFiscalContext(config, sheet)
+    : {
+      byBarcode: new Map(),
+      officialByBarcode: new Map(),
+      groupCst: new Map(),
+      inferredGroupCodes: new Map(),
+      overrides: new Map(Object.entries(config.fiscal.productOverrides ?? {})),
+    };
   const referenceRecords = await loadReferenceRecords(config);
   const results: ProductResult[] = [];
 

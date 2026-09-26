@@ -233,19 +233,62 @@ describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
     expect(config.ecfTaxCodesByGroup?.['PRODUTOS DA CASA']).toBe('01');
   });
 
-  it('usa o grupo e o NCM do SIA — sao os valores que as foreign keys aceitam', () => {
+  /*
+   * Desde 26/09/2026 o que o PRODUTO carrega vem primeiro; o SIA e o de-para
+   * por nome sao fallback. Antes era o inverso, e com a carga zerada isso
+   * produziria um arquivo com dois criterios: produto casado no SIA com NCM
+   * real, vizinho nao casado zerado.
+   */
+  it('o NCM do proprio produto vence o do SIA; o grupo do SIA entra so sem grupoId', () => {
     const parsed = parseCreareRecord(generateCreareRecord(bread({ codigoInterno: null }), config, sia));
 
-    expect(parsed.groupCode).toBe('0042');
-    expect(parsed.ncm).toBe('22030000');
+    expect(parsed.ncm).toBe('19059090'); // do produto, nao 22030000 do SIA
+    expect(parsed.groupCode).toBe('0042'); // o fixture nao tem grupoId: SIA e o fallback
   });
 
-  it('cai no NCM do proprio produto quando o SIA nao tem', () => {
-    const parsed = parseCreareRecord(
-      generateCreareRecord(bread({ codigoInterno: null }), config, { ...sia, ncm: '' }),
-    );
+  it('cai no NCM do SIA so quando o produto nao tem', () => {
+    const semNcm = bread({ codigoInterno: null, fiscal: { ...bread().fiscal!, ncm: '' } });
+    expect(parseCreareRecord(generateCreareRecord(semNcm, config, sia)).ncm).toBe('22030000');
+  });
 
-    expect(parsed.ncm).toBe('19059090');
+  it('o id de grupo do produto vence o SIA e o de-para por nome', () => {
+    // e a coluna ID GRUPO da planilha, guardada em `grupoId` pela carga
+    const parsed = parseCreareRecord(
+      generateCreareRecord(bread({ codigoInterno: null, grupoId: '102' }), config, sia),
+    );
+    expect(parsed.groupCode).toBe('0102');
+  });
+
+  it('a aliquota ECF do produto vence o SIA', () => {
+    const comEcf = bread({ codigoInterno: null, fiscal: { ...bread().fiscal!, aliquotaEcfId: '00' } });
+    expect(parseCreareRecord(generateCreareRecord(comEcf, config, sia)).ecfTaxCode).toBe('00');
+  });
+
+  it('categoria em branco sai zerada, categoria sem de-para continua recusando', () => {
+    // em branco e o estado de TODO produto da carga: "tudo sera completado com zeros"
+    const semCategoria = bread({ fiscal: { ...bread().fiscal!, categoria: null } });
+    expect(parseCreareRecord(generateCreareRecord(semCategoria, config)).categoryCode).toBe('000000000');
+    // preenchida e desconhecida e alguem escrevendo nome que o Criare nao tem
+    const desconhecida = bread({ fiscal: { ...bread().fiscal!, categoria: 'OUTRA' } });
+    expect(() => generateCreareRecord(desconhecida, config)).toThrow(/Categoria Criare/);
+  });
+
+  it('o bloco fiscal zerado da carga atravessa inteiro, na largura do layout', () => {
+    const zerado = bread({
+      grupoId: '65',
+      fiscal: {
+        ...bread().fiscal!,
+        ncm: '00000000', cest: '0000000', cstPisCofins: '00', aliquotaEcfId: '00', categoria: null,
+        aliquotaCheia: 0, aliquotaFcp: 0, aliquotaPis: 0, aliquotaCofins: 0, reducaoIcms: 0, icms: 0,
+      },
+    });
+    const parsed = parseCreareRecord(generateCreareRecord(zerado, config));
+    expect(parsed.ncm).toBe('00000000');
+    expect(parsed.cest).toBe('0000000');
+    expect(parsed.pisCofinsCst).toBe('00');
+    expect(parsed.ecfTaxCode).toBe('00');
+    expect(parsed.categoryCode).toBe('000000000');
+    expect(parsed.groupCode).toBe('0065');
   });
 
   /*
