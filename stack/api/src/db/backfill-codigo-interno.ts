@@ -10,7 +10,7 @@ import 'reflect-metadata';
 import 'dotenv/config';
 import { sql } from 'drizzle-orm';
 import { db as defaultDb } from '@/db/databases';
-import { ULTIMO_CODIGO_LEGADO_CREARE } from '@/modules/product/codigo-interno';
+import { PRIMEIRO_CODIGO_FORA_DA_FAIXA, ULTIMO_CODIGO_DE_PRODUTO } from '@/modules/product/codigo-interno';
 
 type Database = typeof defaultDb;
 
@@ -19,13 +19,22 @@ type Database = typeof defaultDb;
  * descartável (Testcontainers). Retorna quantos foram numerados em cada etapa.
  */
 export async function backfillCodigoInterno(db: Database = defaultDb): Promise<{ base: number; orfaos: number }> {
-  // Continua do maior já atribuído, sem invadir a faixa legada do Criare (até 01325).
+  /*
+   * Continua do maior já atribuído DENTRO da faixa de produto.
+   *
+   * O `<` não é detalhe: a carga de 25/09/2026 trouxe a numeração inteira do
+   * SIA, que tem uma faixa alta de entrega e equipamento (712931, 719000). Sem
+   * ele, o backfill numeraria os órfãos a partir de 719001.
+   */
   const maxRes = await db.execute(
-    sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max FROM products WHERE codigo_interno ~ '^[0-9]+$'`,
+    sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max
+        FROM products
+        WHERE codigo_interno ~ '^[0-9]+$'
+          AND CAST(codigo_interno AS INTEGER) < ${PRIMEIRO_CODIGO_FORA_DA_FAIXA}`,
   );
   let n = Math.max(
     Number((maxRes.rows?.[0] as { max?: number | string } | undefined)?.max ?? 0),
-    ULTIMO_CODIGO_LEGADO_CREARE,
+    ULTIMO_CODIGO_DE_PRODUTO,
   );
 
   // 1) BASE sem código, em ordem de criação (mais antigo primeiro)

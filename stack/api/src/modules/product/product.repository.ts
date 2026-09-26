@@ -4,7 +4,7 @@ import { db, Tx } from '@/db/databases';
 import { barcodeCandidates } from '@/modules/apoio/tax-rule.service';
 import { ProductSchemas, ProductRequests } from '@pralis/shared';
 import { products, productTransformacao, productFiscal, promocoes, productNameHistory } from './product.table';
-import { calcularProximoCodigoInterno } from './codigo-interno';
+import { calcularProximoCodigoInterno, PRIMEIRO_CODIGO_FORA_DA_FAIXA } from './codigo-interno';
 
 type ProductEntity = ProductSchemas.ProductEntity;
 type Promocao = ProductSchemas.Promocao;
@@ -268,8 +268,17 @@ export class ProductRepository {
    */
   async proximoCodigoInterno(tx: Tx = db): Promise<string> {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${CHAVE_TRAVA_CODIGO_INTERNO})`);
+    /*
+     * O teto na consulta, e não só no cálculo: a carga trouxe a numeração
+     * inteira do SIA, que tem uma faixa alta de entrega e equipamento (712931,
+     * 719000). Sem o `<`, o maior seria 719000 e o próximo produto novo sairia
+     * em 719001 — fora de qualquer faixa de produto.
+     */
     const res = await tx.execute(
-      sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max FROM products WHERE codigo_interno ~ '^[0-9]+$'`,
+      sql`SELECT COALESCE(MAX(CAST(codigo_interno AS INTEGER)), 0) AS max
+          FROM products
+          WHERE codigo_interno ~ '^[0-9]+$'
+            AND CAST(codigo_interno AS INTEGER) < ${PRIMEIRO_CODIGO_FORA_DA_FAIXA}`,
     );
     const max = Number((res.rows?.[0] as { max?: number | string } | undefined)?.max ?? 0);
     return calcularProximoCodigoInterno(max);
