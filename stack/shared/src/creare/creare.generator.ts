@@ -246,17 +246,36 @@ export function valuesFromProduct(
   if (product.custo == null) throw new CreareValidationError('Custo ausente.');
   const fiscal = product.fiscal;
   const description = montarDescricao(product.nome, product.quantidade, product.medidaBase);
-  // Com casamento no SIA, grupo/ECF/NCM vêm de lá: são os valores que o
-  // produto JÁ tem no PDV, e as foreign keys do SIA aceitam só o que existe.
-  const groupCode = sia
-    ? sia.codGrupo
-    : requiredMapping(config.groupCodes, product.grupo, 'Codigo do grupo');
-  const categoryCode = requiredMapping(config.categoryCodes, fiscal.categoria, 'Categoria Criare');
+  /*
+   * O que o PRODUTO carrega vem primeiro; SIA e de-para por nome são fallback.
+   *
+   * Até 26/09/2026 a ordem era a inversa, e fazia sentido quando o cadastro
+   * não tinha esses campos: o casamento no SIA era a única fonte confiável.
+   * A carga de 25/09 mudou isso — cada produto passou a trazer o próprio id
+   * de grupo (coluna ID GRUPO da planilha, em `grupoId`) e o bloco fiscal
+   * inteiro, zerado por decisão do José: *"tudo será completado com zeros"*.
+   *
+   * Se o SIA continuasse ganhando, um produto casado sairia com NCM e ECF
+   * reais e o vizinho não casado sairia zerado — dois critérios no mesmo
+   * arquivo, sem ninguém ter escolhido isso. Produto primeiro é o único jeito
+   * de o TXT refletir o que está no cadastro.
+   */
+  const groupCode = product.grupoId?.trim()
+    || sia?.codGrupo
+    || requiredMapping(config.groupCodes, product.grupo, 'Codigo do grupo');
+  /*
+   * Categoria em branco vira zeros, não erro: é o estado de TODO produto da
+   * carga. Categoria preenchida e sem de-para continua recusando — aí alguém
+   * escreveu um nome que o Criare não conhece, e isso precisa aparecer.
+   */
+  const categoryCode = fiscal.categoria?.trim()
+    ? requiredMapping(config.categoryCodes, fiscal.categoria, 'Categoria Criare')
+    : '0'.repeat(9);
   const unit = requiredMapping(config.units, product.medidaBase, 'Unidade');
-  const ecfTaxCode = sia
-    ? sia.aliqSaidaEcf
-    : requiredMapping(config.ecfTaxCodesByGroup ?? {}, product.grupo, 'Aliquota ECF');
-  const ncm = sia?.ncm?.trim() ? sia.ncm : fiscal.ncm;
+  const ecfTaxCode = fiscal.aliquotaEcfId?.trim()
+    || sia?.aliqSaidaEcf
+    || requiredMapping(config.ecfTaxCodesByGroup ?? {}, product.grupo, 'Aliquota ECF');
+  const ncm = fiscal.ncm?.trim() || sia?.ncm?.trim() || '';
   const ippt = config.ipptByProductType[product.tipo];
   const weighable = config.weighableByMeasure[product.medidaBase];
   const stockControlled = config.stockControlledByProductType[product.tipo];

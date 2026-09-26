@@ -59,13 +59,7 @@
         "KG"
       ],
       "stockControlled": "S",
-      "fiscalDefaults": {
-        "ncm": "00000000",
-        "cest": "0000000",
-        "ecfTaxCode": "00",
-        "pisCofinsCst": "00",
-        "categoryCode": "000000000"
-      }
+      "fiscalZerado": true
     },
     "LI": {
       "enabled": false,
@@ -97,13 +91,7 @@
         "KG"
       ],
       "stockControlled": "S",
-      "fiscalDefaults": {
-        "ncm": "00000000",
-        "cest": "0000000",
-        "ecfTaxCode": "00",
-        "pisCofinsCst": "00",
-        "categoryCode": "000000000"
-      }
+      "fiscalZerado": true
     }
   }
 }
