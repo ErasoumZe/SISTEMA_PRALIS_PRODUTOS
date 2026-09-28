@@ -230,28 +230,24 @@ function productCodes(
     : { internalCode: 0, extendedInternalCode: code };
 }
 
-function barcodeCodes(
+export function barcodeCodes(
   raw: string | null,
   strategy: CreareStoreConfig['barcodeField'],
 ): Pick<CreareValues, 'barcode' | 'extendedBarcode'> {
   /*
-   * Os dois campos são numéricos para o SIA: vazio é ZEROS, e o código vai
-   * alinhado à direita com zeros à esquerda — `00192505327413`, nunca
-   * `13128         `. É a forma do registro que o próprio Criare gera
-   * (arquivo do funcionário, 28/09/2026). Espaço o importador tolerou, mas a
-   * homologação é o arquivo deles, não a tolerância.
+   * O layout oficial classifica ambos como alfanuméricos, alinhados à esquerda
+   * e preenchidos com espaços à direita. O serializador faz o preenchimento;
+   * aqui preservamos o código original, inclusive zeros que já existiam nele.
    */
-  const semCurto = '0'.repeat(13);
-  const semLongo = '0'.repeat(14);
-  if (!raw?.trim()) return { barcode: semCurto, extendedBarcode: semLongo };
+  if (!raw?.trim()) return { barcode: '', extendedBarcode: '' };
   const code = digitsOnly(raw, 'Codigo de barras');
   if (code.length > 14) throw new CreareValidationError('Codigo de barras excede 14 digitos.');
   const target = strategy === 'automatic' ? (code.length <= 13 ? 'short' : 'extended') : strategy;
   if (target === 'short') {
     if (code.length > 13) throw new CreareValidationError('Codigo de barras nao cabe no campo curto.');
-    return { barcode: code.padStart(13, '0'), extendedBarcode: semLongo };
+    return { barcode: code, extendedBarcode: '' };
   }
-  return { barcode: semCurto, extendedBarcode: code.padStart(14, '0') };
+  return { barcode: '', extendedBarcode: code };
 }
 
 /**
