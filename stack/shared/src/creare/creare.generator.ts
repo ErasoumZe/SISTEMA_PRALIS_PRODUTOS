@@ -357,7 +357,12 @@ export function valuesFromProduct(
     throw new CreareValidationError('CST PIS/COFINS ausente e sem pisCofinsCstPadrao configurado para a loja.');
   }
   // NCM não tem chave estrangeira no SIA: zero passa. Mesmo assim, prefira o real.
-  const ncm = valorReal(fiscal.ncm) || valorReal(sia?.ncm) || fiscal.ncm?.trim() || '';
+  /*
+   * NCM vazio vira zeros. Não é chave estrangeira no SIA, e é o estado do
+   * produto que a regra do grupo classificou sem NCM — o LIMPADOR de
+   * 28/09/2026 caía em "NCM deve conter somente digitos" por um campo vazio.
+   */
+  const ncm = valorReal(fiscal.ncm) || valorReal(sia?.ncm) || '0'.repeat(8);
   const ippt = config.ipptByProductType[product.tipo];
   const weighable = config.weighableByMeasure[product.medidaBase];
   const stockControlled = config.stockControlledByProductType[product.tipo];
