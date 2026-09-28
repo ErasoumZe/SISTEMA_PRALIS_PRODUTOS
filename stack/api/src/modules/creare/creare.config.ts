@@ -9,6 +9,14 @@ const storeConfigSchema = z.object({
   // legado: o grupo comercial não determina a alíquota do ECF, que agora vem do
   // casamento no SIA. Opcional só para não invalidar configuração existente.
   ecfTaxCodesByGroup: z.record(z.string(), z.string()).optional(),
+  /*
+   * Padrões para as duas chaves estrangeiras do SIA que ZERO não satisfaz.
+   * Ver `CreareStoreConfig` no gerador. São decisão fiscal de quem configura,
+   * nunca chute do código: o valor tem de existir em `aliquotas.POSICAO` e em
+   * `cstpis.ID` do banco do Criare.
+   */
+  ecfTaxCodePadrao: z.string().regex(/^\d{1,2}$/).optional(),
+  pisCofinsCstPadrao: z.string().regex(/^\d{1,2}$/).optional(),
   decimalPlaces: z.object({
     unitPrice: z.union([z.literal(2), z.literal(3)]),
     // 3 mantém o comportamento anterior; a decisão sai dos 10 primeiros no SIA

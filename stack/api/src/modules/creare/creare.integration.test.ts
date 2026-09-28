@@ -24,6 +24,9 @@ const CONFIG_LI = {
     // nenhum dos dois pode ser usado, e o teste prova isso
     groupCodes: { MERCEARIA: '9999' },
     ecfTaxCodesByGroup: { MERCEARIA: '99' },
+    // padroes para as chaves que ZERO nao satisfaz no SIA (ver generator)
+    ecfTaxCodePadrao: '03',
+    pisCofinsCstPadrao: '99',
     categoryCodes: { '3': '000000003' },
     units: { UN: 'UN', KG: 'KG', G: 'UN', LT: 'LT', ML: 'UN' },
     decimalPlaces: {
@@ -191,7 +194,9 @@ describe('exportação Criare: só sai o que casou no SIA', () => {
     const inativo = linhas.map((l) => Creare.parseCreareRecord(l)).find((r) => r.description.startsWith('INATIVO'))!;
     expect(inativo.internalCode).toBe('000007');
     expect(inativo.groupCode).toBe('0102');
-    expect(inativo.ecfTaxCode).toBe('00');
+    // `00` e placeholder: o SIA recusa como chave inexistente, entao vale o padrao da loja
+    expect(inativo.ecfTaxCode).toBe('03');
+    expect(inativo.pisCofinsCst).toBe('99');
     expect(inativo.ncm).toBe('00000000');
     expect(inativo.categoryCode).toBe('000000000');
     expect(inativo.unitPrice).toBe('0000000010'); // sem preco: R$ 0,10

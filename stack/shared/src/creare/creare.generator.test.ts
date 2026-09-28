@@ -270,9 +270,42 @@ describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
     expect(parsed.groupCode).toBe('0102');
   });
 
-  it('a aliquota ECF do produto vence o SIA', () => {
-    const comEcf = bread({ codigoInterno: null, fiscal: { ...bread().fiscal!, aliquotaEcfId: '00' } });
-    expect(parseCreareRecord(generateCreareRecord(comEcf, config, sia)).ecfTaxCode).toBe('00');
+  it('a aliquota ECF real do produto vence o SIA; zero e placeholder e cai no SIA', () => {
+    /*
+     * Provado no importador do Criare em 28/09/2026: `00` em ALIQUOTASAIDA e
+     * chave estrangeira inexistente em `aliquotas.POSICAO`. O produto nao
+     * grava. Entao zero conta como ausente e a busca segue.
+     */
+    const real = bread({ codigoInterno: null, fiscal: { ...bread().fiscal!, aliquotaEcfId: '11' } });
+    expect(parseCreareRecord(generateCreareRecord(real, config, sia)).ecfTaxCode).toBe('11');
+    const zerado = bread({ codigoInterno: null, fiscal: { ...bread().fiscal!, aliquotaEcfId: '00' } });
+    expect(parseCreareRecord(generateCreareRecord(zerado, config, sia)).ecfTaxCode).toBe('10'); // do SIA
+  });
+
+  it('sem SIA e com ECF zerado, vale o padrao da loja; sem padrao, recusa com o nome do campo', () => {
+    const zerado = bread({ grupoId: '65', fiscal: { ...bread().fiscal!, aliquotaEcfId: '00' } });
+    const semMapaDeGrupo = { ...config, ecfTaxCodesByGroup: {} };
+    expect(parseCreareRecord(generateCreareRecord(zerado, { ...semMapaDeGrupo, ecfTaxCodePadrao: '03' })).ecfTaxCode).toBe('03');
+    expect(() => generateCreareRecord(zerado, semMapaDeGrupo)).toThrow(/Aliquota ECF/);
+  });
+
+  it('CST PIS/COFINS zerado usa o padrao da loja; sem padrao, recusa', () => {
+    // o de-para do SIA nao tem CST de PIS (o `cstSaida` de la e o de ICMS)
+    const zerado = bread({ fiscal: { ...bread().fiscal!, cstPisCofins: '00' } });
+    expect(parseCreareRecord(generateCreareRecord(zerado, { ...config, pisCofinsCstPadrao: '99' })).pisCofinsCst).toBe('99');
+    expect(() => generateCreareRecord(zerado, config)).toThrow(/CST PIS\/COFINS ausente/);
+  });
+
+  it('codigo de barras e fornecedor vazios saem como zeros, na forma do arquivo do Criare', () => {
+    const semBarras = parseCreareRecord(generateCreareRecord(bread({ codigoBarras: null, marca: null }), config));
+    expect(semBarras.barcode).toBe('0000000000000');
+    expect(semBarras.extendedBarcode).toBe('00000000000000');
+    expect(semBarras.supplierManufacturer).toBe('0'.repeat(40));
+    expect(semBarras.reference).toBe('0'.repeat(30));
+    // codigo curto no campo longo vai alinhado a direita com zeros, nunca com espacos
+    const longo = parseCreareRecord(generateCreareRecord(bread({ codigoBarras: '13128' }), { ...config, barcodeField: 'extended' }));
+    expect(longo.barcode).toBe('0000000000000');
+    expect(longo.extendedBarcode).toBe('00000000013128');
   });
 
   it('categoria em branco sai zerada, categoria sem de-para continua recusando', () => {
@@ -284,7 +317,11 @@ describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
     expect(() => generateCreareRecord(desconhecida, config)).toThrow(/Categoria Criare/);
   });
 
-  it('o bloco fiscal zerado da carga atravessa inteiro, na largura do layout', () => {
+  it('o produto da carga (fiscal zerado) sai: zeros onde o SIA aceita, padrao da loja nas chaves', () => {
+    /*
+     * NCM, CEST e categoria nao sao chave estrangeira no SIA: zero passa.
+     * ECF e CST PIS sao, e o importador recusa `00` -- entao vem do padrao.
+     */
     const zerado = bread({
       grupoId: '65',
       fiscal: {
@@ -293,13 +330,15 @@ describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
         aliquotaCheia: 0, aliquotaFcp: 0, aliquotaPis: 0, aliquotaCofins: 0, reducaoIcms: 0, icms: 0,
       },
     });
-    const parsed = parseCreareRecord(generateCreareRecord(zerado, config));
+    const parsed = parseCreareRecord(generateCreareRecord(zerado, {
+      ...config, ecfTaxCodesByGroup: {}, ecfTaxCodePadrao: '03', pisCofinsCstPadrao: '99',
+    }));
     expect(parsed.ncm).toBe('00000000');
     expect(parsed.cest).toBe('0000000');
-    expect(parsed.pisCofinsCst).toBe('00');
-    expect(parsed.ecfTaxCode).toBe('00');
     expect(parsed.categoryCode).toBe('000000000');
     expect(parsed.groupCode).toBe('0065');
+    expect(parsed.ecfTaxCode).toBe('03');
+    expect(parsed.pisCofinsCst).toBe('99');
   });
 
   /*

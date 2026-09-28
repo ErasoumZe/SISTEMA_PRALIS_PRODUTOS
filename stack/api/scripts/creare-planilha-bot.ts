@@ -56,14 +56,31 @@ interface StoreConfig {
    * inteiro. Subir num ambiente de teste antes do de verdade.
    */
   fiscalZerado?: boolean;
+  /**
+   * Padrões para as duas chaves estrangeiras do SIA que ZERO não satisfaz.
+   *
+   * Provado no importador do Criare em 28/09/2026: `ALIQUOTASAIDA` tem de
+   * existir em `aliquotas.POSICAO` e `CST_PIS` em `cstpis.ID`. Com `00` o
+   * importador diz "SUCESSO" na leitura e recusa a gravação do produto — só o
+   * log conta. Por isso ECF e CST PIS ficam FORA do zeramento: vale o que a
+   * exportação do SIA (`BASE SIA FULL`) tem para aquele código interno, depois
+   * este padrão. Sem os dois, a linha é bloqueada com o nome do campo.
+   *
+   * O valor é decisão fiscal de quem configura. No SIA da TNP existem
+   * 3 (18%), 10 (subst. trib.), 1 (7%) e 11 (isento) para ECF; e 50, 1, 73,
+   * 99, 75, 70 para CST PIS.
+   */
+  ecfTaxCodePadrao?: string;
+  pisCofinsCstPadrao?: string;
 }
 
-/** O bloco fiscal zerado, na largura exata de cada campo do layout. */
+/**
+ * O bloco fiscal zerado, na largura exata de cada campo do layout.
+ * ECF e CST PIS não estão aqui de propósito: são chave estrangeira no SIA.
+ */
 const FISCAL_ZERADO = {
   ncm: '00000000',
   cest: '0000000',
-  ecfTaxCode: '00',
-  pisCofinsCst: '00',
   categoryCode: '000000000',
 } as const;
 
@@ -76,6 +93,14 @@ interface BotConfig {
   /** TXT(s) já aceitos pelo Criare; preservam campos que a planilha não possui. */
   referenceTxtFiles?: string[];
   fiscal: FiscalConfig;
+  /**
+   * A exportação do SIA na mesma planilha (`BASE SIA FULL`): de onde saem a
+   * alíquota ECF (`Alíq. Saída`) e o CST PIS (`PIS`) de cada código interno.
+   * São os valores que o SIA JÁ tem para o produto, logo chaves que existem.
+   * Medido em 28/09/2026: `PIS` preenchido nos 7.369; `Alíq. Saída` em 4.334
+   * (os 3.035 inativos não têm, e caem no padrão da loja).
+   */
+  siaFull?: { sheetName: string; headerRow: number; firstDataRow: number };
   stores: Partial<Record<Store, StoreConfig>>;
 }
 
@@ -120,6 +145,8 @@ interface FiscalContext {
   groupCst: Map<string, string>;
   inferredGroupCodes: Map<string, string>;
   overrides: Map<string, FiscalOverride>;
+  /** Da `BASE SIA FULL`, por código interno sem zeros à esquerda: ECF e CST PIS que o SIA já tem. */
+  porCoditem: Map<string, { ecf: string; cstPis: string }>;
 }
 
 interface StateEntry {
@@ -256,6 +283,38 @@ async function atomicWrite(file: string, contents: string | Buffer): Promise<voi
   await rename(temp, file);
 }
 
+/**
+ * ECF e CST PIS que o SIA JÁ tem para cada código interno, lidos da exportação
+ * `BASE SIA FULL`. Colunas achadas pelo TÍTULO (`Cód. produto`, `Alíq. Saída`,
+ * `PIS`), nunca por letra: a aba tem 344 colunas e muda de forma.
+ *
+ * Sem a aba configurada devolve vazio, e tudo cai no padrão da loja.
+ */
+async function loadSiaFull(config: BotConfig): Promise<FiscalContext['porCoditem']> {
+  const mapa: FiscalContext['porCoditem'] = new Map();
+  const cfg = config.siaFull;
+  if (!cfg) return mapa;
+  const client = new GoogleSheetsClient();
+  const [cab] = await client.batchGetValues(
+    config.spreadsheetId, [a1(cfg.sheetName, `${cfg.headerRow}:${cfg.headerRow}`)], 'FORMATTED_VALUE',
+  );
+  const titulos = (cab?.[0] ?? []).map((t) => normalized(t));
+  const col = (titulo: string) => {
+    const i = titulos.indexOf(normalized(titulo));
+    if (i < 0) throw new Error(`Aba "${cfg.sheetName}" sem a coluna "${titulo}" na linha ${cfg.headerRow}.`);
+    return indexToCol(i);
+  };
+  const [cCod, cEcf, cPis] = [col('Cód. produto'), col('Alíq. Saída'), col('PIS')];
+  const faixa = (c: string) => a1(cfg.sheetName, `${c}${cfg.firstDataRow}:${c}`);
+  const [cods, ecfs, piss] = await client.batchGetValues(config.spreadsheetId, [faixa(cCod), faixa(cEcf), faixa(cPis)], 'FORMATTED_VALUE');
+  (cods ?? []).forEach((linha, i) => {
+    const coditem = digits(linha?.[0]).replace(/^0+(?=\d)/, '');
+    if (!coditem || mapa.has(coditem)) return;
+    mapa.set(coditem, { ecf: digits(ecfs?.[i]?.[0]), cstPis: digits(piss?.[i]?.[0]) });
+  });
+  return mapa;
+}
+
 async function readSheet(config: BotConfig): Promise<SheetData> {
   const client = new GoogleSheetsClient();
   const meta = (await client.getSheets(config.spreadsheetId)).find((s) => s.title === config.sheetName);
@@ -277,7 +336,7 @@ async function readSheet(config: BotConfig): Promise<SheetData> {
   };
 }
 
-async function loadFiscalContext(config: BotConfig, sheet: SheetData): Promise<FiscalContext> {
+async function loadFiscalContext(config: BotConfig, sheet: SheetData): Promise<Omit<FiscalContext, 'porCoditem'>> {
   const client = new GoogleSheetsClient();
   const [officialRanges, legacyRanges] = await Promise.all([
     client.batchGetValues(config.spreadsheetId, [
@@ -430,14 +489,23 @@ function rowToResult(
   const cest = zerado ? FISCAL_ZERADO.cest
     : (reference?.cest.trim() || digits(cell('CODIGO CEST')) || legacyFiscal?.cest || digits(override?.cest));
   const categoryName = cell('CATEGORIA');
-  const ecfTaxCode = zerado ? FISCAL_ZERADO.ecfTaxCode
-    : (reference?.ecfTaxCode.trim() || digits(cell('ALIQUOTA ECF ID')) || legacyFiscal?.ecfTaxCode || digits(override?.ecfTaxCode));
-  const pisCofinsCst = zerado ? FISCAL_ZERADO.pisCofinsCst
-    : (reference?.pisCofinsCst.trim()
+  /*
+   * ECF e CST PIS NUNCA saem zerados: são chave estrangeira no SIA e `00` faz
+   * o importador recusar a gravação do produto (log de 28/09/2026). Primeiro o
+   * que o próprio SIA já tem para este código interno, depois as fontes
+   * antigas quando não está zerado, e por fim o padrão da loja.
+   */
+  const doSia = fiscal.porCoditem.get(internalCode.replace(/^0+(?=\d)/, ''));
+  const ecfTaxCode = doSia?.ecf
+    || (zerado ? '' : (reference?.ecfTaxCode.trim() || digits(cell('ALIQUOTA ECF ID')) || legacyFiscal?.ecfTaxCode || digits(override?.ecfTaxCode)))
+    || digits(config.ecfTaxCodePadrao);
+  const pisCofinsCst = doSia?.cstPis
+    || (zerado ? '' : (reference?.pisCofinsCst.trim()
       || legacyFiscal?.pisCofinsCst
       || digits(cell('CST PIS/COFINS'))
       || officialFiscal?.pisCofinsCst
-      || fiscal.groupCst.get(normalized(groupName)));
+      || fiscal.groupCst.get(normalized(groupName))))
+    || digits(config.pisCofinsCstPadrao);
 
   if (!barcode) missing.push('código de barras');
   if (!internalCode) missing.push(`código interno ${store}`);
@@ -570,14 +638,17 @@ async function runOnce(config: BotConfig): Promise<void> {
    */
   const algumaLojaComFiscal = Object.values(config.stores)
     .some((loja) => loja?.enabled && loja.fiscalZerado !== true);
+  // ECF e CST PIS vêm da exportação do SIA em qualquer modo: são as chaves que existem lá
+  const porCoditem = await loadSiaFull(config);
   const fiscal: FiscalContext = algumaLojaComFiscal
-    ? await loadFiscalContext(config, sheet)
+    ? { ...(await loadFiscalContext(config, sheet)), porCoditem }
     : {
       byBarcode: new Map(),
       officialByBarcode: new Map(),
       groupCst: new Map(),
       inferredGroupCodes: new Map(),
       overrides: new Map(Object.entries(config.fiscal.productOverrides ?? {})),
+      porCoditem,
     };
   const referenceRecords = await loadReferenceRecords(config);
   const results: ProductResult[] = [];
