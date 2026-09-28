@@ -289,9 +289,25 @@ export function valuesFromProduct(
   if (product.promocoes.length > 0) {
     throw new CreareValidationError('Promocao nao pode ser exportada: o Pralis nao possui as duas datas exigidas pelo layout.');
   }
-  if (!product.fiscal) throw new CreareValidationError('Dados fiscais ausentes.');
-  if (product.custo == null) throw new CreareValidationError('Custo ausente.');
-  const fiscal = product.fiscal;
+  /*
+   * Sem bloco fiscal não é mais recusa: é o estado de todo produto criado pelo
+   * formulário da Base, onde o fiscal não aparece (ele é da loja, e vem pelo
+   * backfill). Recusar aqui deixava o produto novo de 28/09/2026 fora do TXT
+   * com "Dados fiscais ausentes". O bloco ausente vale como o bloco zerado da
+   * carga: NCM, CEST e categoria em zeros (o SIA aceita), e ECF e CST PIS
+   * pelo padrão da loja — exatamente como qualquer produto da carga.
+   *
+   * Custo ausente vira zero pelo mesmo motivo: o SIA aceita custo zero, e o
+   * robô da planilha já mandava assim.
+   */
+  const fiscal: NonNullable<ProductEntity['fiscal']> = product.fiscal ?? {
+    ncm: '00000000', cest: '0000000', categoria: null, cstPisCofins: null,
+    aliquotaCheia: 0, aliquotaFcp: 0, aliquotaPis: 0, aliquotaCofins: 0, reducaoIcms: 0, icms: 0,
+    tributacaoSimples: null, aliquotaSimples: null, icmsRe: null, baseFiscal: null, codigoFiscal: null,
+    produtoFiscal: null, cstReforma: null, cClassTrib: null, aliquotaIbs: null, aliquotaCbs: null,
+    origemFiscal: null, aliquotaEcf: null, aliquotaEcfId: null, estado: null, motivo: null, pctNcm: null,
+  };
+  const custo = product.custo ?? 0;
   const description = montarDescricao(product.nome, product.quantidade, product.medidaBase);
   /*
    * O que o PRODUTO carrega vem primeiro; SIA e de-para por nome são fallback.
@@ -366,7 +382,7 @@ export function valuesFromProduct(
     supplierManufacturer: product.marca?.trim() || '0'.repeat(40),
     reference: '0'.repeat(30),
     basketKit: 'N',
-    cost: product.custo,
+    cost: custo,
     description,
     basketCode: 0,
     promotionStart: config.noPromotionDate,

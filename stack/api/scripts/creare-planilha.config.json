@@ -59,7 +59,9 @@
         "KG"
       ],
       "stockControlled": "S",
-      "fiscalZerado": true
+      "fiscalZerado": true,
+      "ecfTaxCodePadrao": "11",
+      "pisCofinsCstPadrao": "99"
     },
     "LI": {
       "enabled": false,
@@ -91,7 +93,9 @@
         "KG"
       ],
       "stockControlled": "S",
-      "fiscalZerado": true
+      "fiscalZerado": true,
+      "ecfTaxCodePadrao": "11",
+      "pisCofinsCstPadrao": "99"
     }
   },
   "siaFull": {
