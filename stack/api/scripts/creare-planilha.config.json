@@ -93,5 +93,10 @@
       "stockControlled": "S",
       "fiscalZerado": true
     }
+  },
+  "siaFull": {
+    "sheetName": "BASE SIA FULL",
+    "headerRow": 2,
+    "firstDataRow": 3
   }
 }

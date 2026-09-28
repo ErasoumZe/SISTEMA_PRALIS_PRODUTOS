@@ -23,6 +23,24 @@ export interface CreareStoreConfig {
    * antiga. Ver `docs/creare-aliquota-ecf.md`.
    */
   ecfTaxCodesByGroup?: Record<string, string>;
+  /**
+   * Padrões para as duas chaves estrangeiras do SIA que ZERO não satisfaz.
+   *
+   * Provado no importador do Criare em 28/09/2026 (`trace_TDM_28_9_2026.log`):
+   * `ALIQUOTASAIDA` tem de existir em `aliquotas.POSICAO` e `CST_PIS` em
+   * `cstpis.ID`. Com `00` nos dois, o importador diz "SUCESSO" na leitura do
+   * arquivo e depois recusa a gravação em `produto`, `estoques` e
+   * `tributacaopiscofins` — o produto NÃO entra, e só o log conta.
+   *
+   * Por isso estes dois campos nunca saem zerados: vale o que o produto tem de
+   * verdade, depois o que o SIA já tinha para aquele coditem, depois este
+   * padrão. Sem nenhum dos três, o produto fica de fora com o motivo à vista.
+   *
+   * O valor é decisão fiscal de quem configura, nunca chute do código. No
+   * arquivo homologado do Criare aparecem `03` (tributado) e `99`.
+   */
+  ecfTaxCodePadrao?: string;
+  pisCofinsCstPadrao?: string;
   decimalPlaces: CreareDecimalPlaces;
   barcodeField: 'short' | 'extended' | 'automatic';
   lineEnding: 'CRLF' | 'LF';
@@ -73,6 +91,19 @@ const digitsOnly = (value: unknown, label: string): string => {
   const text = String(value ?? '').trim();
   if (!/^\d+$/.test(text)) throw new CreareValidationError(`${label} deve conter somente digitos.`);
   return text;
+};
+
+/**
+ * Um valor "de verdade": não vazio e não composto só de zeros.
+ *
+ * `00`, `00000000` e `0000000` são o marcador que a carga de 25/09/2026 gravou
+ * no fiscal de todo produto para dizer "ainda não preenchido". Para o SIA, em
+ * campo que é chave estrangeira, isso é chave inexistente. Tratar zeros como
+ * ausência é o que permite a busca seguir para a fonte seguinte.
+ */
+const valorReal = (v: string | null | undefined): string => {
+  const t = String(v ?? '').trim();
+  return t && !/^0+$/.test(t) ? t : '';
 };
 
 const requiredMapping = (
@@ -203,15 +234,24 @@ function barcodeCodes(
   raw: string | null,
   strategy: CreareStoreConfig['barcodeField'],
 ): Pick<CreareValues, 'barcode' | 'extendedBarcode'> {
-  if (!raw?.trim()) return { barcode: '', extendedBarcode: '' };
+  /*
+   * Os dois campos são numéricos para o SIA: vazio é ZEROS, e o código vai
+   * alinhado à direita com zeros à esquerda — `00192505327413`, nunca
+   * `13128         `. É a forma do registro que o próprio Criare gera
+   * (arquivo do funcionário, 28/09/2026). Espaço o importador tolerou, mas a
+   * homologação é o arquivo deles, não a tolerância.
+   */
+  const semCurto = '0'.repeat(13);
+  const semLongo = '0'.repeat(14);
+  if (!raw?.trim()) return { barcode: semCurto, extendedBarcode: semLongo };
   const code = digitsOnly(raw, 'Codigo de barras');
   if (code.length > 14) throw new CreareValidationError('Codigo de barras excede 14 digitos.');
   const target = strategy === 'automatic' ? (code.length <= 13 ? 'short' : 'extended') : strategy;
   if (target === 'short') {
     if (code.length > 13) throw new CreareValidationError('Codigo de barras nao cabe no campo curto.');
-    return { barcode: code, extendedBarcode: '' };
+    return { barcode: code.padStart(13, '0'), extendedBarcode: semLongo };
   }
-  return { barcode: '', extendedBarcode: code };
+  return { barcode: semCurto, extendedBarcode: code.padStart(14, '0') };
 }
 
 /**
@@ -267,7 +307,14 @@ export function valuesFromProduct(
    * arquivo, sem ninguém ter escolhido isso. Produto primeiro é o único jeito
    * de o TXT refletir o que está no cadastro.
    */
-  const groupCode = product.grupoId?.trim()
+  /*
+   * Placeholder não é valor. A carga de 25/09 gravou `00`, `00000000` e
+   * `0000000` no fiscal de TODO produto, como marcador de "ainda não
+   * preenchido". Para o SIA, porém, `00` em ECF ou CST PIS é chave estrangeira
+   * inexistente e derruba a gravação do produto. Então um valor só de zeros
+   * conta como AUSENTE, e a busca segue para o SIA e para o padrão da loja.
+   */
+  const groupCode = valorReal(product.grupoId)
     || sia?.codGrupo
     || requiredMapping(config.groupCodes, product.grupo, 'Codigo do grupo');
   /*
@@ -279,10 +326,22 @@ export function valuesFromProduct(
     ? requiredMapping(config.categoryCodes, fiscal.categoria, 'Categoria Criare')
     : '0'.repeat(9);
   const unit = requiredMapping(config.units, product.medidaBase, 'Unidade');
-  const ecfTaxCode = fiscal.aliquotaEcfId?.trim()
-    || sia?.aliqSaidaEcf
+  const ecfTaxCode = valorReal(fiscal.aliquotaEcfId)
+    || valorReal(sia?.aliqSaidaEcf)
+    || valorReal(config.ecfTaxCodePadrao)
     || requiredMapping(config.ecfTaxCodesByGroup ?? {}, product.grupo, 'Aliquota ECF');
-  const ncm = fiscal.ncm?.trim() || sia?.ncm?.trim() || '';
+  /*
+   * CST PIS/COFINS não existe no de-para do SIA (o `cstSaida` de lá é o CST
+   * de ICMS). Então é o do produto ou o padrão da loja; sem os dois, recusa
+   * com o nome do campo — mandar `00` seria recusado pelo SIA do mesmo jeito,
+   * só que em silêncio.
+   */
+  const pisCofinsCst = valorReal(fiscal.cstPisCofins) || valorReal(config.pisCofinsCstPadrao);
+  if (!pisCofinsCst) {
+    throw new CreareValidationError('CST PIS/COFINS ausente e sem pisCofinsCstPadrao configurado para a loja.');
+  }
+  // NCM não tem chave estrangeira no SIA: zero passa. Mesmo assim, prefira o real.
+  const ncm = valorReal(fiscal.ncm) || valorReal(sia?.ncm) || fiscal.ncm?.trim() || '';
   const ippt = config.ipptByProductType[product.tipo];
   const weighable = config.weighableByMeasure[product.medidaBase];
   const stockControlled = config.stockControlledByProductType[product.tipo];
@@ -299,8 +358,13 @@ export function valuesFromProduct(
     unit,
     ecfTaxCode: requiredFixedDigits(ecfTaxCode, 2, 'Aliquota ECF'),
     promotionPrice: 0,
-    supplierManufacturer: product.marca ?? '',
-    reference: '',
+    /*
+     * Vazio sai como zeros, não como espaços: é a forma do registro que o
+     * próprio Criare gera (`txt gerado pelo funcionario do creare.txt`, 28/09).
+     * Espaço o importador tolerou, mas o arquivo de referência é a homologação.
+     */
+    supplierManufacturer: product.marca?.trim() || '0'.repeat(40),
+    reference: '0'.repeat(30),
     basketKit: 'N',
     cost: product.custo,
     description,
@@ -318,7 +382,7 @@ export function valuesFromProduct(
     icmsReduction: fiscal.reducaoIcms ?? 0,
     fullTaxRate: fiscal.aliquotaCheia ?? 0,
     fcpRate: fiscal.aliquotaFcp ?? 0,
-    pisCofinsCst: requiredFixedDigits(fiscal.cstPisCofins, 2, 'CST PIS/COFINS'),
+    pisCofinsCst: requiredFixedDigits(pisCofinsCst, 2, 'CST PIS/COFINS'),
     pisRate: fiscal.aliquotaPis ?? 0,
     cofinsRate: fiscal.aliquotaCofins ?? 0,
     maximumQuantity: product.estoqueMax ?? 0,
