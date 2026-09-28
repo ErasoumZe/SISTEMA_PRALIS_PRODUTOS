@@ -215,7 +215,8 @@ describe('exportação Criare: só sai o que casou no SIA', () => {
       INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
                             habilitar_ajuda, auto, codigo_interno, grupo, grupo_id, custo, v_venda_pontual)
       VALUES ('base1', 'BASE', 'PR-base1', 'VEJA MULTIUSO', 'UN', 'revenda', 'ativo', 0, 1,
-              false, false, '10500', 'MER MERCEARIA - PRODUTOS DE LIMPEZA', '61', 5.0, 9.0)`);
+              false, false, '10500', ${'MER ⁠MERCEARIA - ⁠PRODUTOS DE LIMPEZA'}, '61', 5.0, 9.0)`);
+    // ^ com os dois U+2060 invisiveis que a carga trouxe da planilha: iguais na tela, diferentes para o `=`
     // o novo, na loja, com o nome e SEM o id
     await db.execute(sqlTag`
       INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
