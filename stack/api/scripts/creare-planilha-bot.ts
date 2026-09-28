@@ -31,7 +31,7 @@ interface StoreConfig {
   categoryCodes: Record<string, string>;
   units: Record<string, string>;
   decimalPlaces: Creare.CreareDecimalPlaces;
-  barcodeField: 'short' | 'extended';
+  barcodeField: 'short' | 'extended' | 'automatic';
   lineEnding: 'CRLF' | 'LF';
   noPromotionDate: string;
   iat: 'A' | 'T';
@@ -508,6 +508,10 @@ function rowToResult(
     || digits(config.pisCofinsCstPadrao);
 
   if (!barcode) missing.push('código de barras');
+  if (barcode.length > 14) missing.push('código de barras excede 14 dígitos');
+  if (config.barcodeField === 'short' && barcode.length > 13) {
+    missing.push('código de barras não cabe no campo curto de 13 posições');
+  }
   if (!internalCode) missing.push(`código interno ${store}`);
   if (cost == null) missing.push(`custo ${store}`);
   /*
@@ -561,8 +565,7 @@ function rowToResult(
   if (missing.length) return { key, name, row: rowNumber, store, missing };
 
   const code = internalCode.replace(/^0+(?=\d)/, '');
-  const shortBarcode = config.barcodeField === 'short' ? barcode.padStart(13, '0') : '0'.repeat(13);
-  const extendedBarcode = config.barcodeField === 'extended' ? barcode.padStart(14, '0') : '';
+  const { barcode: shortBarcode, extendedBarcode } = Creare.barcodeCodes(barcode, config.barcodeField);
   const active = normalized(unique('V')) === 'INATIVO' ? 'N' : 'S';
   const weighable = config.weighableUnits.map(normalized).includes(normalized(measure)) ? 'S' : 'N';
 

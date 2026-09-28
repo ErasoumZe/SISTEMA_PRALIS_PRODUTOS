@@ -5,7 +5,7 @@ import type { CurrentUser } from '@/types/fastify-jwt';
 import { CreareService } from './creare.service';
 import type { CreareStore } from './creare.config';
 
-type ExportQuery = { loja?: CreareStore; limite?: number };
+type ExportQuery = { loja?: CreareStore; limite?: number; modo?: 'completo' | 'pendentes' };
 
 function requireUser(request: FastifyRequest): CurrentUser {
   if (!request.currentUser) throw new AppError('Não autenticado', 401, 'UNAUTHENTICATED');
@@ -42,6 +42,19 @@ export class CreareController {
 
   async export(request: FastifyRequest<{ Querystring: ExportQuery }>, reply: FastifyReply) {
     const store = exportStore(request);
+    if (request.query.modo === 'pendentes') {
+      const batch = await this.service.pending(store, request.query.limite);
+      if (!batch) return reply.header('Cache-Control', 'no-store').status(204).send();
+      return reply
+        .header('Content-Type', 'text/plain; charset=us-ascii')
+        .header('Content-Disposition', `attachment; filename="produtos-${store}-lote-${batch.id}.txt"`)
+        .header('Cache-Control', 'no-store')
+        .header('X-Creare-Lote-Id', batch.id)
+        .header('X-Creare-Sha256', batch.sha256)
+        .header('X-Creare-Registros', String(batch.itens.length))
+        .status(200)
+        .send(Buffer.from(batch.conteudo, 'ascii'));
+    }
     const file = await this.service.generate(store, request.query.limite);
     const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
     return reply
@@ -50,6 +63,16 @@ export class CreareController {
       .header('Cache-Control', 'no-store')
       .status(200)
       .send(file);
+  }
+
+  async confirm(request: FastifyRequest<{
+    Params: { id: string };
+    Querystring: { loja: CreareStore };
+    Body: { sha256: string };
+  }>, reply: FastifyReply) {
+    const store = exportStore(request as FastifyRequest<{ Querystring: ExportQuery }>);
+    const result = await this.service.confirm(store, request.params.id, request.body.sha256);
+    return reply.status(200).send(buildResponse(result, 'Lote confirmado apos importacao no SIA'));
   }
 
   async health(request: FastifyRequest, reply: FastifyReply) {

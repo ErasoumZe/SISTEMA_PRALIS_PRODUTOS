@@ -36,6 +36,9 @@ param(
     # Quantos produtos pedir. 0 = todos. Use 10 na primeira execucao real.
     [int]$Limite = 0,
 
+    # Opt-in: baixa somente o lote pendente; 204 = nada para importar.
+    [switch]$Incremental,
+
     [string]$LogDir = 'C:\cadastro-sia\logs'
 )
 
@@ -80,6 +83,7 @@ if ($token.Length -lt 32) {
 $apiBase = $apiBase.TrimEnd('/')
 $url = "$apiBase/creare/produtos.txt?loja=$Loja"
 if ($Limite -gt 0) { $url = "$url&limite=$Limite" }
+if ($Incremental) { $url = "$url&modo=pendentes" }
 # a URL aparece no log; o token NUNCA
 Escrever-Log "origem: $url"
 
@@ -99,11 +103,12 @@ $temporario = "$Destino.baixando"
 try {
     # Windows PowerShell 5.1 ainda negocia TLS 1.0 por padrao em algumas maquinas
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $url `
+    $resposta = Invoke-WebRequest -Uri $url `
         -Headers @{ Authorization = "Bearer $token" } `
         -OutFile $temporario `
+        -PassThru `
         -UseBasicParsing `
-        -TimeoutSec 120 | Out-Null
+        -TimeoutSec 120
 }
 catch {
     $status = $null
@@ -114,7 +119,22 @@ catch {
     Falhar ("nao consegui baixar: {0}" -f $_.Exception.Message)
 }
 
+if ($Incremental -and [int]$resposta.StatusCode -eq 204) {
+    [System.IO.File]::Delete($temporario)
+    Escrever-Log 'Sem alteracoes pendentes (204). Importador nao deve abrir.'
+    exit 2
+}
 if (-not [System.IO.File]::Exists($temporario)) { Falhar 'o download terminou mas nao gerou arquivo.' }
+
+if ($Incremental) {
+    $loteId = [string]$resposta.Headers['X-Creare-Lote-Id']
+    $loteHash = [string]$resposta.Headers['X-Creare-Sha256']
+    $hashRecebido = (Get-FileHash -LiteralPath $temporario -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($loteId -notmatch '^[0-9a-f-]{36}$' -or $loteHash -ne $hashRecebido) {
+        [System.IO.File]::Delete($temporario)
+        Falhar 'Lote sem identificador ou hash divergente; arquivo nao sera importado.'
+    }
+}
 
 # --- validacao antes de deixar isso chegar perto do importador ---
 $linhas = @([System.IO.File]::ReadAllLines($temporario) | Where-Object { $_.Trim().Length -gt 0 })
@@ -148,6 +168,17 @@ if ([System.IO.File]::Exists($Destino)) {
     [System.IO.File]::Delete($Destino)
 }
 [System.IO.File]::Move($temporario, $Destino)
+
+$marcador = "$Destino.lote.json"
+if ($Incremental) {
+    $dadosLote = @{ loja = $Loja; id = $loteId; sha256 = $loteHash; arquivo = $Destino }
+    [System.IO.File]::WriteAllText("$marcador.baixando", ($dadosLote | ConvertTo-Json -Compress))
+    [System.IO.File]::Delete($marcador)
+    [System.IO.File]::Move("$marcador.baixando", $marcador)
+    Escrever-Log "Lote pendente: $loteId. Confirme SOMENTE apos verificar o log do SIA."
+} else {
+    [System.IO.File]::Delete($marcador)
+}
 
 Escrever-Log ("OK: {0} registro(s) de {1} posicoes gravados em {2}" -f $linhas.Count, $TAMANHO_REGISTRO, $Destino)
 if ($Limite -gt 0) {

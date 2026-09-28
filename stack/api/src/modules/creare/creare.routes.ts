@@ -11,7 +11,10 @@ const exportQuerySchema = z.object({
   loja: z.enum(['TNP', 'LI', 'HORA']).optional(),
   /** Primeira execução real: gerar poucos produtos, conferir no log, e só então liberar tudo. */
   limite: z.coerce.number().int().positive().max(100000).optional(),
+  modo: z.enum(['completo', 'pendentes']).optional(),
 });
+const confirmQuerySchema = z.object({ loja: z.enum(['TNP', 'LI', 'HORA']) });
+const confirmBodySchema = z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/) });
 
 export async function creareRoutes(app: FastifyInstance) {
   const controller = container.resolve(CreareController);
@@ -30,6 +33,25 @@ export async function creareRoutes(app: FastifyInstance) {
       },
     },
     controller.export.bind(controller),
+  );
+
+  typed.post<{
+    Params: { id: string };
+    Querystring: z.infer<typeof confirmQuerySchema>;
+    Body: z.infer<typeof confirmBodySchema>;
+  }>(
+    '/creare/lotes/:id/confirmar',
+    {
+      preHandler: [creareExportAuth],
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        querystring: confirmQuerySchema,
+        body: confirmBodySchema,
+        summary: 'Confirmar lote SOMENTE apos conferir importacao no SIA',
+        tags: ['CREARE'],
+      },
+    },
+    controller.confirm.bind(controller),
   );
 
   typed.get<{ Querystring: z.infer<typeof exportQuerySchema> }>(
