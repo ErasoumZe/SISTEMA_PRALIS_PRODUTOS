@@ -539,41 +539,31 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
   };
 
   /*
-   * Estoque, custo, preço e local de venda pertencem exclusivamente à LOJA.
+   * Estoque, custo, preço e local de venda vão SEMPRE, na Base também.
    *
-   * A Base não exibe esses campos, mas cadastros legados podem tê-los gravados.
-   * Reenviá-los numa simples troca de nome fazia uma Base com estoque antigo
-   * inválido ficar impossível de corrigir, porque a API aplicava a validação
-   * de estoque a um campo que o administrador nem conseguia ver. Omitir estes
-   * campos na Base preserva os valores existentes e deixa a atualização dos
-   * dados gerais seguir para as lojas normalmente.
+   * Até 28/09/2026 a Base omitia estes campos, por um motivo que fazia sentido
+   * na época: cadastro legado com estoque inválido travava a edição de um
+   * campo que o administrador nem via. Só que na CRIAÇÃO o contrato exige os
+   * campos, e omiti-los devolvia "expected number, received undefined" — o
+   * cadastro de produto novo na Base parou de funcionar sem ninguém notar.
+   *
+   * E o modelo mudou: a carga de 25/09 guarda custo, preço e estoque na Base,
+   * e a cópia da loja nasce com esses valores (regra do José: *"traga de volta
+   * o cadastro completo para base, e depois cada loja edita"*). Os campos agora
+   * aparecem na Base, então o valor legado inválido também pode ser corrigido
+   * ali, e o motivo da omissão deixou de existir.
    */
-  if (!modoLoja.value) {
-    delete payload.estoqueMin;
-    delete payload.estoqueMax;
-    delete payload.setorEstoque;
-    delete payload.setorVenda1;
-    delete payload.setorVenda2;
-    delete payload.custo;
-    delete payload.margemPontual;
-    delete payload.vVendaPontual;
-    delete payload.auto;
-    delete payload.localVenda1;
-    delete payload.localVenda2;
-  } else {
-    // UX-02: estoque/setor/custo/margem/valor são do produto na loja.
-    payload.estoqueMin = Number(form.estoqueMin) || null;
-    payload.estoqueMax = Number(form.estoqueMax) || null;
-    payload.setorEstoque = form.setorEstoque || null;
-    payload.setorVenda1 = form.setorVenda1 || null;
-    payload.setorVenda2 = form.setorVenda2 || null;
-    payload.custo = Number(form.custo) || null;
-    payload.margemPontual = ProductRules.margemPctParaFracao(form.margemPct);
-    payload.vVendaPontual = Number(form.vVendaPontual) || null;
-    payload.auto = form.auto;
-    payload.localVenda1 = form.localVenda1 || null;
-    payload.localVenda2 = form.localVenda2 || null;
-  }
+  payload.estoqueMin = Number(form.estoqueMin) || null;
+  payload.estoqueMax = Number(form.estoqueMax) || null;
+  payload.setorEstoque = form.setorEstoque || null;
+  payload.setorVenda1 = form.setorVenda1 || null;
+  payload.setorVenda2 = form.setorVenda2 || null;
+  payload.custo = Number(form.custo) || null;
+  payload.margemPontual = ProductRules.margemPctParaFracao(form.margemPct);
+  payload.vVendaPontual = Number(form.vVendaPontual) || null;
+  payload.auto = form.auto;
+  payload.localVenda1 = form.localVenda1 || null;
+  payload.localVenda2 = form.localVenda2 || null;
 
   return payload;
 }
@@ -943,11 +933,13 @@ onMounted(async () => {
           </v-col>
 
           <!--
-            Daqui para baixo é da LOJA. No cadastro da BASE o formulário termina
-            no grupo: quem preenche estoque, custo e preço é a loja que importar.
+            Estoque, custo e preço aparecem na BASE também. A carga guarda esses
+            valores na Base e a cópia da loja nasce com eles; cada loja edita
+            depois o que for dela. Sem isto, o cadastro de produto novo na Base
+            não passava no contrato de criação (28/09/2026).
           -->
-          <template v-if="modoLoja">
-          <v-col cols="12"><div class="product-form__subheading"><strong>Desta loja</strong><span>Estoque, pontos de venda e preço</span></div></v-col>
+          <template>
+          <v-col cols="12"><div class="product-form__subheading"><strong>{{ modoLoja ? 'Desta loja' : 'Operação' }}</strong><span>Estoque, pontos de venda e preço</span></div></v-col>
           <v-col cols="12" sm="6">
             <v-select v-model="form.setorEstoque" :items="SETORES" label="Setor de estoque" variant="outlined" density="comfortable" clearable :hint="ajuda('setorEstoque')" />
           </v-col>

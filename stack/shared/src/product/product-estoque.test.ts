@@ -108,3 +108,32 @@ describe('a mesma regra vale na edição', () => {
     expect(updateProductSchema.safeParse({ estoqueMin: 30, estoqueMax: 30 }).success).toBe(false);
   });
 });
+
+describe('criação sem os campos comerciais', () => {
+  /*
+   * O defeito de 28/09/2026: o formulário da Base omitia estoque, custo, preço
+   * e locais de venda, e a criação devolvia "expected number, received
+   * undefined" para oito campos. Cadastrar produto novo na Base tinha parado.
+   * Ausente na criação vira `null`; a regra de estoque continua valendo sobre
+   * o que vier.
+   */
+  it('aceita o payload sem os campos comerciais e preenche com null', () => {
+    const semComercial = { ...base } as Record<string, unknown>;
+    for (const campo of [
+      'estoqueMin', 'estoqueMax', 'setorEstoque', 'custo', 'margemPontual',
+      'vVendaPontual', 'auto', 'localVenda1', 'localVenda2',
+    ]) delete semComercial[campo];
+
+    const r = createProductSchema.safeParse(semComercial);
+
+    expect(erros(r)).toEqual([]);
+    expect(r.success && r.data).toMatchObject({
+      estoqueMin: null, estoqueMax: null, setorEstoque: null, custo: null,
+      margemPontual: null, vVendaPontual: null, auto: false, localVenda1: null, localVenda2: null,
+    });
+  });
+
+  it('continua recusando valor inválido quando ele vem', () => {
+    expect(erros(criar({ custo: -1 }))).toEqual(expect.arrayContaining([expect.stringMatching(/^custo:/)]));
+  });
+});

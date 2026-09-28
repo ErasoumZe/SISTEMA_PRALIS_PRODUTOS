@@ -79,6 +79,28 @@ export function validarEstoquePorEmbalagem(
  */
 const formaDoProdutoNaCriacao = baseProductSchema
   .extend({
+    /*
+     * Campos comerciais AUSENTES viram `null` na criação, em vez de recusar.
+     *
+     * Em 28/09/2026 o cadastro de produto novo na Base devolvia "expected
+     * number, received undefined" para oito campos que o formulário não
+     * mandava. O formulário foi corrigido para mandar sempre; isto aqui é a
+     * segunda linha de defesa, para um cliente que omita o campo não derrubar
+     * o cadastro inteiro — ausente é ausente, e ausente aqui é `null`.
+     *
+     * A regra de estoque por embalagem continua valendo sobre o que vier.
+     */
+    estoqueMin: z.number().nonnegative().nullable().default(null),
+    estoqueMax: z.number().nonnegative().nullable().default(null),
+    setorEstoque: z.string().nullable().default(null),
+    setorVenda1: z.string().nullable().default(null),
+    setorVenda2: z.string().nullable().default(null),
+    custo: z.number().nonnegative().nullable().default(null),
+    margemPontual: z.number().nullable().default(null),
+    vVendaPontual: z.number().nullable().default(null),
+    auto: z.boolean().default(false),
+    localVenda1: z.string().nullable().default(null),
+    localVenda2: z.string().nullable().default(null),
     promocoes: z.array(promocaoSchema).default([]),
     transformacao: transformacaoSchema.nullable().optional(),
     fiscal: fiscalSchema.nullable().optional(),
