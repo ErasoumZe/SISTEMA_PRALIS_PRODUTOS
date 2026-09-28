@@ -336,6 +336,20 @@ describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
     expect(parsed.groupCode).toBe('0061');
   });
 
+  it('NCM vazio no bloco fiscal sai como zeros, nao como recusa', () => {
+    /*
+     * 28/09/2026: a regra do grupo criou o bloco fiscal do LIMPADOR sem NCM,
+     * e o gerador recusava com "NCM deve conter somente digitos". NCM nao e
+     * chave estrangeira no SIA: vazio vira zeros, como o resto do fiscal.
+     */
+    const semNcm = bread({ grupoId: '61', fiscal: { ...bread().fiscal!, ncm: null } });
+    const parsed = parseCreareRecord(generateCreareRecord(semNcm, {
+      ...config, ecfTaxCodesByGroup: {}, ecfTaxCodePadrao: '11', pisCofinsCstPadrao: '99',
+    }));
+    expect(parsed.ncm).toBe('00000000');
+    expect(parsed.groupCode).toBe('0061');
+  });
+
   it('o produto da carga (fiscal zerado) sai: zeros onde o SIA aceita, padrao da loja nas chaves', () => {
     /*
      * NCM, CEST e categoria nao sao chave estrangeira no SIA: zero passa.
