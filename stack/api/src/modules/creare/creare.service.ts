@@ -360,4 +360,12 @@ export class CreareService {
   async confirm(store: CreareStore, id: string, sha256: string) {
     return this.exports.confirm(store, id, sha256);
   }
+
+  async openBatch(store: CreareStore): Promise<ExportBatch | null> {
+    if (!env.CREARE_EXPORT_ENABLED) {
+      throw new AppError('Exportacao Criare desabilitada.', 503, 'CREARE_DISABLED');
+    }
+    this.configuracao(store);
+    return this.exports.open(store);
+  }
 }

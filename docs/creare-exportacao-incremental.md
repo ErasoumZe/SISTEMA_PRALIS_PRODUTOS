@@ -12,6 +12,8 @@ quando nao ha alteracoes. No `200`, os headers `X-Creare-Lote-Id`,
 `X-Creare-Sha256` e `X-Creare-Registros` identificam o snapshot. Downloads
 repetidos devolvem o mesmo lote enquanto ele estiver aberto; novas edicoes
 esperam o lote seguinte.
+O nome baixado permanece no formato antigo `produtos-TNP-AAAAMMDD.txt`,
+usando a data de criacao do lote. O ID fica nos headers, nao no nome.
 
 ## Confirmacao — nunca no download
 
@@ -29,8 +31,9 @@ isso nao prova que todos os itens foram gravados. Se o importador falhar, nao
 confirme. O mesmo lote estara disponivel para nova tentativa.
 
 Quem baixou pelo navegador pode passar `-Arquivo` apontando para o TXT em
-Downloads: o ID vem do nome `produtos-TNP-lote-<id>.txt`. Se o navegador mudou
-o nome, informar tambem `-LoteId <id>` copiado do header `X-Creare-Lote-Id`.
+Downloads. O script consulta `GET /creare/lotes/pendente?loja=TNP` e compara
+o hash do arquivo local com o lote pendente antes de pedir a confirmacao.
+O download pelo robo continua usando o marcador local `.lote.json`.
 
 ## Sequencia de implantacao
 
