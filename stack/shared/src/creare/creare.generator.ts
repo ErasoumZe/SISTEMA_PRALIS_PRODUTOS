@@ -234,20 +234,19 @@ export function barcodeCodes(
   raw: string | null,
   strategy: CreareStoreConfig['barcodeField'],
 ): Pick<CreareValues, 'barcode' | 'extendedBarcode'> {
-  /*
-   * O layout oficial classifica ambos como alfanuméricos, alinhados à esquerda
-   * e preenchidos com espaços à direita. O serializador faz o preenchimento;
-   * aqui preservamos o código original, inclusive zeros que já existiam nele.
-   */
-  if (!raw?.trim()) return { barcode: '', extendedBarcode: '' };
+  // O importador SIA homologado le o GTIN no campo longo, alinhado a direita.
+  // Manter o campo nao usado zerado, como no TXT que importou corretamente.
+  const semCurto = '0'.repeat(13);
+  const semLongo = '0'.repeat(14);
+  if (!raw?.trim()) return { barcode: semCurto, extendedBarcode: semLongo };
   const code = digitsOnly(raw, 'Codigo de barras');
   if (code.length > 14) throw new CreareValidationError('Codigo de barras excede 14 digitos.');
   const target = strategy === 'automatic' ? (code.length <= 13 ? 'short' : 'extended') : strategy;
   if (target === 'short') {
     if (code.length > 13) throw new CreareValidationError('Codigo de barras nao cabe no campo curto.');
-    return { barcode: code, extendedBarcode: '' };
+    return { barcode: code.padStart(13, '0'), extendedBarcode: semLongo };
   }
-  return { barcode: '', extendedBarcode: code };
+  return { barcode: semCurto, extendedBarcode: code.padStart(14, '0') };
 }
 
 /**

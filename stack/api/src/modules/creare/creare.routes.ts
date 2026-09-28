@@ -54,6 +54,19 @@ export async function creareRoutes(app: FastifyInstance) {
     controller.confirm.bind(controller),
   );
 
+  typed.get<{ Querystring: z.infer<typeof confirmQuerySchema> }>(
+    '/creare/lotes/pendente',
+    {
+      preHandler: [creareExportAuth],
+      schema: {
+        querystring: confirmQuerySchema,
+        summary: 'Consultar identificador e hash do lote pendente, sem gerar novo lote',
+        tags: ['CREARE'],
+      },
+    },
+    controller.openBatch.bind(controller),
+  );
+
   typed.get<{ Querystring: z.infer<typeof exportQuerySchema> }>(
     '/admin/creare/health',
     {

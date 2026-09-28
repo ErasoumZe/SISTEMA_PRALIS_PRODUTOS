@@ -237,10 +237,9 @@ export class CreareService {
     if (!config) {
       throw new AppError(`Loja ${store} não possui configuração Criare.`, 503, 'CREARE_STORE_NOT_CONFIGURED');
     }
-    // O layout oficial usa o campo de 13 para EAN-13 e o estendido para GTIN-14.
-    // Configuracoes antigas da loja podem ainda dizer "extended"; nao deixar
-    // que isso recoloque um EAN-13 no campo errado apos o deploy.
-    return { ...config, barcodeField: 'automatic' };
+    // Homologado na TNP: o SIA le barras no campo longo de 14 posicoes.
+    // Nao depender de uma configuracao antiga ou alterada no ambiente.
+    return store === 'TNP' ? { ...config, barcodeField: 'extended' } : config;
   }
 
   async health(): Promise<CreareHealth> {
@@ -359,5 +358,13 @@ export class CreareService {
 
   async confirm(store: CreareStore, id: string, sha256: string) {
     return this.exports.confirm(store, id, sha256);
+  }
+
+  async openBatch(store: CreareStore): Promise<ExportBatch | null> {
+    if (!env.CREARE_EXPORT_ENABLED) {
+      throw new AppError('Exportacao Criare desabilitada.', 503, 'CREARE_DISABLED');
+    }
+    this.configuracao(store);
+    return this.exports.open(store);
   }
 }

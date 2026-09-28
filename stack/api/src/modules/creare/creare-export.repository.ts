@@ -14,6 +14,7 @@ export interface PendingRecord {
 export type ExportBatch = typeof creareExportBatch.$inferSelect;
 
 const digest = (value: string) => createHash('sha256').update(value, 'ascii').digest('hex');
+const CURRENT_FORMAT_VERSION = 2;
 
 /** Serializa criacao e confirmacao por loja, inclusive entre instancias da API. */
 async function lockStore(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], loja: CreareStore) {
@@ -24,7 +25,8 @@ async function lockStore(tx: Parameters<Parameters<typeof db.transaction>[0]>[0]
 export class CreareExportRepository {
   async open(loja: CreareStore): Promise<ExportBatch | null> {
     const [batch] = await db.select().from(creareExportBatch)
-      .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.confirmadoEm))).limit(1);
+      .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.confirmadoEm),
+        isNull(creareExportBatch.canceladoEm), eq(creareExportBatch.formatoVersao, CURRENT_FORMAT_VERSION))).limit(1);
     return batch ?? null;
   }
 
@@ -32,8 +34,15 @@ export class CreareExportRepository {
     return db.transaction(async (tx) => {
       await lockStore(tx, loja);
       const [open] = await tx.select().from(creareExportBatch)
-        .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.confirmadoEm))).limit(1);
-      if (open) return open;
+        .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.confirmadoEm),
+          isNull(creareExportBatch.canceladoEm))).limit(1);
+      if (open?.formatoVersao === CURRENT_FORMAT_VERSION) return open;
+      if (open) {
+        // Lote gerado pelo formato anterior: manter historico, mas nunca servi-lo
+        // novamente nem aceitar sua confirmacao como importacao correta.
+        await tx.update(creareExportBatch).set({ canceladoEm: new Date() })
+          .where(eq(creareExportBatch.id, open.id));
+      }
 
       const states = await tx.select({ productId: creareExportState.productId, hash: creareExportState.hash })
         .from(creareExportState).where(eq(creareExportState.loja, loja));
@@ -46,7 +55,7 @@ export class CreareExportRepository {
       const conteudo = `${pending.map((row) => row.record).join(ending)}${ending}`;
       const itens: CreareBatchItem[] = pending.map(({ productId, hash }) => ({ productId, hash }));
       const [batch] = await tx.insert(creareExportBatch).values({
-        loja, conteudo, sha256: digest(conteudo), itens,
+        loja, conteudo, sha256: digest(conteudo), itens, formatoVersao: CURRENT_FORMAT_VERSION,
       }).returning();
       return batch!;
     });
@@ -62,6 +71,10 @@ export class CreareExportRepository {
         throw new AppError('O hash do TXT nao corresponde ao lote. Nada foi confirmado.', 409, 'CREARE_BATCH_HASH_MISMATCH');
       }
       if (batch.confirmadoEm) return { count: batch.itens.length, alreadyConfirmed: true };
+      if (batch.canceladoEm || batch.formatoVersao !== CURRENT_FORMAT_VERSION) {
+        throw new AppError('Lote em formato anterior cancelado. Baixe o TXT corrigido antes de importar.',
+          409, 'CREARE_BATCH_OUTDATED');
+      }
 
       for (let i = 0; i < batch.itens.length; i += 500) {
         await tx.insert(creareExportState).values(batch.itens.slice(i, i + 500).map((item) => ({

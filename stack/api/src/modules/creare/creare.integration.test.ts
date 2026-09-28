@@ -33,7 +33,7 @@ const CONFIG_LI = {
       unitPrice: 2, icmsReduction: 2, fullTaxRate: 2, fcpRate: 2,
       pisRate: 4, cofinsRate: 4, maximumQuantity: 3, minimumQuantity: 3,
     },
-    barcodeField: 'extended', // config antiga: a API deve selecionar o campo correto mesmo assim
+    barcodeField: 'extended', // formato homologado pelo SIA: codigo no campo longo
     lineEnding: 'LF',
     noPromotionDate: '30/12/99',
     iat: 'A',
@@ -50,7 +50,10 @@ beforeAll(async () => {
   container = await new PostgreSqlContainer('postgres:18.1-alpine').start();
   process.env.DATABASE_URL = container.getConnectionUri();
   process.env.CREARE_EXPORT_ENABLED = 'true';
-  process.env.CREARE_STORE_CONFIG_JSON = JSON.stringify(CONFIG_LI);
+  process.env.CREARE_STORE_CONFIG_JSON = JSON.stringify({
+    ...CONFIG_LI,
+    TNP: { ...CONFIG_LI.LI, barcodeField: 'automatic' },
+  });
 
   const { migrate } = await import('drizzle-orm/node-postgres/migrator');
   sqlTag = (await import('drizzle-orm')).sql;
@@ -156,9 +159,47 @@ describe('lotes incrementais Criare', () => {
     expect(seguinte.id).not.toBe(aberto.id);
     expect(seguinte.itens.map((item) => item.productId)).toEqual(['p1']);
   });
+
+  it('cancela lote pendente no formato defeituoso e gera outro sem perder auditoria', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const antigoId = 'lote-formato-anterior';
+    const antigoHash = 'a'.repeat(64);
+    await db.execute(sqlTag`INSERT INTO creare_export_batch (id, loja, conteudo, sha256, itens)
+      VALUES (${antigoId}, 'LI', 'TXT ANTIGO', ${antigoHash}, '[]'::jsonb)`);
+
+    expect(await service.openBatch('LI')).toBeNull();
+    await expect(service.confirm('LI', antigoId, antigoHash))
+      .rejects.toMatchObject({ code: 'CREARE_BATCH_OUTDATED' });
+
+    const corrigido = (await service.pending('LI'))!;
+    expect(corrigido.id).not.toBe(antigoId);
+    expect(corrigido.formatoVersao).toBe(2);
+    const { Creare } = await import('@pralis/shared');
+    const campos = Creare.parseCreareRecord(corrigido.conteudo.trimEnd());
+    expect(campos.barcode).toBe('0000000000000');
+    expect(campos.extendedBarcode).toBe('07891149100828');
+    const antigo = await db.execute(sqlTag`SELECT cancelado_em FROM creare_export_batch WHERE id = ${antigoId}`);
+    expect(antigo.rows[0]?.cancelado_em).not.toBeNull();
+    await expect(service.confirm('LI', antigoId, antigoHash))
+      .rejects.toMatchObject({ code: 'CREARE_BATCH_OUTDATED' });
+  });
 });
 
 describe('exportação Criare: só sai o que casou no SIA', () => {
+  it('TNP usa campo longo homologado mesmo se ambiente pedir automatico', async () => {
+    await produto('p1', 'DESENGORDURANTE MULTIUSO UAU', '7891242211506');
+    await siaLinha('013153', '7891242211506', '12');
+    await db.execute(sqlTag`UPDATE products SET loja = 'TNP' WHERE id = 'p1'`);
+    await db.execute(sqlTag`UPDATE sia_produto_depara SET loja = 'TNP' WHERE id = 's-013153'`);
+    const { Creare } = await import('@pralis/shared');
+    const linha = (await service.generate('TNP')).toString('ascii').split('\n')[0]!;
+    const campos = Creare.parseCreareRecord(linha);
+    expect(linha).toHaveLength(363);
+    expect(campos.barcode).toBe('0000000000000');
+    expect(campos.extendedBarcode).toBe('07891242211506');
+  });
+
   it('recusa exportar quando o de-para nem foi importado', async () => {
     await produto('p1', 'CERVEJA', '7891149100828');
 
@@ -177,8 +218,8 @@ describe('exportação Criare: só sai o que casou no SIA', () => {
     expect(linhas[0]).toHaveLength(363);
     const { Creare } = await import('@pralis/shared');
     const campos = Creare.parseCreareRecord(linhas[0]!);
-    expect(campos.barcode).toBe('7891149100828');
-    expect(campos.extendedBarcode).toBe(' '.repeat(14));
+    expect(campos.barcode).toBe('0000000000000');
+    expect(campos.extendedBarcode).toBe('07891149100828');
   });
 
   it('usa o coditem, o grupo e a alíquota do SIA — nunca o de-para por grupo', async () => {
@@ -226,7 +267,7 @@ describe('exportação Criare: só sai o que casou no SIA', () => {
     await siaLinha('067890', '7891000100103', '03');
 
     const arquivo = (await service.generate('LI')).toString('ascii');
-    const diagnostico = (await service.health()).lojas[0]!;
+    const diagnostico = (await service.health()).lojas.find((loja) => loja.loja === 'LI')!;
 
     expect(arquivo.split('\n').filter((l) => l).length).toBe(1);
     expect(diagnostico.invalidos).toBe(1);
@@ -252,7 +293,7 @@ describe('exportação Criare: só sai o que casou no SIA', () => {
       VALUES ('p2', '00000000', '0000000', NULL, '00', '00')`);
 
     const linhas = (await service.generate('LI')).toString('ascii').split('\n').filter((l) => l);
-    const d = (await service.health()).lojas[0]!;
+    const d = (await service.health()).lojas.find((loja) => loja.loja === 'LI')!;
 
     expect(linhas).toHaveLength(2);
     expect(d.casados).toBe(2);
@@ -300,7 +341,7 @@ describe('exportação Criare: só sai o que casou no SIA', () => {
     expect(limpador.internalCode).toBe('013152');
     expect(limpador.ecfTaxCode).toBe('03'); // sem bloco fiscal: padrao da loja
     expect(limpador.pisCofinsCst).toBe('99');
-    expect((await service.health()).lojas[0]!.invalidos).toBe(0);
+    expect((await service.health()).lojas.find((loja) => loja.loja === 'LI')!.invalidos).toBe(0);
   });
 
   it('limite gera só os primeiros — a primeira importação real começa pequena', async () => {
@@ -323,7 +364,7 @@ describe('diagnóstico antes de importar', () => {
     await siaLinha('012345', '7891149100828', '10');
     await siaLinha('067890', '7891000100103', '03');
 
-    const d = (await service.health()).lojas[0]!;
+    const d = (await service.health()).lojas.find((loja) => loja.loja === 'LI')!;
 
     expect(d.totalProdutos).toBe(3);
     expect(d.deParaCarregado).toBe(2);
@@ -338,7 +379,7 @@ describe('diagnóstico antes de importar', () => {
     await produto('p2', 'CERVEJA LONG NECK', '07891149100828');
     await siaLinha('012345', '7891149100828', '10');
 
-    const d = (await service.health()).lojas[0]!;
+    const d = (await service.health()).lojas.find((loja) => loja.loja === 'LI')!;
 
     // a ordem da listagem não é garantida; o que importa é QUEM colide
     expect(d.colisoesCoditem).toHaveLength(1);
@@ -397,7 +438,7 @@ describe('amostra de custo — para decidir 2 ou 3 casas olhando o SIA', () => {
     await produto('p1', 'CERVEJA', '7891149100828'); // custo 1.00 na fixture
     await siaLinha('012345', '7891149100828', '10');
 
-    const d = (await service.health()).lojas[0]!;
+    const d = (await service.health()).lojas.find((loja) => loja.loja === 'LI')!;
 
     expect(d.amostraCusto).toHaveLength(1);
     expect(d.amostraCusto[0]).toMatchObject({
@@ -415,7 +456,7 @@ describe('amostra de custo — para decidir 2 ou 3 casas olhando o SIA', () => {
     await db.execute(sqlTag`UPDATE products SET custo = 0 WHERE id = 'p1'`);
     await siaLinha('012345', '7891149100828', '10');
 
-    const d = (await service.health()).lojas[0]!;
+    const d = (await service.health()).lojas.find((loja) => loja.loja === 'LI')!;
 
     expect(d.casados).toBe(1);
     expect(d.amostraCusto).toHaveLength(0);

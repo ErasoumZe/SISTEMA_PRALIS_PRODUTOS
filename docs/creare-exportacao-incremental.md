@@ -2,8 +2,10 @@
 
 O endpoint antigo `GET /creare/produtos.txt?loja=TNP` continua sendo uma
 **fotografia completa**. Ele nao confirma importacao e serve para recuperacao.
-A API escolhe automaticamente o campo de barras de 13 ou 14 posicoes, mesmo
-se uma configuracao antiga da loja ainda disser `barcodeField: "extended"`.
+Na TNP, o formato homologado pelo importador SIA deixa o campo de barras de
+13 posicoes zerado e escreve o codigo no campo longo de 14 posicoes, alinhado
+a direita com zeros. Uma configuracao `automatic` no ambiente nao substitui
+esse formato da TNP.
 
 O modo novo `GET /creare/produtos.txt?loja=TNP&modo=pendentes` gera apenas
 registros diferentes da ultima versao **confirmada** por produto/loja. O TXT
@@ -12,6 +14,13 @@ quando nao ha alteracoes. No `200`, os headers `X-Creare-Lote-Id`,
 `X-Creare-Sha256` e `X-Creare-Registros` identificam o snapshot. Downloads
 repetidos devolvem o mesmo lote enquanto ele estiver aberto; novas edicoes
 esperam o lote seguinte.
+O nome baixado permanece no formato antigo `produtos-TNP-AAAAMMDD.txt`,
+usando a data de criacao do lote. O ID fica nos headers, nao no nome.
+
+Se houver um lote pendente criado pela versao que colocou o EAN no campo
+curto, a proxima consulta incremental o cancela com trilha de auditoria e
+gera outro no formato corrigido. Nao confirme nem reimporte o TXT antigo.
+Isso requer a migracao `0029_stiff_maria_hill.sql` antes da nova API.
 
 ## Confirmacao — nunca no download
 
@@ -29,15 +38,17 @@ isso nao prova que todos os itens foram gravados. Se o importador falhar, nao
 confirme. O mesmo lote estara disponivel para nova tentativa.
 
 Quem baixou pelo navegador pode passar `-Arquivo` apontando para o TXT em
-Downloads: o ID vem do nome `produtos-TNP-lote-<id>.txt`. Se o navegador mudou
-o nome, informar tambem `-LoteId <id>` copiado do header `X-Creare-Lote-Id`.
+Downloads. O script consulta `GET /creare/lotes/pendente?loja=TNP` e compara
+o hash do arquivo local com o lote pendente antes de pedir a confirmacao.
+O download pelo robo continua usando o marcador local `.lote.json`.
 
 ## Sequencia de implantacao
 
 1. Aplicar a migracao `0028_fine_professor_monster.sql` em homologacao e
    depois em producao, com backup. Ela so cria duas tabelas; nao altera produtos.
-2. Publicar a API e os scripts da mesma versao. Conferir que o gerador ja
-   grava barras de 13 digitos nas posicoes 1–13 e usa espacos no campo vazio.
+2. Aplicar tambem `0029_stiff_maria_hill.sql` antes de publicar a nova API.
+   Conferir na TNP que o campo curto esta zerado e o codigo aparece nas
+   posicoes 320-333, como no TXT anteriormente aceito pelo importador.
 3. Manter o agendamento existente no modo completo enquanto se testa o modo
    incremental **manual**, com `-Incremental` e `-Limite 1`. O primeiro lote
    contem produtos ainda sem confirmacao; nao presumir que um produto existente

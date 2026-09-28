@@ -45,9 +45,10 @@ export class CreareController {
     if (request.query.modo === 'pendentes') {
       const batch = await this.service.pending(store, request.query.limite);
       if (!batch) return reply.header('Cache-Control', 'no-store').status(204).send();
+      const date = batch.criadoEm.toISOString().slice(0, 10).replaceAll('-', '');
       return reply
         .header('Content-Type', 'text/plain; charset=us-ascii')
-        .header('Content-Disposition', `attachment; filename="produtos-${store}-lote-${batch.id}.txt"`)
+        .header('Content-Disposition', `attachment; filename="produtos-${store}-${date}.txt"`)
         .header('Cache-Control', 'no-store')
         .header('X-Creare-Lote-Id', batch.id)
         .header('X-Creare-Sha256', batch.sha256)
@@ -63,6 +64,19 @@ export class CreareController {
       .header('Cache-Control', 'no-store')
       .status(200)
       .send(file);
+  }
+
+  async openBatch(request: FastifyRequest<{ Querystring: { loja: CreareStore } }>, reply: FastifyReply) {
+    const store = exportStore(request as FastifyRequest<{ Querystring: ExportQuery }>);
+    const batch = await this.service.openBatch(store);
+    if (!batch) return reply.header('Cache-Control', 'no-store').status(204).send();
+    return reply.header('Cache-Control', 'no-store').status(200).send(buildResponse({
+      id: batch.id,
+      loja: batch.loja,
+      sha256: batch.sha256,
+      registros: batch.itens.length,
+      criadoEm: batch.criadoEm,
+    }, 'Lote aguardando confirmacao'));
   }
 
   async confirm(request: FastifyRequest<{

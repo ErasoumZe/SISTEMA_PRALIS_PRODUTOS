@@ -296,32 +296,32 @@ describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
     expect(() => generateCreareRecord(zerado, config)).toThrow(/CST PIS\/COFINS ausente/);
   });
 
-  it('codigo de barras vazio usa espacos, sem criar um EAN de zeros', () => {
+  it('codigo de barras vazio usa zeros nos dois campos, como o TXT aceito pelo SIA', () => {
     const semBarras = parseCreareRecord(generateCreareRecord(bread({ codigoBarras: null, marca: null }), config));
-    expect(semBarras.barcode).toBe(' '.repeat(13));
-    expect(semBarras.extendedBarcode).toBe(' '.repeat(14));
+    expect(semBarras.barcode).toBe('0'.repeat(13));
+    expect(semBarras.extendedBarcode).toBe('0'.repeat(14));
     expect(semBarras.supplierManufacturer).toBe('0'.repeat(40));
     expect(semBarras.reference).toBe('0'.repeat(30));
   });
 
-  it('EAN de 13 digitos fica no campo curto sem zero artificial e sem deslocar o ativo', () => {
-    const record = generateCreareRecord(bread({ codigoBarras: '7891242211506' }), config);
+  it('TNP: EAN de 13 digitos fica no campo longo com zero a esquerda, sem deslocar o ativo', () => {
+    const record = generateCreareRecord(bread({ codigoBarras: '7891242211506' }), { ...config, barcodeField: 'extended' });
     const parsed = parseCreareRecord(record);
     expect(record).toHaveLength(363);
-    expect(parsed.barcode).toBe('7891242211506');
-    expect(parsed.extendedBarcode).toBe(' '.repeat(14));
+    expect(parsed.barcode).toBe('0000000000000');
+    expect(parsed.extendedBarcode).toBe('07891242211506');
     expect(record[333]).toBe('S');
   });
 
-  it('campo longo preserva o codigo original e completa com espacos a direita', () => {
+  it('campo longo alinha codigo curto a direita com zeros', () => {
     const longo = parseCreareRecord(generateCreareRecord(bread({ codigoBarras: '13128' }), { ...config, barcodeField: 'extended' }));
-    expect(longo.barcode).toBe(' '.repeat(13));
-    expect(longo.extendedBarcode).toBe('13128'.padEnd(14));
+    expect(longo.barcode).toBe('0000000000000');
+    expect(longo.extendedBarcode).toBe('00000000013128');
   });
 
   it('EAN de 14 digitos vai ao campo longo e zeros originais sao preservados', () => {
     const longo = parseCreareRecord(generateCreareRecord(bread({ codigoBarras: '17891242211503' }), config));
-    expect(longo.barcode).toBe(' '.repeat(13));
+    expect(longo.barcode).toBe('0000000000000');
     expect(longo.extendedBarcode).toBe('17891242211503');
     const comZeroOriginal = parseCreareRecord(generateCreareRecord(bread({ codigoBarras: '07891242211506' }), config));
     expect(comZeroOriginal.extendedBarcode).toBe('07891242211506');

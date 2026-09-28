@@ -26,23 +26,32 @@ if ([System.IO.File]::Exists($marcador)) {
         $LoteId = $Matches[2]
     }
 }
-if ($LoteId -notmatch '^[0-9a-f-]{36}$') {
-    throw 'ID do lote ausente. Use o nome original do download ou informe -LoteId.'
-}
 $hashAtual = (Get-FileHash -LiteralPath $Arquivo -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($lote -and $hashAtual -ne $lote.sha256) { throw 'TXT foi alterado depois do download. Nada foi confirmado.' }
+
+$base = [string]$env:PRALIS_API_BASE
+$token = [string]$env:CREARE_EXPORT_TOKEN
+if (-not $base -or $token.Length -lt 32) { throw 'PRALIS_API_BASE ou CREARE_EXPORT_TOKEN ausente/invalido.' }
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+if ($LoteId -notmatch '^[0-9a-f-]{36}$') {
+    # O nome original nao leva o ID. Consulte os metadados, sem baixar nem criar outro lote.
+    $pendenteUrl = "$($base.TrimEnd('/'))/creare/lotes/pendente?loja=$Loja"
+    $pendente = Invoke-RestMethod -Uri $pendenteUrl -Method Get `
+        -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 30
+    if (-not $pendente.data -or $pendente.data.sha256 -ne $hashAtual) {
+        throw 'Nao ha lote pendente com o mesmo hash deste TXT. Nada foi confirmado.'
+    }
+    $LoteId = [string]$pendente.data.id
+}
+if ($LoteId -notmatch '^[0-9a-f-]{36}$') { throw 'ID do lote pendente invalido.' }
 
 Write-Host "Loja: $Loja | Lote: $LoteId | TXT: $Arquivo"
 Write-Host 'Confira o log do Criare: cada registro do lote deve ter sido aplicado, sem erro.'
 $frase = Read-Host 'Digite CONFIRMO IMPORTACAO NO SIA para reconhecer a conclusao'
 if ($frase -cne 'CONFIRMO IMPORTACAO NO SIA') { throw 'Confirmacao cancelada.' }
 
-$base = [string]$env:PRALIS_API_BASE
-$token = [string]$env:CREARE_EXPORT_TOKEN
-if (-not $base -or $token.Length -lt 32) { throw 'PRALIS_API_BASE ou CREARE_EXPORT_TOKEN ausente/invalido.' }
 $url = "$($base.TrimEnd('/'))/creare/lotes/$LoteId/confirmar?loja=$Loja"
 $body = @{ sha256 = $hashAtual } | ConvertTo-Json -Compress
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $resultado = Invoke-RestMethod -Uri $url -Method Post `
     -Headers @{ Authorization = "Bearer $token" } `
     -ContentType 'application/json' -Body $body -TimeoutSec 30
