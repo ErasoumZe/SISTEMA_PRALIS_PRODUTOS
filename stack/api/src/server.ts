@@ -31,7 +31,15 @@ import { reenvioRoutes } from '@/modules/google-sheets/reenvio.routes';
 import { ReenvioSheetsService } from '@/modules/google-sheets/reenvio.service';
 
 const app = Fastify({
-  logger: env.NODE_ENV === 'dev',
+  /*
+   * Em producao o logger ficava DESLIGADO, e o `setErrorHandler` chamava
+   * `app.log.error(...)` num logger que nao escreve nada -- enquanto a
+   * resposta dizia "a equipe foi notificada pelo log". Em 28/09/2026 a rota
+   * do Criare devolveu 500 e o motivo (indice unico do lote) so apareceu
+   * reproduzindo em teste. Log de erro e o minimo para um 500 nao ser mudo;
+   * `warn` mantem o ruido de requisicao fora, que era a razao de desligar.
+   */
+  logger: env.NODE_ENV === 'dev' ? true : { level: 'warn' },
 });
 
 // validação/serialização via Zod

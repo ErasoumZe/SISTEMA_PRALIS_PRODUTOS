@@ -184,6 +184,36 @@ describe('lotes incrementais Criare', () => {
     await expect(service.confirm('LI', antigoId, antigoHash))
       .rejects.toMatchObject({ code: 'CREARE_BATCH_OUTDATED' });
   });
+
+  it('substitui lote antigo mesmo quando o push de producao conservou o indice anterior', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    await db.execute(sqlTag`DROP INDEX uq_creare_export_batch_aberto`);
+    await db.execute(sqlTag`CREATE UNIQUE INDEX uq_creare_export_batch_aberto
+      ON creare_export_batch (loja) WHERE confirmado_em IS NULL`);
+    try {
+      const antigoId = 'lote-antes-do-push';
+      const antigoHash = 'b'.repeat(64);
+      await db.execute(sqlTag`INSERT INTO creare_export_batch (id, loja, conteudo, sha256, itens)
+        VALUES (${antigoId}, 'LI', 'TXT SEM BARRAS', ${antigoHash}, '[]'::jsonb)`);
+
+      const novo = (await service.pending('LI'))!;
+      expect(novo.id).not.toBe(antigoId);
+      expect(novo.formatoVersao).toBe(2);
+      const antigo = await db.execute(sqlTag`SELECT cancelado_em, confirmado_em
+        FROM creare_export_batch WHERE id = ${antigoId}`);
+      expect(antigo.rows[0]?.cancelado_em).not.toBeNull();
+      expect(antigo.rows[0]?.confirmado_em).not.toBeNull();
+      await expect(service.confirm('LI', antigoId, antigoHash))
+        .rejects.toMatchObject({ code: 'CREARE_BATCH_OUTDATED' });
+      const states = await db.execute(sqlTag`SELECT count(*) AS total FROM creare_export_state`);
+      expect(Number(states.rows[0]?.total)).toBe(0);
+    } finally {
+      await db.execute(sqlTag`DROP INDEX uq_creare_export_batch_aberto`);
+      await db.execute(sqlTag`CREATE UNIQUE INDEX uq_creare_export_batch_aberto
+        ON creare_export_batch (loja) WHERE confirmado_em IS NULL AND cancelado_em IS NULL`);
+    }
+  });
 });
 
 describe('exportação Criare: só sai o que casou no SIA', () => {
