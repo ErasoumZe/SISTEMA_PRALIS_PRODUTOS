@@ -317,6 +317,25 @@ describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
     expect(() => generateCreareRecord(desconhecida, config)).toThrow(/Categoria Criare/);
   });
 
+  it('produto criado pelo formulario da Base (sem bloco fiscal, sem custo) sai com zeros e os padroes', () => {
+    /*
+     * 28/09/2026: o LIMPADOR PERFUMADO CASAFLOR, cadastrado de manha pela Base,
+     * nao tem linha fiscal -- o fiscal e da loja e vem pelo backfill. Recusar
+     * com "Dados fiscais ausentes" deixava o produto novo fora do PDV.
+     */
+    const novo = bread({ grupoId: '61', fiscal: null, custo: null });
+    const parsed = parseCreareRecord(generateCreareRecord(novo, {
+      ...config, ecfTaxCodesByGroup: {}, ecfTaxCodePadrao: '11', pisCofinsCstPadrao: '99',
+    }));
+    expect(parsed.ncm).toBe('00000000');
+    expect(parsed.cest).toBe('0000000');
+    expect(parsed.categoryCode).toBe('000000000');
+    expect(parsed.ecfTaxCode).toBe('11');
+    expect(parsed.pisCofinsCst).toBe('99');
+    expect(parsed.cost).toBe('0000000000');
+    expect(parsed.groupCode).toBe('0061');
+  });
+
   it('o produto da carga (fiscal zerado) sai: zeros onde o SIA aceita, padrao da loja nas chaves', () => {
     /*
      * NCM, CEST e categoria nao sao chave estrangeira no SIA: zero passa.
