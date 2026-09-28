@@ -153,7 +153,18 @@ export class CreareService {
     const invalidos: CreareForaDoArquivo[] = [];
     const porCoditem = new Map<string, string[]>();
 
+    /*
+     * Produto sem id de grupo herda o id do NOME do grupo, aprendido dos
+     * produtos da carga. Cobre quem foi cadastrado pelo formulário antes de o
+     * id passar a ser preenchido na criação (28/09/2026) — o LIMPADOR PERFUMADO
+     * caía em "Codigo do grupo: nao existe de-para".
+     */
+    const idsPorNome = new Map<string, string | null>();
     for (const produto of produtos) {
+      if (!produto.grupoId?.trim() && produto.grupo?.trim()) {
+        if (!idsPorNome.has(produto.grupo)) idsPorNome.set(produto.grupo, await this.products.grupoIdPorNome(produto.grupo));
+        produto.grupoId = idsPorNome.get(produto.grupo) ?? produto.grupoId ?? null;
+      }
       const linha = this.casar(produto, sia) ?? this.casarPeloCodigoInterno(produto);
       if (!linha) {
         naoCasados.push(resumo(produto, 'sem par no SIA pelo codigo de barras e sem codigo interno para valer como coditem'));
@@ -237,7 +248,8 @@ export class CreareService {
       const lote = await this.montarLote(store, config);
       const distribuicaoEcf: Record<string, number> = {};
       for (const { sia } of lote.casados) {
-        const codigo = sia.aliqSaidaEcf || '(vazio)';
+        // o que vai no arquivo: zero é placeholder e cai no padrão da loja
+        const codigo = sia.aliqSaidaEcf.replace(/^0+$/, '') || config.ecfTaxCodePadrao || '(vazio)';
         distribuicaoEcf[codigo] = (distribuicaoEcf[codigo] ?? 0) + 1;
       }
       lojas.push({
