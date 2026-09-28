@@ -938,7 +938,6 @@ onMounted(async () => {
             depois o que for dela. Sem isto, o cadastro de produto novo na Base
             não passava no contrato de criação (28/09/2026).
           -->
-          <template>
           <v-col cols="12"><div class="product-form__subheading"><strong>{{ modoLoja ? 'Desta loja' : 'Operação' }}</strong><span>Estoque, pontos de venda e preço</span></div></v-col>
           <v-col cols="12" sm="6">
             <v-select v-model="form.setorEstoque" :items="SETORES" label="Setor de estoque" variant="outlined" density="comfortable" clearable :hint="ajuda('setorEstoque')" />
@@ -990,7 +989,6 @@ onMounted(async () => {
             <v-text-field :model-value="`R$ ${vVenda.toFixed(2).replace('.', ',')}`" label="V. Venda (calculado)" variant="outlined" density="comfortable" readonly bg-color="purple-lighten-5" />
           </v-col>
 
-          </template>
 
           <!-- exclusivo de transformação — é da BASE: define o que o produto é -->
           <template v-if="form.tipo === 'transformacao'">
