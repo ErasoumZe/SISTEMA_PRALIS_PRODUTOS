@@ -22,7 +22,10 @@ param(
 
     # Vazio = deriva da loja, para cada maquina ter o seu arquivo e nunca
     # existir duvida sobre de qual cadastro veio o que esta em disco.
-    [string]$Arquivo = ''
+    [string]$Arquivo = '',
+
+    # Opt-in: nao reaplica produtos sem mudanca; exige confirmacao manual do lote.
+    [switch]$Incremental
 )
 $ErrorActionPreference='SilentlyContinue'
 
@@ -47,7 +50,12 @@ if (-not (Test-Path -LiteralPath $downloadScript)) {
   Stop-Transcript | Out-Null
   exit 1
 }
-& $downloadScript -Loja $Loja -Destino $ARQUIVO -LogDir $logdir
+& $downloadScript -Loja $Loja -Destino $ARQUIVO -LogDir $logdir -Incremental:$Incremental
+if ($Incremental -and $LASTEXITCODE -eq 2) {
+  Write-Host 'Sem alteracoes pendentes. Importador nao sera aberto.'
+  Stop-Transcript | Out-Null
+  exit 0
+}
 if ($LASTEXITCODE -ne 0) {
   Write-Host 'ERRO: download/validacao falhou; o importador nao sera aberto.'
   Stop-Transcript | Out-Null
@@ -167,6 +175,9 @@ Write-Host '  Fluxo automatico concluido. Confirme no log do Criare as linhas'
 Write-Host '  AplicarNoCadastro() ... ATUALIZADO. Log do importador:'
 Write-Host '     C:\Program Files (x86)\Criare\logs\'
 Write-Host '  Manda um print da tela e o log mais recente.'
+if ($Incremental) {
+  Write-Host '  O lote NAO foi confirmado automaticamente. Depois de conferir'
+  Write-Host '  o log e o cadastro no SIA, rode confirmar-lote.ps1.'
+}
 Write-Host '==================================================================='
 Stop-Transcript | Out-Null
-

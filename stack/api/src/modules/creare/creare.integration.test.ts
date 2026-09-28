@@ -33,7 +33,7 @@ const CONFIG_LI = {
       unitPrice: 2, icmsReduction: 2, fullTaxRate: 2, fcpRate: 2,
       pisRate: 4, cofinsRate: 4, maximumQuantity: 3, minimumQuantity: 3,
     },
-    barcodeField: 'automatic',
+    barcodeField: 'extended', // config antiga: a API deve selecionar o campo correto mesmo assim
     lineEnding: 'LF',
     noPromotionDate: '30/12/99',
     iat: 'A',
@@ -81,7 +81,8 @@ beforeAll(async () => {
   const { CreareService } = await import('./creare.service');
   const { ProductRepository } = await import('@/modules/product/product.repository');
   const { CreareDeParaRepository } = await import('./creare.depara.repository');
-  service = new CreareService(new ProductRepository(), new CreareDeParaRepository());
+  const { CreareExportRepository } = await import('./creare-export.repository');
+  service = new CreareService(new ProductRepository(), new CreareDeParaRepository(), new CreareExportRepository());
 });
 
 afterAll(async () => {
@@ -90,9 +91,71 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await db.execute(sqlTag`DELETE FROM creare_export_batch`);
+  await db.execute(sqlTag`DELETE FROM creare_export_state`);
   await db.execute(sqlTag`DELETE FROM sia_produto_depara`);
   await db.execute(sqlTag`DELETE FROM product_fiscal`);
   await db.execute(sqlTag`DELETE FROM products`);
+});
+
+describe('lotes incrementais Criare', () => {
+  it('repete o mesmo lote ate confirmar e nunca confirma apenas pelo download', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const primeiro = await service.pending('LI');
+    const repetido = await service.pending('LI');
+    expect(primeiro?.id).toBe(repetido?.id);
+    expect(primeiro?.itens).toHaveLength(1);
+    expect(primeiro?.conteudo).toHaveLength(364); // 363 + LF
+    await expect(service.confirm('LI', primeiro!.id, '0'.repeat(64)))
+      .rejects.toMatchObject({ code: 'CREARE_BATCH_HASH_MISMATCH' });
+    expect((await service.pending('LI'))?.id).toBe(primeiro?.id);
+    expect(await service.confirm('LI', primeiro!.id, primeiro!.sha256))
+      .toEqual({ count: 1, alreadyConfirmed: false });
+    expect(await service.confirm('LI', primeiro!.id, primeiro!.sha256))
+      .toEqual({ count: 1, alreadyConfirmed: true });
+    expect(await service.pending('LI')).toBeNull();
+    expect((await service.generate('LI')).toString('ascii').split('\n').filter(Boolean)).toHaveLength(1);
+  });
+
+  it('manda somente produto novo ou alterado, inclusive inativacao', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await produto('p2', 'SUCO', '7891000100103');
+    await siaLinha('012345', '7891149100828', '10');
+    await siaLinha('067890', '7891000100103', '03');
+    const baseline = (await service.pending('LI'))!;
+    expect(baseline.itens).toHaveLength(2);
+    await service.confirm('LI', baseline.id, baseline.sha256);
+
+    await db.execute(sqlTag`UPDATE products SET v_venda_pontual = 8.50 WHERE id = 'p1'`);
+    const alterado = (await service.pending('LI'))!;
+    expect(alterado.itens.map((item) => item.productId)).toEqual(['p1']);
+    await service.confirm('LI', alterado.id, alterado.sha256);
+
+    await db.execute(sqlTag`UPDATE products SET status = 'inativo' WHERE id = 'p2'`);
+    const inativo = (await service.pending('LI'))!;
+    expect(inativo.itens.map((item) => item.productId)).toEqual(['p2']);
+    const { Creare } = await import('@pralis/shared');
+    expect(Creare.parseCreareRecord(inativo.conteudo.trimEnd()).active).toBe('N');
+    await service.confirm('LI', inativo.id, inativo.sha256);
+
+    await produto('p3', 'AGUA', '7899999999998', '13153');
+    await siaLinha('013153', '7899999999998', '03');
+    const novo = (await service.pending('LI'))!;
+    expect(novo.itens.map((item) => item.productId)).toEqual(['p3']);
+  });
+
+  it('mudanca durante lote aberto espera o ACK e entra no lote seguinte', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const aberto = (await service.pending('LI'))!;
+    await db.execute(sqlTag`UPDATE products SET v_venda_pontual = 7.75 WHERE id = 'p1'`);
+    expect((await service.pending('LI'))?.id).toBe(aberto.id);
+    await service.confirm('LI', aberto.id, aberto.sha256);
+    const seguinte = (await service.pending('LI'))!;
+    expect(seguinte.id).not.toBe(aberto.id);
+    expect(seguinte.itens.map((item) => item.productId)).toEqual(['p1']);
+  });
 });
 
 describe('exportação Criare: só sai o que casou no SIA', () => {
@@ -112,6 +175,10 @@ describe('exportação Criare: só sai o que casou no SIA', () => {
 
     expect(linhas).toHaveLength(1);
     expect(linhas[0]).toHaveLength(363);
+    const { Creare } = await import('@pralis/shared');
+    const campos = Creare.parseCreareRecord(linhas[0]!);
+    expect(campos.barcode).toBe('7891149100828');
+    expect(campos.extendedBarcode).toBe(' '.repeat(14));
   });
 
   it('usa o coditem, o grupo e a alíquota do SIA — nunca o de-para por grupo', async () => {

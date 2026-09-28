@@ -7,6 +7,7 @@ import { ProductRepository } from '@/modules/product/product.repository';
 import { barcodeCandidates } from '@/modules/apoio/tax-rule.service';
 import { parseCreareConfigs, type CreareStore } from './creare.config';
 import { CreareDeParaRepository, type SiaDePara } from './creare.depara.repository';
+import { CreareExportRepository, type ExportBatch } from './creare-export.repository';
 
 type ProductEntity = ProductSchemas.ProductEntity;
 
@@ -93,6 +94,7 @@ export class CreareService {
   constructor(
     @inject(ProductRepository) private products: ProductRepository,
     @inject(CreareDeParaRepository) private dePara: CreareDeParaRepository,
+    @inject(CreareExportRepository) private exports: CreareExportRepository,
   ) {}
 
   /**
@@ -235,7 +237,10 @@ export class CreareService {
     if (!config) {
       throw new AppError(`Loja ${store} não possui configuração Criare.`, 503, 'CREARE_STORE_NOT_CONFIGURED');
     }
-    return config;
+    // O layout oficial usa o campo de 13 para EAN-13 e o estendido para GTIN-14.
+    // Configuracoes antigas da loja podem ainda dizer "extended"; nao deixar
+    // que isso recoloque um EAN-13 no campo errado apos o deploy.
+    return { ...config, barcodeField: 'automatic' };
   }
 
   async health(): Promise<CreareHealth> {
@@ -325,5 +330,34 @@ export class CreareService {
     // O serializer limita a saída a ASCII; assim os bytes são idênticos
     // em ASCII, UTF-8 e CP1252 e nenhuma acentuação desloca o registro.
     return Buffer.from(file, 'ascii');
+  }
+
+  /** Snapshot repetivel: baixar nao confirma que o SIA importou. */
+  async pending(store: CreareStore, limite?: number): Promise<ExportBatch | null> {
+    if (!env.CREARE_EXPORT_ENABLED) {
+      throw new AppError('Exportacao Criare desabilitada.', 503, 'CREARE_DISABLED');
+    }
+    const existing = await this.exports.open(store);
+    if (existing) return existing;
+    const config = this.configuracao(store);
+    const lote = await this.montarLote(store, config);
+    if (!lote.deParaCarregado) {
+      throw new AppError('De-para do SIA nao importado.', 503, 'CREARE_DEPARA_MISSING');
+    }
+    if (lote.colisoesCoditem.length) {
+      throw new AppError('Coditem do SIA corresponde a mais de um produto.', 422, 'CREARE_CODITEM_COLLISION');
+    }
+    if (!lote.casados.length) {
+      throw new AppError('Nenhum produto casou com o cadastro do SIA.', 422, 'CREARE_EMPTY');
+    }
+    const rows = lote.casados.map(({ produto, sia }) => ({
+      productId: produto.id,
+      record: Creare.generateCreareRecord(produto, config, sia),
+    }));
+    return this.exports.prepare(store, rows, config.lineEnding === 'CRLF' ? '\r\n' : '\n', limite);
+  }
+
+  async confirm(store: CreareStore, id: string, sha256: string) {
+    return this.exports.confirm(store, id, sha256);
   }
 }

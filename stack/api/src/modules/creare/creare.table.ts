@@ -1,4 +1,5 @@
-import { index, numeric, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { index, jsonb, numeric, pgTable, primaryKey, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import { uuidv7 } from 'uuidv7';
 
 /**
@@ -59,3 +60,30 @@ export const siaProdutoDePara = pgTable(
     index('idx_sia_depara_loja').on(t.loja),
   ],
 );
+
+export interface CreareBatchItem {
+  productId: string;
+  hash: string;
+}
+
+/** Snapshot imutavel do TXT baixado. Download nao significa importacao. */
+export const creareExportBatch = pgTable('creare_export_batch', {
+  id: text('id').primaryKey().$defaultFn(() => uuidv7()),
+  loja: text('loja').notNull(),
+  conteudo: text('conteudo').notNull(),
+  sha256: text('sha256').notNull(),
+  itens: jsonb('itens').$type<CreareBatchItem[]>().notNull(),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  confirmadoEm: timestamp('confirmado_em', { withTimezone: true }),
+}, (t) => [
+  uniqueIndex('uq_creare_export_batch_aberto').on(t.loja).where(sql`${t.confirmadoEm} IS NULL`),
+]);
+
+/** Ultima versao CONFIRMADA no SIA, por produto e loja. */
+export const creareExportState = pgTable('creare_export_state', {
+  loja: text('loja').notNull(),
+  productId: text('product_id').notNull(),
+  hash: text('hash').notNull(),
+  batchId: text('batch_id').notNull(),
+  confirmadoEm: timestamp('confirmado_em', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.loja, t.productId] })]);
