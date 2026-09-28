@@ -203,6 +203,38 @@ describe('exportação Criare: só sai o que casou no SIA', () => {
     expect(inativo.active).toBe('N');
   });
 
+  it('produto sem id de grupo herda o id pelo NOME do grupo, aprendido da carga', async () => {
+    /*
+     * O LIMPADOR PERFUMADO de 28/09/2026: cadastrado pelo formulario, que so
+     * tem o nome do grupo. Um produto da carga com o mesmo nome traz o id.
+     */
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    // um produto da carga, em outra loja, com nome E id do grupo
+    await db.execute(sqlTag`
+      INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
+                            habilitar_ajuda, auto, codigo_interno, grupo, grupo_id, custo, v_venda_pontual)
+      VALUES ('base1', 'BASE', 'PR-base1', 'VEJA MULTIUSO', 'UN', 'revenda', 'ativo', 0, 1,
+              false, false, '10500', 'MER MERCEARIA - PRODUTOS DE LIMPEZA', '61', 5.0, 9.0)`);
+    // o novo, na loja, com o nome e SEM o id
+    await db.execute(sqlTag`
+      INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
+                            habilitar_ajuda, auto, codigo_barras, codigo_interno, grupo, custo, v_venda_pontual)
+      VALUES ('p2', 'LI', 'PR-p2', 'LIMPADOR PERFUMADO CASAFLOR', 'UN', 'revenda', 'ativo', 0, 1,
+              false, false, '886748404641', '13152', 'MER MERCEARIA - PRODUTOS DE LIMPEZA', 7.0, 8.9)`);
+
+    const linhas = (await service.generate('LI')).toString('ascii').split('\n').filter((l) => l);
+    const { Creare } = await import('@pralis/shared');
+    const limpador = linhas.map((l) => Creare.parseCreareRecord(l)).find((r) => r.description.startsWith('LIMPADOR'))!;
+
+    expect(limpador).toBeDefined();
+    expect(limpador.groupCode).toBe('0061');
+    expect(limpador.internalCode).toBe('013152');
+    expect(limpador.ecfTaxCode).toBe('03'); // sem bloco fiscal: padrao da loja
+    expect(limpador.pisCofinsCst).toBe('99');
+    expect((await service.health()).lojas[0]!.invalidos).toBe(0);
+  });
+
   it('limite gera só os primeiros — a primeira importação real começa pequena', async () => {
     for (let i = 1; i <= 5; i += 1) {
       await produto(`p${i}`, `PRODUTO ${i}`, `789100010010${i}`);

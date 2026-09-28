@@ -135,7 +135,9 @@ function fakesUpdate(opts: { syncOutcome?: string; loja?: string; syncThrows?: E
   });
   const repo = {
     async findById() { return produto({ loja: (opts.loja ?? 'BASE') as Product['loja'] }); },
+    async grupoIdPorNome() { return null; },
     update,
+    async grupoIdPorNome() { return null; },
     async listByBaseProductId() { return []; }, // sem cópias de loja neste cenário
   } as unknown as ProductRepository;
 
@@ -151,6 +153,7 @@ function fakesUpdate(opts: { syncOutcome?: string; loja?: string; syncThrows?: E
   return {
     service: new ProductService(repo, sheets, espelhoLojaFalso, {} as TaxRuleService, creareDriveParado()),
     chamadas,
+    async grupoIdPorNome() { return null; },
     update,
   };
 }
@@ -208,6 +211,7 @@ describe('ProductService.update — o resultado do espelho não pode sumir', () 
     const chamadas: string[] = [];
     const repo = {
       async findById() { return produto({ loja: 'LI', baseProductId: 'base-1' }); },
+      async grupoIdPorNome() { return null; },
       async update() { chamadas.push('banco:update'); return produto({ loja: 'LI', baseProductId: 'base-1' }); },
     } as unknown as ProductRepository;
     const sheets = {
@@ -360,6 +364,7 @@ function fakesPropagacao(antes: Partial<Product>, depois: Partial<Product>, copi
       patches.push({ id, patch });
       return id === base.id ? atualizado : produto({ id });
     },
+    async grupoIdPorNome() { return null; },
     async listByBaseProductId() {
       return copias.map((c, i) => produto({ id: `copia-${i}`, loja: 'TNP', baseProductId: base.id, ...c }));
     },
@@ -466,7 +471,9 @@ const fiscalDe = (ncm: string) => ({
 function fakesFiscal(fiscalAtual: Product['fiscal']) {
   const repo = {
     async findById() { return produto({ loja: 'TNP', grupo: 'MER PADARIA', fiscal: fiscalAtual }); },
+    async grupoIdPorNome() { return null; },
     async update() { return produto({ loja: 'TNP', grupo: 'MER PADARIA', fiscal: fiscalAtual }); },
+    async grupoIdPorNome() { return null; },
     async listByBaseProductId() { return []; },
   } as unknown as ProductRepository;
 
@@ -541,7 +548,9 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
     let classificacoes = 0;
     const repo = {
       async findById() { return produto({ loja: 'BASE', grupo: 'MER PADARIA', fiscal: atual }); },
+      async grupoIdPorNome() { return null; },
       async update() { return produto({ loja: 'BASE', grupo: 'MER PADARIA', fiscal: atual, vVendaPontual: 12 }); },
+      async grupoIdPorNome() { return null; },
       async listByBaseProductId() { return []; },
     } as unknown as ProductRepository;
     const sheets = {
@@ -564,7 +573,9 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
     let classificacoes = 0;
     const repo = {
       async findById() { return produto({ loja: 'BASE', grupo: null, fiscal: null }); },
+      async grupoIdPorNome() { return null; },
       async update() { return produto({ loja: 'BASE', grupo: null, fiscal: null, vVendaPontual: 9 }); },
+      async grupoIdPorNome() { return null; },
       async listByBaseProductId() { return []; },
     } as unknown as ProductRepository;
     const sheets = {
@@ -591,6 +602,7 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
         payloadGravado = payload;
         return produto({ loja: 'TNP', grupo: 'NOVO GRUPO', fiscal: payload.fiscal as Product['fiscal'] });
       },
+      async grupoIdPorNome() { return null; },
       async listByBaseProductId() { return []; },
     } as unknown as ProductRepository;
     const sheets = {
@@ -633,7 +645,9 @@ describe('ProductService.update — bloco fiscal é do admin', () => {
 function fakesGuardaFiscal(p: Product) {
   const repo = {
     async findById() { return p; },
+    async grupoIdPorNome() { return null; },
     async update() { return { ...p, nome: 'NOME NOVO' }; },
+    async grupoIdPorNome() { return null; },
     async listByBaseProductId() { return []; },
   } as unknown as ProductRepository;
   const sheets = {
@@ -734,6 +748,7 @@ function fakesCargaFiscal(p: Product, classifyEspiao: string[] = []) {
   const repo = {
     async findById() { return p; },
     async update(_id: string, payload: Record<string, unknown>) { return { ...p, ...payload }; },
+    async grupoIdPorNome() { return null; },
     async listByBaseProductId() { return []; },
   } as unknown as ProductRepository;
   const sheets = {
@@ -809,6 +824,7 @@ describe('ProductService.update — completa a carga fiscal que faltava', () => 
     const repo = {
       async findById() { return p; },
       async update(_id: string, payload: Record<string, unknown>) { return { ...p, ...payload }; },
+      async grupoIdPorNome() { return null; },
       async listByBaseProductId() { return []; },
     } as unknown as ProductRepository;
     const sheets = {
@@ -859,6 +875,7 @@ describe('ProductService — estado fiscal é do servidor', () => {
     const repo = {
       async findById() { return p; },
       async update(_id: string, payload: Record<string, unknown>) { gravado = payload; return p; },
+      async grupoIdPorNome() { return null; },
       async listByBaseProductId() { return []; },
     } as unknown as ProductRepository;
     const sheets = {
@@ -908,7 +925,9 @@ describe('ProductService — planilha lenta não pendura a tela', () => {
 
   const repoSimples = {
     async findById() { return produto(); },
+    async grupoIdPorNome() { return null; },
     async update() { return produto({ nome: 'NOME NOVO' }); },
+    async grupoIdPorNome() { return null; },
     async listByBaseProductId() { return []; },
   } as unknown as ProductRepository;
 

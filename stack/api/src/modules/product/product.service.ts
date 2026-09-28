@@ -44,7 +44,7 @@ export type UpdatedProduct = ProductSchemas.ProductEntity & {
  */
 const CAMPOS_HERDADOS = [
   'nome', 'quantidade', 'medidaBase', 'codigoBarras', 'marca', 'embalagem', 'cDe',
-  'qtCad', 'medidaCompra', 'compraAproximada', 'codigoInterno', 'fotoUrl', 'grupo', 'tipo',
+  'qtCad', 'medidaCompra', 'compraAproximada', 'codigoInterno', 'fotoUrl', 'grupo', 'grupoId', 'tipo',
   'habilitarAjuda',
 ] as const satisfies readonly (keyof ProductSchemas.ProductEntity)[];
 
@@ -248,6 +248,17 @@ export class ProductService {
       throw new AppError('Selecione o grupo de mercadorias para aplicar a regra fiscal.', 422, 'GROUP_REQUIRED');
     }
     /*
+     * O ID do grupo no Creare vai junto desde a criação.
+     *
+     * O formulário só tem o NOME do grupo; o id do PDV não é coisa que uma
+     * pessoa digita. Sem ele o TXT do Creare recusava o produto com "Codigo do
+     * grupo: nao existe de-para" — foi o LIMPADOR PERFUMADO em 28/09/2026. O
+     * id é aprendido dos produtos da carga, que trazem nome e id juntos.
+     */
+    if (!payload.grupoId?.trim()) {
+      payload.grupoId = await this.repo.grupoIdPorNome(payload.grupo);
+    }
+    /*
      * O NOME vai junto desde a criação.
      *
      * O cadastro de ECF não tem código de barras — a coluna REFERENCIA do
@@ -345,6 +356,17 @@ export class ProductService {
     const grupoOuBarcodeMudou =
       (payload.grupo !== undefined && !mesmoValor(payload.grupo, p.grupo)) ||
       (payload.codigoBarras !== undefined && !mesmoValor(payload.codigoBarras, p.codigoBarras));
+    /*
+     * Grupo trocado ou id ainda vazio: o id do Creare acompanha o NOME, pela
+     * mesma regra da criação. Só quando o cliente não mandou o id — quem
+     * manda, sabe o que está fazendo.
+     */
+    const grupoMudou = payload.grupo !== undefined && !mesmoValor(payload.grupo, p.grupo);
+    if (payload.grupoId === undefined && (grupoMudou || !p.grupoId?.trim())) {
+      const nome = payload.grupo ?? p.grupo;
+      const id = await this.repo.grupoIdPorNome(nome);
+      if (id) payload.grupoId = id;
+    }
     if (
       user.role !== 'admin' &&
       payload.fiscal !== undefined &&

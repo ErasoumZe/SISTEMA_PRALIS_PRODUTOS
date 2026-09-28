@@ -284,6 +284,30 @@ export class ProductRepository {
     return calcularProximoCodigoInterno(max);
   }
 
+  /**
+   * O id de grupo do Creare para um NOME de grupo, aprendido dos produtos que
+   * já têm os dois.
+   *
+   * A carga de 25/09/2026 gravou nome (coluna M) e id (coluna HX) em 7.369
+   * produtos, e o par é unívoco: medido, cada id tem um único nome. O
+   * formulário só tem o nome — o id do PDV não é coisa que uma pessoa digita.
+   * Então quem cadastra pelo formulário herda o id de quem veio da carga.
+   *
+   * Sem produto com aquele nome e id, devolve `null` e o chamador decide: o
+   * gerador do Creare vai recusar com "Codigo do grupo", que é o certo — um id
+   * inventado gravaria o produto no grupo errado do PDV.
+   */
+  async grupoIdPorNome(grupo: string | null | undefined): Promise<string | null> {
+    const nome = String(grupo ?? '').trim();
+    if (!nome) return null;
+    const [row] = await db
+      .select({ grupoId: products.grupoId })
+      .from(products)
+      .where(and(eq(products.grupo, nome), isNotNull(products.grupoId)))
+      .limit(1);
+    return row?.grupoId ?? null;
+  }
+
   /** Produto duplicado dentro da loja: mesmo nome (case-insensitive) OU mesmo código de barras. */
   async findDuplicate(
     loja: Catalogo,
