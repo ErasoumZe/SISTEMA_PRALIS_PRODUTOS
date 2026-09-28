@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { index, jsonb, numeric, pgTable, primaryKey, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { index, integer, jsonb, numeric, pgTable, primaryKey, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import { uuidv7 } from 'uuidv7';
 
 /**
@@ -73,10 +73,13 @@ export const creareExportBatch = pgTable('creare_export_batch', {
   conteudo: text('conteudo').notNull(),
   sha256: text('sha256').notNull(),
   itens: jsonb('itens').$type<CreareBatchItem[]>().notNull(),
+  formatoVersao: integer('formato_versao').notNull().default(1),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   confirmadoEm: timestamp('confirmado_em', { withTimezone: true }),
+  canceladoEm: timestamp('cancelado_em', { withTimezone: true }),
 }, (t) => [
-  uniqueIndex('uq_creare_export_batch_aberto').on(t.loja).where(sql`${t.confirmadoEm} IS NULL`),
+  uniqueIndex('uq_creare_export_batch_aberto').on(t.loja)
+    .where(sql`${t.confirmadoEm} IS NULL AND ${t.canceladoEm} IS NULL`),
 ]);
 
 /** Ultima versao CONFIRMADA no SIA, por produto e loja. */

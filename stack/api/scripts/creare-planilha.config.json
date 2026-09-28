@@ -51,7 +51,7 @@
         "maximumQuantity": 3,
         "minimumQuantity": 3
       },
-      "barcodeField": "automatic",
+      "barcodeField": "extended",
       "lineEnding": "LF",
       "noPromotionDate": "30/12/99",
       "iat": "A",
@@ -85,7 +85,7 @@
         "maximumQuantity": 3,
         "minimumQuantity": 3
       },
-      "barcodeField": "automatic",
+      "barcodeField": "extended",
       "lineEnding": "LF",
       "noPromotionDate": "30/12/99",
       "iat": "A",
