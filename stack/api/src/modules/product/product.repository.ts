@@ -58,6 +58,21 @@ const CHAVE_TRAVA_CODIGO_INTERNO = 811_042_001;
 const num = (v: string | null): number | null => (v == null ? null : Number(v));
 const toDb = (n: number | null | undefined): string | null => (n == null ? null : String(n));
 
+/**
+ * A chave de comparação de um NOME de grupo: sem caracteres de formato
+ * invisíveis (U+2060 e afins), sem acento, caixa alta, espaços únicos.
+ *
+ * Existe porque a planilha guarda o mesmo grupo em grafias que a tela não
+ * distingue — ver `grupoIdPorNome`.
+ */
+export const chaveDeGrupo = (nome: string | null | undefined): string => String(nome ?? '')
+  .replace(/\p{Cf}/gu, '')
+  .normalize('NFD')
+  .replace(/\p{M}/gu, '')
+  .toUpperCase()
+  .replace(/\s+/g, ' ')
+  .trim();
+
 function mapPromocao(r: typeof promocoes.$inferSelect): Promocao {
   return {
     id: r.id,
@@ -298,14 +313,22 @@ export class ProductRepository {
    * inventado gravaria o produto no grupo errado do PDV.
    */
   async grupoIdPorNome(grupo: string | null | undefined): Promise<string | null> {
-    const nome = String(grupo ?? '').trim();
-    if (!nome) return null;
-    const [row] = await db
-      .select({ grupoId: products.grupoId })
+    const alvo = chaveDeGrupo(grupo);
+    if (!alvo) return null;
+    /*
+     * Compara em memória, normalizado, e não por igualdade no SQL.
+     *
+     * Medido na planilha em 28/09/2026: o mesmo grupo existe em duas grafias,
+     * `MER ⁠MERCEARIA - ⁠PRODUTOS DE LIMPEZA` com dois U+2060 (word joiner,
+     * invisível) vindos da carga, e `MER MERCEARIA - PRODUTOS DE LIMPEZA`
+     * limpo, do formulário. Iguais na tela, diferentes para o `=`. São só 69
+     * pares nome/id; carregar todos custa nada e acerta o que o SQL erra.
+     */
+    const pares = await db
+      .selectDistinct({ grupo: products.grupo, grupoId: products.grupoId })
       .from(products)
-      .where(and(eq(products.grupo, nome), isNotNull(products.grupoId)))
-      .limit(1);
-    return row?.grupoId ?? null;
+      .where(and(isNotNull(products.grupo), isNotNull(products.grupoId)));
+    return pares.find((p) => chaveDeGrupo(p.grupo) === alvo)?.grupoId ?? null;
   }
 
   /** Produto duplicado dentro da loja: mesmo nome (case-insensitive) OU mesmo código de barras. */
