@@ -76,7 +76,17 @@ export class CreareController {
       sha256: batch.sha256,
       registros: batch.itens.length,
       criadoEm: batch.criadoEm,
-    }, 'Lote aguardando confirmacao'));
+    }, 'Lote aguardando salvamento verificado no PC'));
+  }
+
+  async acknowledgeDelivery(request: FastifyRequest<{
+    Params: { id: string };
+    Querystring: { loja: CreareStore };
+    Body: { sha256: string };
+  }>, reply: FastifyReply) {
+    const store = exportStore(request as FastifyRequest<{ Querystring: ExportQuery }>);
+    const result = await this.service.acknowledgeDelivery(store, request.params.id, request.body.sha256);
+    return reply.status(200).send(buildResponse(result, 'TXT salvo e verificado no PC; importacao no SIA nao confirmada'));
   }
 
   async confirm(request: FastifyRequest<{

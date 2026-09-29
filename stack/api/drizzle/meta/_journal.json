@@ -211,6 +211,13 @@
       "when": 1790630178424,
       "tag": "0029_stiff_maria_hill",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790718504566,
+      "tag": "0030_powerful_thena",
+      "breakpoints": true
     }
   ]
 }

@@ -40,6 +40,25 @@ export async function creareRoutes(app: FastifyInstance) {
     Querystring: z.infer<typeof confirmQuerySchema>;
     Body: z.infer<typeof confirmBodySchema>;
   }>(
+    '/creare/lotes/:id/entrega',
+    {
+      preHandler: [creareExportAuth],
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        querystring: confirmQuerySchema,
+        body: confirmBodySchema,
+        summary: 'Registrar TXT salvo e verificado no PC, sem declarar importacao no SIA',
+        tags: ['CREARE'],
+      },
+    },
+    controller.acknowledgeDelivery.bind(controller),
+  );
+
+  typed.post<{
+    Params: { id: string };
+    Querystring: z.infer<typeof confirmQuerySchema>;
+    Body: z.infer<typeof confirmBodySchema>;
+  }>(
     '/creare/lotes/:id/confirmar',
     {
       preHandler: [creareExportAuth],
@@ -60,7 +79,7 @@ export async function creareRoutes(app: FastifyInstance) {
       preHandler: [creareExportAuth],
       schema: {
         querystring: confirmQuerySchema,
-        summary: 'Consultar identificador e hash do lote pendente, sem gerar novo lote',
+        summary: 'Consultar lote ainda nao salvo pelo robo, sem gerar outro',
         tags: ['CREARE'],
       },
     },

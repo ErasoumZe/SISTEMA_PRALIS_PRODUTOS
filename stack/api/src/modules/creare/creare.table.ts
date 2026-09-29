@@ -75,11 +75,13 @@ export const creareExportBatch = pgTable('creare_export_batch', {
   itens: jsonb('itens').$type<CreareBatchItem[]>().notNull(),
   formatoVersao: integer('formato_versao').notNull().default(1),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  /** O robo verificou e salvou o TXT localmente. Nao significa importacao no SIA. */
+  entregueEm: timestamp('entregue_em', { withTimezone: true }),
   confirmadoEm: timestamp('confirmado_em', { withTimezone: true }),
   canceladoEm: timestamp('cancelado_em', { withTimezone: true }),
 }, (t) => [
   uniqueIndex('uq_creare_export_batch_aberto').on(t.loja)
-    .where(sql`${t.confirmadoEm} IS NULL AND ${t.canceladoEm} IS NULL`),
+    .where(sql`${t.entregueEm} IS NULL AND ${t.confirmadoEm} IS NULL AND ${t.canceladoEm} IS NULL`),
 ]);
 
 /** Ultima versao CONFIRMADA no SIA, por produto e loja. */
@@ -89,4 +91,13 @@ export const creareExportState = pgTable('creare_export_state', {
   hash: text('hash').notNull(),
   batchId: text('batch_id').notNull(),
   confirmadoEm: timestamp('confirmado_em', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.loja, t.productId] })]);
+
+/** Ultima versao salva pelo robo no PC, independente da confirmacao no SIA. */
+export const creareExportDeliveryState = pgTable('creare_export_delivery_state', {
+  loja: text('loja').notNull(),
+  productId: text('product_id').notNull(),
+  hash: text('hash').notNull(),
+  batchId: text('batch_id').notNull(),
+  entregueEm: timestamp('entregue_em', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.loja, t.productId] })]);

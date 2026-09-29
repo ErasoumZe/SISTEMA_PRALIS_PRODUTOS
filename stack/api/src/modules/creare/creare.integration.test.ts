@@ -96,13 +96,14 @@ afterAll(async () => {
 beforeEach(async () => {
   await db.execute(sqlTag`DELETE FROM creare_export_batch`);
   await db.execute(sqlTag`DELETE FROM creare_export_state`);
+  await db.execute(sqlTag`DELETE FROM creare_export_delivery_state`);
   await db.execute(sqlTag`DELETE FROM sia_produto_depara`);
   await db.execute(sqlTag`DELETE FROM product_fiscal`);
   await db.execute(sqlTag`DELETE FROM products`);
 });
 
 describe('lotes incrementais Criare', () => {
-  it('repete o mesmo lote ate confirmar e nunca confirma apenas pelo download', async () => {
+  it('repete o lote ate entrega verificada; entrega nao confirma importacao no SIA', async () => {
     await produto('p1', 'CERVEJA', '7891149100828');
     await siaLinha('012345', '7891149100828', '10');
     const primeiro = await service.pending('LI');
@@ -113,6 +114,15 @@ describe('lotes incrementais Criare', () => {
     await expect(service.confirm('LI', primeiro!.id, '0'.repeat(64)))
       .rejects.toMatchObject({ code: 'CREARE_BATCH_HASH_MISMATCH' });
     expect((await service.pending('LI'))?.id).toBe(primeiro?.id);
+    await expect(service.acknowledgeDelivery('LI', primeiro!.id, '0'.repeat(64)))
+      .rejects.toMatchObject({ code: 'CREARE_BATCH_HASH_MISMATCH' });
+    expect(await service.acknowledgeDelivery('LI', primeiro!.id, primeiro!.sha256))
+      .toEqual({ count: 1, alreadyDelivered: false });
+    expect(await service.acknowledgeDelivery('LI', primeiro!.id, primeiro!.sha256))
+      .toEqual({ count: 1, alreadyDelivered: true });
+    expect(await service.pending('LI')).toBeNull();
+    const confirmado = await db.execute(sqlTag`SELECT count(*) AS total FROM creare_export_state`);
+    expect(Number(confirmado.rows[0]?.total)).toBe(0);
     expect(await service.confirm('LI', primeiro!.id, primeiro!.sha256))
       .toEqual({ count: 1, alreadyConfirmed: false });
     expect(await service.confirm('LI', primeiro!.id, primeiro!.sha256))
@@ -154,10 +164,35 @@ describe('lotes incrementais Criare', () => {
     const aberto = (await service.pending('LI'))!;
     await db.execute(sqlTag`UPDATE products SET v_venda_pontual = 7.75 WHERE id = 'p1'`);
     expect((await service.pending('LI'))?.id).toBe(aberto.id);
-    await service.confirm('LI', aberto.id, aberto.sha256);
+    await service.acknowledgeDelivery('LI', aberto.id, aberto.sha256);
     const seguinte = (await service.pending('LI'))!;
     expect(seguinte.id).not.toBe(aberto.id);
     expect(seguinte.itens.map((item) => item.productId)).toEqual(['p1']);
+  });
+
+  it('novos produtos seguem em novo TXT sem confirmar importacao do anterior', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const antigo = (await service.pending('LI'))!;
+    await service.acknowledgeDelivery('LI', antigo.id, antigo.sha256);
+    await produto('p2', 'SUCO', '7891000100103');
+    await siaLinha('067890', '7891000100103', '03');
+    const novo = (await service.pending('LI'))!;
+    expect(novo.itens.map((item) => item.productId)).toEqual(['p2']);
+    const confirmado = await db.execute(sqlTag`SELECT count(*) AS total FROM creare_export_state`);
+    expect(Number(confirmado.rows[0]?.total)).toBe(0);
+  });
+
+  it('confirmacao tardia do SIA nao faz o cursor de entrega retroceder', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const antigo = (await service.pending('LI'))!;
+    await service.acknowledgeDelivery('LI', antigo.id, antigo.sha256);
+    await db.execute(sqlTag`UPDATE products SET v_venda_pontual = 8.50 WHERE id = 'p1'`);
+    const novo = (await service.pending('LI'))!;
+    await service.acknowledgeDelivery('LI', novo.id, novo.sha256);
+    await service.confirm('LI', antigo.id, antigo.sha256);
+    expect(await service.pending('LI')).toBeNull();
   });
 
   it('cancela lote pendente no formato defeituoso e gera outro sem perder auditoria', async () => {
