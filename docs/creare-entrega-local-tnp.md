@@ -20,8 +20,12 @@ catalogo. Nao use esse link para conferir o incremental.
 ## Implantacao segura
 
 1. Fazer backup das tabelas `creare_export_batch` e `creare_export_state`.
-2. Aplicar a migracao `0030_powerful_thena.sql` antes de publicar a API. Ela
-   cria o cursor de entrega e preserva o estado ja confirmado. O lote antigo
+2. O startup da API executa `drizzle-kit push` e depois
+   `ensure-creare-delivery-index.ts`. O segundo passo e necessario: em
+   producao o push cria a tabela e coluna, mas pode conservar o indice parcial
+   antigo. O reparo idempotente preenche o cursor a partir dos confirmados e
+   troca o indice antes de iniciar o servidor. Confira no log
+   `Indice de entrega Criare corrigido.` ou `... ja correto.`. O lote antigo
    ainda aberto continua aberto; nao e marcado como importado.
 3. Publicar a API e so depois copiar a nova versao de
    `automacao/robo-sia/SINCRONIZAR-TXT-TNP.ps1` para a pasta
