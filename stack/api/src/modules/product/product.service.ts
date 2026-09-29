@@ -3,6 +3,7 @@ import { customAlphabet } from 'nanoid';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { ProductRepository } from './product.repository';
 import { grupoIdPreenchido } from './grupo-id-planilha';
+import { normalizarTextosProduto } from './normalizar-textos-produto';
 import { ProductSheetService, type SheetSyncOutcome } from '@/modules/google-sheets/product-sheet.service';
 import { esperarEspelho } from '@/modules/google-sheets/espelho-na-tela';
 import {
@@ -238,7 +239,7 @@ export class ProductService {
 
   async create(user: CurrentUser, entrada: ProductRequests.CreateProductRequest): Promise<CreatedProduct> {
     // `estado`/`motivo` do fiscal são do servidor; o que vier do cliente sai aqui
-    const payload = semEstadoFiscal(entrada);
+    const payload = normalizarTextosProduto(semEstadoFiscal(entrada));
     // Governança: produto NOVO só o admin cria, e sempre na base geral.
     // As lojas recebem produtos por importação (importFromBase), nunca por cadastro direto.
     if (user.role !== 'admin') {
@@ -342,7 +343,7 @@ export class ProductService {
 
   async update(user: CurrentUser, id: string, entrada: ProductRequests.UpdateProductRequest) {
     // `estado`/`motivo` do fiscal são do servidor; o que vier do cliente sai aqui
-    const payload = semEstadoFiscal(entrada);
+    const payload = normalizarTextosProduto(semEstadoFiscal(entrada));
     // editar: admin (qualquer produto) ou colaborador (produtos da própria loja)
     const p = await this.repo.findById(id);
     if (!p) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');

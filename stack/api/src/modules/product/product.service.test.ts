@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import type { ProductSchemas } from '@pralis/shared';
+import type { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { ProductService } from './product.service';
 import { PRAZO_ESPELHO_NA_TELA } from '@/modules/google-sheets/espelho-na-tela';
 import type { ProductRepository } from './product.repository';
@@ -30,6 +30,44 @@ const admin: CurrentUser = {
 
 const produto = (over: Partial<Product> = {}): Product =>
   ({ id: ID, loja: 'BASE', nome: 'PAO FRANCES', ...over }) as Product;
+
+describe('ProductService.create — textos em maiúsculas', () => {
+  it('normaliza antes da classificação fiscal e da gravação', async () => {
+    let gravado: Record<string, unknown> | null = null;
+    let classificado: Record<string, unknown> | null = null;
+    const repo = {
+      async grupoIdPorNome() { return '60'; },
+      async findDuplicate() { return null; },
+      async findByCodigo() { return null; },
+      async create(payload: Record<string, unknown>) {
+        gravado = payload;
+        return produto({ nome: String(payload.nome) });
+      },
+    } as unknown as ProductRepository;
+    const sheets = {
+      async registerPending() {},
+      async syncProduct() { return { outcome: 'failed' as const, rowNumber: null }; },
+    } as unknown as ProductSheetService;
+    const taxRules = {
+      async classificar(entrada: Record<string, unknown>) {
+        classificado = entrada;
+        return { estado: 'pendente', motivo: 'Fonte indisponível', classificacao: null };
+      },
+    } as unknown as TaxRuleService;
+    const service = new ProductService(repo, sheets, espelhoLojaFalso, taxRules, creareDriveParado());
+
+    await service.create(admin, {
+      nome: 'pão de queijo', marca: 'são joão', grupo: 'MER PADARIA',
+      codigoBarras: '001234', localVenda1: 'vitrine',
+    } as ProductRequests.CreateProductRequest);
+
+    expect(classificado).toMatchObject({ nome: 'PÃO DE QUEIJO', codigoBarras: '001234' });
+    expect(gravado).toMatchObject({
+      nome: 'PÃO DE QUEIJO', marca: 'SÃO JOÃO', localVenda1: 'VITRINE',
+      codigoBarras: '001234', grupo: 'MER PADARIA',
+    });
+  });
+});
 
 /**
  * Repositório falso que registra a ORDEM das operações — é o que prova que a
@@ -176,6 +214,16 @@ describe('ProductService.update — o resultado do espelho não pode sumir', () 
     expect(update).toHaveBeenCalledWith(ID, { nome: 'NOME NOVO' }, expect.objectContaining({
       nomeAnterior: 'PAO FRANCES', alteradoPorUserId: admin.id, alteradoPorNome: admin.name,
     }));
+  });
+
+  it('grava textos descritivos em maiúsculas mesmo quando a edição chega em minúsculas', async () => {
+    const { service, update } = fakesUpdate();
+
+    await service.update(admin, ID, { nome: 'pão francês', marca: 'são joão', localVenda1: 'vitrine' });
+
+    expect(update).toHaveBeenCalledWith(ID, {
+      nome: 'PÃO FRANCÊS', marca: 'SÃO JOÃO', localVenda1: 'VITRINE',
+    }, expect.any(Object));
   });
 
   it('falha no Google NÃO derruba a edição, mas aparece como failed', async () => {
