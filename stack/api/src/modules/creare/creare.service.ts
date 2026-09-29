@@ -4,6 +4,7 @@ import type { ProductSchemas } from '@pralis/shared';
 import { env } from '@/config/env';
 import { AppError } from '@/config/api.replies';
 import { ProductRepository } from '@/modules/product/product.repository';
+import { grupoIdPreenchido } from '@/modules/product/grupo-id-planilha';
 import { barcodeCandidates } from '@/modules/apoio/tax-rule.service';
 import { parseCreareConfigs, type CreareStore } from './creare.config';
 import { CreareDeParaRepository, type SiaDePara } from './creare.depara.repository';
@@ -156,14 +157,12 @@ export class CreareService {
     const porCoditem = new Map<string, string[]>();
 
     /*
-     * Produto sem id de grupo herda o id do NOME do grupo, aprendido dos
-     * produtos da carga. Cobre quem foi cadastrado pelo formulário antes de o
-     * id passar a ser preenchido na criação (28/09/2026) — o LIMPADOR PERFUMADO
-     * caía em "Codigo do grupo: nao existe de-para".
+     * Produto sem ID de grupo (inclusive zero do layout) resolve o nome pela
+     * aba oficial AC/AD, com fallback local apenas se a fonte estiver fora.
      */
     const idsPorNome = new Map<string, string | null>();
     for (const produto of produtos) {
-      if (!produto.grupoId?.trim() && produto.grupo?.trim()) {
+      if (!grupoIdPreenchido(produto.grupoId) && produto.grupo?.trim()) {
         if (!idsPorNome.has(produto.grupo)) idsPorNome.set(produto.grupo, await this.products.grupoIdPorNome(produto.grupo));
         produto.grupoId = idsPorNome.get(produto.grupo) ?? produto.grupoId ?? null;
       }

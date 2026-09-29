@@ -69,6 +69,8 @@ services:
       GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
       # Aba com os grupos oficiais e a margem padrao de cada um (colunas M e N).
       GOOGLE_SHEETS_GRUPOS_TAB: ${GOOGLE_SHEETS_GRUPOS_TAB}
+      # Fonte do ID numerico de grupo no SIA: AC/AD da aba de validacao.
+      GOOGLE_SHEETS_GRUPO_IDS_TAB: ${GOOGLE_SHEETS_GRUPO_IDS_TAB}
       # Espelho nas abas de LOJA (TNP e LI; HORA fica fora). Mantenha vazio ate
       # conferir a gravacao de 1 produto por GET /admin/sheets/loja/previsualizar.
       # Vazio ja significa desligado.
