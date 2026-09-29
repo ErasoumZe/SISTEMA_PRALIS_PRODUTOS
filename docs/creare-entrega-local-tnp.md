@@ -31,6 +31,12 @@ catalogo. Nao use esse link para conferir o incremental.
    sem gravar outro TXT. Ainda nessa execucao, o robo gera apenas os registros
    novos ou alterados. Conferir quantidade, codigos e dados antes de importar.
 
+Em caso de rollback da API, desabilite antes a tarefa agendada. A versao antiga
+da API considera todos os lotes ainda nao confirmados no SIA como abertos; ela
+nao entende a nova coluna de entrega e pode travar ao tentar criar lotes.
+Preserve os TXTs e as tabelas; prefira corrigir a API nova sem reverter o
+esquema de producao.
+
 Se a chamada de entrega falhar, o TXT salvo permanece no PC. Na proxima
 execucao, o robo reconhece o mesmo ID/hash e tenta a entrega novamente, sem
 duplicar o arquivo. A API nao consegue comprovar que o SIA realmente aplicou
