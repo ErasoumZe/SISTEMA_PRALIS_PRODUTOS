@@ -5,6 +5,7 @@ import { barcodeCandidates } from '@/modules/apoio/tax-rule.service';
 import { ProductSchemas, ProductRequests } from '@pralis/shared';
 import { products, productTransformacao, productFiscal, promocoes, productNameHistory } from './product.table';
 import { calcularProximoCodigoInterno, PRIMEIRO_CODIGO_FORA_DA_FAIXA } from './codigo-interno';
+import { chaveDeGrupo, GrupoIdPlanilha } from './grupo-id-planilha';
 
 type ProductEntity = ProductSchemas.ProductEntity;
 type Promocao = ProductSchemas.Promocao;
@@ -65,13 +66,7 @@ const toDb = (n: number | null | undefined): string | null => (n == null ? null 
  * Existe porque a planilha guarda o mesmo grupo em grafias que a tela não
  * distingue — ver `grupoIdPorNome`.
  */
-export const chaveDeGrupo = (nome: string | null | undefined): string => String(nome ?? '')
-  .replace(/\p{Cf}/gu, '')
-  .normalize('NFD')
-  .replace(/\p{M}/gu, '')
-  .toUpperCase()
-  .replace(/\s+/g, ' ')
-  .trim();
+export { chaveDeGrupo } from './grupo-id-planilha';
 
 function mapPromocao(r: typeof promocoes.$inferSelect): Promocao {
   return {
@@ -160,10 +155,12 @@ type ProductInput = ProductRequests.CreateProductRequest | ProductRequests.Updat
 
 @injectable()
 export class ProductRepository {
+  private readonly grupoIdsOficiais = new GrupoIdPlanilha();
   /**
    * `onCreated` roda DENTRO da mesma transação do produto — é assim que o
    * registro `pending` de espelhamento nasce junto com o produto (tudo ou nada).
-   * O repositório continua sem saber o que é Google: recebe só um callback.
+   * A escrita no espelho continua isolada no callback. A leitura do de-para
+   * oficial de grupos é feita separadamente por `GrupoIdPlanilha`.
    */
   async create(
     payload: ProductRequests.CreateProductRequest,
@@ -300,13 +297,14 @@ export class ProductRepository {
   }
 
   /**
-   * O id de grupo do Creare para um NOME de grupo, aprendido dos produtos que
-   * já têm os dois.
+   * O ID do grupo vem primeiro de AC/AD da aba oficial de validação.
+   * Se o Google estiver indisponível, os produtos já carregados servem como
+   * fallback. Ausência ou ambiguidade na aba acessível não têm fallback.
    *
    * A carga de 25/09/2026 gravou nome (coluna M) e id (coluna HX) em 7.369
    * produtos, e o par é unívoco: medido, cada id tem um único nome. O
    * formulário só tem o nome — o id do PDV não é coisa que uma pessoa digita.
-   * Então quem cadastra pelo formulário herda o id de quem veio da carga.
+   * Quem cadastra pelo formulário recebe o ID do de-para oficial.
    *
    * Sem produto com aquele nome e id, devolve `null` e o chamador decide: o
    * gerador do Creare vai recusar com "Codigo do grupo", que é o certo — um id
@@ -315,6 +313,10 @@ export class ProductRepository {
   async grupoIdPorNome(grupo: string | null | undefined): Promise<string | null> {
     const alvo = chaveDeGrupo(grupo);
     if (!alvo) return null;
+    const oficial = await this.grupoIdsOficiais.buscar(grupo);
+    if (oficial.estado === 'encontrado') return oficial.id;
+    // Uma resposta válida da aba prevalece sobre pares possivelmente antigos do catálogo.
+    if (oficial.estado !== 'indisponivel') return null;
     /*
      * Compara em memória, normalizado, e não por igualdade no SQL.
      *

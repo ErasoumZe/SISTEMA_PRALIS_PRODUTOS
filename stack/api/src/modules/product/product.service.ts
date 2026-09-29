@@ -2,6 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import { customAlphabet } from 'nanoid';
 import { ProductRequests, ProductSchemas } from '@pralis/shared';
 import { ProductRepository } from './product.repository';
+import { grupoIdPreenchido } from './grupo-id-planilha';
 import { ProductSheetService, type SheetSyncOutcome } from '@/modules/google-sheets/product-sheet.service';
 import { esperarEspelho } from '@/modules/google-sheets/espelho-na-tela';
 import {
@@ -253,9 +254,10 @@ export class ProductService {
      * O formulário só tem o NOME do grupo; o id do PDV não é coisa que uma
      * pessoa digita. Sem ele o TXT do Creare recusava o produto com "Codigo do
      * grupo: nao existe de-para" — foi o LIMPADOR PERFUMADO em 28/09/2026. O
-     * id é aprendido dos produtos da carga, que trazem nome e id juntos.
+     * ID vem primeiro da aba oficial AC/AD; se ela estiver indisponível,
+     * pode ser aprendido de outro produto com nome e ID válidos.
      */
-    if (!payload.grupoId?.trim()) {
+    if (!grupoIdPreenchido(payload.grupoId)) {
       payload.grupoId = await this.repo.grupoIdPorNome(payload.grupo);
     }
     /*
@@ -362,7 +364,7 @@ export class ProductService {
      * manda, sabe o que está fazendo.
      */
     const grupoMudou = payload.grupo !== undefined && !mesmoValor(payload.grupo, p.grupo);
-    if (payload.grupoId === undefined && (grupoMudou || !p.grupoId?.trim())) {
+    if (payload.grupoId === undefined && (grupoMudou || !grupoIdPreenchido(p.grupoId))) {
       const nome = payload.grupo ?? p.grupo;
       const id = await this.repo.grupoIdPorNome(nome);
       if (id) payload.grupoId = id;

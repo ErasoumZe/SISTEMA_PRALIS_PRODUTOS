@@ -104,6 +104,8 @@ export const env = {
   GOOGLE_SHEETS_FISCAL_TAB: envVar('GOOGLE_SHEETS_FISCAL_TAB', '(TNP) FISCAL - DE PARA PRODUTOS'),
   /** Aba com os grupos oficiais e a margem padrao de cada um (colunas M e N). */
   GOOGLE_SHEETS_GRUPOS_TAB: envVar('GOOGLE_SHEETS_GRUPOS_TAB', '(TNP/LI/HORA - EXP.) GRUPOS/REF. - VLD SAIDA'),
+  /** De-para oficial nome -> ID do grupo do SIA, colunas AC/AD da aba de validacao. */
+  GOOGLE_SHEETS_GRUPO_IDS_TAB: envVar('GOOGLE_SHEETS_GRUPO_IDS_TAB', 'TNP/LI/HORA - VLD EXP -  GRUPOS/REF (VLD)'),
   GOOGLE_SHEETS_DEFAULT_LOJAS: envVar('GOOGLE_SHEETS_DEFAULT_LOJAS', 'TNP,LI,HORA'),
 
   /*
