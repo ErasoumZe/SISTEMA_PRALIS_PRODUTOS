@@ -1,5 +1,10 @@
 # Exportacao incremental Criare — implantacao controlada
 
+> Atualizacao 29/09/2026: o fluxo novo de entrega local esta descrito em
+> [creare-entrega-local-tnp.md](creare-entrega-local-tnp.md). As etapas abaixo
+> que exigem confirmacao no SIA para liberar o proximo TXT descrevem o fluxo
+> anterior e nao devem ser usadas apos a nova implantacao.
+
 O endpoint antigo `GET /creare/produtos.txt?loja=TNP` continua sendo uma
 **fotografia completa**. Ele nao confirma importacao e serve para recuperacao.
 Na TNP, o formato homologado pelo importador SIA deixa o campo de barras de

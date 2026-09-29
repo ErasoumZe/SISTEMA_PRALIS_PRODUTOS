@@ -4,7 +4,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db/databases';
 import { AppError } from '@/config/api.replies';
 import type { CreareStore } from './creare.config';
-import { creareExportBatch, creareExportState, type CreareBatchItem } from './creare.table';
+import { creareExportBatch, creareExportDeliveryState, creareExportState, type CreareBatchItem } from './creare.table';
 
 export interface PendingRecord {
   productId: string;
@@ -25,7 +25,8 @@ async function lockStore(tx: Parameters<Parameters<typeof db.transaction>[0]>[0]
 export class CreareExportRepository {
   async open(loja: CreareStore): Promise<ExportBatch | null> {
     const [batch] = await db.select().from(creareExportBatch)
-      .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.confirmadoEm),
+      .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.entregueEm),
+        isNull(creareExportBatch.confirmadoEm),
         isNull(creareExportBatch.canceladoEm), eq(creareExportBatch.formatoVersao, CURRENT_FORMAT_VERSION))).limit(1);
     return batch ?? null;
   }
@@ -34,7 +35,8 @@ export class CreareExportRepository {
     return db.transaction(async (tx) => {
       await lockStore(tx, loja);
       const [open] = await tx.select().from(creareExportBatch)
-        .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.confirmadoEm),
+        .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.entregueEm),
+          isNull(creareExportBatch.confirmadoEm),
           isNull(creareExportBatch.canceladoEm))).limit(1);
       if (open?.formatoVersao === CURRENT_FORMAT_VERSION) return open;
       if (open) {
@@ -53,15 +55,26 @@ export class CreareExportRepository {
          * ele que `confirm` e `open` consultam.
          */
         const fechadoEm = new Date();
-        await tx.update(creareExportBatch).set({ canceladoEm: fechadoEm, confirmadoEm: fechadoEm })
+        await tx.update(creareExportBatch).set({ canceladoEm: fechadoEm, confirmadoEm: fechadoEm, entregueEm: fechadoEm })
           .where(eq(creareExportBatch.id, open.id));
       }
 
-      const states = await tx.select({ productId: creareExportState.productId, hash: creareExportState.hash })
-        .from(creareExportState).where(eq(creareExportState.loja, loja));
-      const confirmed = new Map(states.map((item) => [item.productId, item.hash]));
+      // Tambem cobre instalacoes que usam drizzle-kit push em vez do SQL de
+      // migracao: a primeira consulta preserva o cursor ja confirmado.
+      await tx.insert(creareExportDeliveryState)
+        .select(tx.select({
+          loja: creareExportState.loja,
+          productId: creareExportState.productId,
+          hash: creareExportState.hash,
+          batchId: creareExportState.batchId,
+          entregueEm: creareExportState.confirmadoEm,
+        }).from(creareExportState).where(eq(creareExportState.loja, loja)))
+        .onConflictDoNothing();
+      const states = await tx.select({ productId: creareExportDeliveryState.productId, hash: creareExportDeliveryState.hash })
+        .from(creareExportDeliveryState).where(eq(creareExportDeliveryState.loja, loja));
+      const delivered = new Map(states.map((item) => [item.productId, item.hash]));
       const changed = rows.map((row) => ({ ...row, hash: digest(row.record) }))
-        .filter((row) => confirmed.get(row.productId) !== row.hash);
+        .filter((row) => delivered.get(row.productId) !== row.hash);
       const pending = limite ? changed.slice(0, limite) : changed;
       if (!pending.length) return null;
 
@@ -71,6 +84,32 @@ export class CreareExportRepository {
         loja, conteudo, sha256: digest(conteudo), itens, formatoVersao: CURRENT_FORMAT_VERSION,
       }).returning();
       return batch!;
+    });
+  }
+
+  /** Avanca o cursor somente apos o robo salvar e verificar o arquivo local. */
+  async acknowledgeDelivery(loja: CreareStore, id: string, sha256: string): Promise<{ count: number; alreadyDelivered: boolean }> {
+    return db.transaction(async (tx) => {
+      await lockStore(tx, loja);
+      const [batch] = await tx.select().from(creareExportBatch)
+        .where(and(eq(creareExportBatch.id, id), eq(creareExportBatch.loja, loja))).limit(1);
+      if (!batch) throw new AppError('Lote nao encontrado para esta loja.', 404, 'CREARE_BATCH_NOT_FOUND');
+      if (batch.sha256 !== sha256) throw new AppError('Hash do TXT incorreto.', 409, 'CREARE_BATCH_HASH_MISMATCH');
+      if (batch.canceladoEm || batch.formatoVersao !== CURRENT_FORMAT_VERSION) {
+        throw new AppError('Lote cancelado ou em formato anterior.', 409, 'CREARE_BATCH_OUTDATED');
+      }
+      if (batch.entregueEm) return { count: batch.itens.length, alreadyDelivered: true };
+
+      for (let i = 0; i < batch.itens.length; i += 500) {
+        await tx.insert(creareExportDeliveryState).values(batch.itens.slice(i, i + 500).map((item) => ({
+          loja, productId: item.productId, hash: item.hash, batchId: batch.id,
+        }))).onConflictDoUpdate({
+          target: [creareExportDeliveryState.loja, creareExportDeliveryState.productId],
+          set: { hash: sql`excluded.hash`, batchId: sql`excluded.batch_id`, entregueEm: sql`now()` },
+        });
+      }
+      await tx.update(creareExportBatch).set({ entregueEm: new Date() }).where(eq(creareExportBatch.id, id));
+      return { count: batch.itens.length, alreadyDelivered: false };
     });
   }
 
@@ -91,6 +130,19 @@ export class CreareExportRepository {
       }
       if (batch.confirmadoEm) return { count: batch.itens.length, alreadyConfirmed: true };
 
+      // Compatibilidade: confirmar um lote legado ainda nao entregue tambem
+      // libera o cursor. Nunca retrocede um cursor ja avancado por outro lote.
+      if (!batch.entregueEm) {
+        for (let i = 0; i < batch.itens.length; i += 500) {
+          await tx.insert(creareExportDeliveryState).values(batch.itens.slice(i, i + 500).map((item) => ({
+            loja, productId: item.productId, hash: item.hash, batchId: batch.id,
+          }))).onConflictDoUpdate({
+            target: [creareExportDeliveryState.loja, creareExportDeliveryState.productId],
+            set: { hash: sql`excluded.hash`, batchId: sql`excluded.batch_id`, entregueEm: sql`now()` },
+          });
+        }
+      }
+
       for (let i = 0; i < batch.itens.length; i += 500) {
         await tx.insert(creareExportState).values(batch.itens.slice(i, i + 500).map((item) => ({
           loja, productId: item.productId, hash: item.hash, batchId: batch.id,
@@ -99,7 +151,7 @@ export class CreareExportRepository {
           set: { hash: sql`excluded.hash`, batchId: sql`excluded.batch_id`, confirmadoEm: sql`now()` },
         });
       }
-      await tx.update(creareExportBatch).set({ confirmadoEm: new Date() })
+      await tx.update(creareExportBatch).set({ confirmadoEm: new Date(), entregueEm: batch.entregueEm ?? new Date() })
         .where(eq(creareExportBatch.id, id));
       return { count: batch.itens.length, alreadyConfirmed: false };
     });

@@ -330,7 +330,7 @@ export class CreareService {
     return Buffer.from(file, 'ascii');
   }
 
-  /** Snapshot repetivel: baixar nao confirma que o SIA importou. */
+  /** Snapshot repetivel ate o robo confirmar que salvou o TXT localmente. */
   async pending(store: CreareStore, limite?: number): Promise<ExportBatch | null> {
     if (!env.CREARE_EXPORT_ENABLED) {
       throw new AppError('Exportacao Criare desabilitada.', 503, 'CREARE_DISABLED');
@@ -357,6 +357,10 @@ export class CreareService {
 
   async confirm(store: CreareStore, id: string, sha256: string) {
     return this.exports.confirm(store, id, sha256);
+  }
+
+  async acknowledgeDelivery(store: CreareStore, id: string, sha256: string) {
+    return this.exports.acknowledgeDelivery(store, id, sha256);
   }
 
   async openBatch(store: CreareStore): Promise<ExportBatch | null> {
