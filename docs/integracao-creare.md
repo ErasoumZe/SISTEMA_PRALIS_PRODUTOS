@@ -70,6 +70,8 @@ aprovado para produção**:
 Todos os valores acima precisam ser confirmados. Em particular, `G -> UN`,
 `ML -> UN`, alíquota `01`, categoria `3`, escalas decimais e os defaults
 operacionais não devem ser copiados do exemplo sem aprovação.
+`weighableByMeasure` permanece no exemplo só por compatibilidade de configuração;
+o TXT não infere `Pesável` pela medida. Ver `creare-pesavel.md`.
 
 ## Regras de segurança
 
@@ -107,4 +109,3 @@ arquivo Criare.
 
 O contrato documental e as perguntas ao fornecedor permanecem em
 `docs/descoberta-integracao-creare.md`.
-

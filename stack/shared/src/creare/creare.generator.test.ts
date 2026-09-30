@@ -45,6 +45,9 @@ const bread = (overrides: Partial<ProductEntity> = {}): ProductEntity => ({
   nome: 'PÃO DE SAL PRALIS',
   quantidade: 0,
   medidaBase: 'KG',
+  pesavel: 'S',
+  teclaBalanca: 0,
+  validadeBalanca: 0,
   codigoBarras: null,
   marca: null,
   embalagem: null,
@@ -222,7 +225,42 @@ describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
     codGrupo: '0042',
     aliqSaidaEcf: '10',
     ncm: '22030000',
+    pesavel: 'S',
+    teclaBalanca: '0',
+    validadeBalanca: '0',
   };
+
+  it('preserva S e os campos de balanca mesmo quando a medida no Pralis e UN', () => {
+    const parsed = parseCreareRecord(generateCreareRecord(
+      bread({ codigoInterno: null, medidaBase: 'UN', teclaBalanca: null, validadeBalanca: null }),
+      config,
+      { ...sia, teclaBalanca: '12', validadeBalanca: '2' },
+    ));
+    expect(parsed.weighable).toBe('S');
+    expect(parsed.scaleKey).toBe('012');
+    expect(parsed.scaleValidity).toBe('002');
+  });
+
+  it('recusa cadastro SIA sem classificacao de balanca', () => {
+    expect(() => generateCreareRecord(bread({ codigoInterno: null, pesavel: null }), config, { ...sia, pesavel: null }))
+      .toThrow(/Pesavel sem confirmacao/);
+  });
+
+  it('recusa tecla de balanca divergente entre produto e SIA', () => {
+    expect(() => generateCreareRecord(bread({ teclaBalanca: 7 }), config, sia))
+      .toThrow(/Tecla de balanca diverge/);
+  });
+
+  it('recusa produto isolado sem Pesavel, mesmo que a medida seja KG', () => {
+    expect(() => generateCreareRecord(bread({ pesavel: null }), config)).toThrow(/Pesavel sem confirmacao/);
+  });
+
+  it('mantem N explicitamente confirmado mesmo quando a medida e KG', () => {
+    const parsed = parseCreareRecord(generateCreareRecord(bread({ pesavel: 'N', teclaBalanca: null, validadeBalanca: null }), config));
+    expect(parsed.weighable).toBe('N');
+    expect(parsed.scaleKey).toBe('000');
+    expect(parsed.scaleValidity).toBe('000');
+  });
 
   /*
    * O importador decide inserir ou ATUALIZAR pelo coditem. O TXT real do
@@ -520,6 +558,7 @@ describe('campo numerico nunca sai em branco', () => {
     // recusa antes de chegar no campo que este teste olha
     const record = generateCreareRecord(bread(), config, {
       coditem: '100000', codGrupo: '0011', aliqSaidaEcf: '10', ncm: '18069000',
+      pesavel: 'S', teclaBalanca: '0', validadeBalanca: '0',
     });
     const p = posicoes.find((x) => x.name === 'scaleValidity')!;
 

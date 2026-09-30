@@ -119,6 +119,7 @@ export interface ResumoDePara {
   arquivo: string;
   linhas: number;
   semBarras: number;
+  semDadosBalanca: number;
   /** Quantas linhas a loja tem hoje — o que seria substituído. */
   atuais: number;
   barrasAmbiguas: Array<{ chave: string; coditens: string[] }>;

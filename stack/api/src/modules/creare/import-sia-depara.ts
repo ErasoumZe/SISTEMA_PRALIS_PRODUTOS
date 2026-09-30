@@ -35,6 +35,10 @@ async function main(): Promise<void> {
   const resultado = lerDePara(lerArquivo(caminho));
   console.log(`lidas ${resultado.linhas.length} linhas com codigo de barras`);
   if (resultado.semBarras) console.log(`  ${resultado.semBarras} sem codigo de barras - ficam de fora`);
+  if (resultado.semDadosBalanca) {
+    console.error(`RECUSADO: ${resultado.semDadosBalanca} produto(s) sem dados de balanca completos.`);
+    process.exit(1);
+  }
 
   if (resultado.barrasAmbiguas.length) {
     console.error(`\nRECUSADO: ${resultado.barrasAmbiguas.length} codigo(s) de barras apontam para mais de um produto no SIA.`);

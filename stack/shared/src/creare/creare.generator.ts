@@ -47,7 +47,8 @@ export interface CreareStoreConfig {
   noPromotionDate: string;
   iat: 'A' | 'T';
   ipptByProductType: Record<ProductType, 'P' | 'T'>;
-  weighableByMeasure: Record<Measure, YesNo>;
+  /** Legado aceito no JSON do Coolify; não participa mais da geração do TXT. */
+  weighableByMeasure?: Record<Measure, YesNo>;
   stockControlledByProductType: Record<ProductType, YesNo>;
 }
 
@@ -73,6 +74,9 @@ export interface CreareSiaMatch {
   codGrupo: string;
   aliqSaidaEcf: string;
   ncm: string;
+  pesavel?: string | null;
+  teclaBalanca?: string | null;
+  validadeBalanca?: string | null;
 }
 
 export class CreareValidationError extends Error {
@@ -359,7 +363,30 @@ export function valuesFromProduct(
    */
   const ncm = valorReal(fiscal.ncm) || valorReal(sia?.ncm) || '0'.repeat(8);
   const ippt = config.ipptByProductType[product.tipo];
-  const weighable = config.weighableByMeasure[product.medidaBase];
+  // Pesavel e uma propriedade operacional do cadastro SIA, nao da unidade.
+  // Um item UN pode ser de balanca; inferir N sobrescreve o S existente.
+  if (product.pesavel && sia?.pesavel && product.pesavel !== sia.pesavel) {
+    throw new CreareValidationError('Pesavel diverge entre Pralis e espelho SIA; confira o cadastro atual antes de exportar.');
+  }
+  if (product.teclaBalanca != null && sia?.teclaBalanca != null
+    && product.teclaBalanca !== Number(sia.teclaBalanca)) {
+    throw new CreareValidationError('Tecla de balanca diverge entre Pralis e espelho SIA.');
+  }
+  if (product.validadeBalanca != null && sia?.validadeBalanca != null
+    && product.validadeBalanca !== Number(sia.validadeBalanca)) {
+    throw new CreareValidationError('Validade de balanca diverge entre Pralis e espelho SIA.');
+  }
+  // O produto da loja pode declarar o valor; para os existentes vale o espelho
+  // SIA. Nenhuma chamada (inclusive isolada) pode inferir pela unidade.
+  const weighable = product.pesavel ?? sia?.pesavel;
+  if (weighable !== 'S' && weighable !== 'N') {
+    throw new CreareValidationError('Pesavel sem confirmacao no cadastro SIA; exportacao bloqueada.');
+  }
+  const tecla = product.teclaBalanca == null ? sia?.teclaBalanca ?? (weighable === 'S' ? null : '0') : String(product.teclaBalanca);
+  const validade = product.validadeBalanca == null ? sia?.validadeBalanca ?? (weighable === 'S' ? null : '0') : String(product.validadeBalanca);
+  if (tecla === null || validade === null || !/^\d{1,3}$/.test(tecla) || !/^\d{1,3}$/.test(validade)) {
+    throw new CreareValidationError('Tecla ou validade de balanca sem confirmacao no cadastro SIA.');
+  }
   const stockControlled = config.stockControlledByProductType[product.tipo];
   if (!ippt || !weighable || !stockControlled) {
     throw new CreareValidationError('Defaults operacionais incompletos para tipo/medida do produto.');
@@ -393,7 +420,7 @@ export function valuesFromProduct(
     ncm: requiredFixedDigits(ncm, 8, 'NCM'),
     reserved: '',
     weighable,
-    scaleKey: 0,
+    scaleKey: Number(tecla),
     cest: optionalFixedDigits(fiscal.cest, 7, 'CEST'),
     icmsReduction: fiscal.reducaoIcms ?? 0,
     fullTaxRate: fiscal.aliquotaCheia ?? 0,
@@ -409,7 +436,7 @@ export function valuesFromProduct(
     originFactor: 0,
     // '' virava tres espacos e o importador recusava o registro: ele le este
     // campo como inteiro. Ver a nota no layout.
-    scaleValidity: 0,
+    scaleValidity: Number(validade),
     categoryCode: requiredFixedDigits(categoryCode, 9, 'Categoria Criare'),
   };
 }

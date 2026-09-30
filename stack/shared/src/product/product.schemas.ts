@@ -96,6 +96,10 @@ export const baseProductSchema = z.object({
   nome: z.string().min(1),
   quantidade: z.number().nonnegative().default(0),
   medidaBase,
+  /** Classificacao operacional do SIA; nulo = ainda nao conferida. */
+  pesavel: z.enum(['S', 'N']).nullable().optional(),
+  teclaBalanca: z.number().int().min(0).max(999).nullable().optional(),
+  validadeBalanca: z.number().int().min(0).max(999).nullable().optional(),
   codigoBarras: z.string().nullable(),
   marca: z.string().nullable(),
   embalagem: embalagem.nullable(),

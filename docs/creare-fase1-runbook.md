@@ -118,6 +118,8 @@ O que a config precisa ter, com os valores que o TXT do fornecedor comprova:
 
 `groupCodes` e `ecfTaxCodesByGroup` deixaram de ser usados quando há casamento
 no SIA — grupo e alíquota vêm de lá. Ver `creare-aliquota-ecf.md`.
+`weighableByMeasure` também é apenas legado: não infere mais `Pesável`.
+Ver `creare-pesavel.md` antes de gerar TXT para balança.
 
 ## 5. Automação das 22:30
 

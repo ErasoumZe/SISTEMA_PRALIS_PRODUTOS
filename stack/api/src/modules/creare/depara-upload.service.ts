@@ -28,6 +28,7 @@ export interface ResumoDePara {
   arquivo: string;
   linhas: number;
   semBarras: number;
+  semDadosBalanca: number;
   /** Quantas linhas a loja tem hoje — o que seria substituído. */
   atuais: number;
   barrasAmbiguas: Array<{ chave: string; coditens: string[] }>;
@@ -123,6 +124,7 @@ export class DeParaUploadService {
       linhas: catalogo,
       entrega: bruto.linhas.length - catalogo.length,
       semBarras: bruto.semBarras,
+      semDadosBalanca: catalogo.filter((l) => !l.pesavel || (l.pesavel === 'S' && (l.teclaBalanca === null || l.validadeBalanca === null))).length,
       barrasAmbiguas: [...porChave.entries()]
         .filter(([, coditens]) => coditens.length > 1)
         .map(([chave, coditens]) => ({ chave, coditens })),
@@ -139,6 +141,7 @@ export class DeParaUploadService {
       arquivo: nome,
       linhas: r.linhas.length,
       semBarras: r.semBarras,
+      semDadosBalanca: r.semDadosBalanca,
       atuais: await this.atuais(loja),
       barrasAmbiguas: r.barrasAmbiguas.slice(0, 20),
       coditensRepetidos: r.coditensRepetidos.slice(0, 20),
@@ -181,6 +184,14 @@ export class DeParaUploadService {
           ? `O arquivo só tem linhas de entrega (código a partir de ${PRIMEIRO_CODIGO_DE_ENTREGA}). Envie a exportação do catálogo.`
           : 'O arquivo não tem nenhuma linha com código de barras.',
         422,
+      );
+    }
+    if (r.semDadosBalanca > 0) {
+      throw new AppError(
+        `Recusado: ${r.semDadosBalanca} produto(s) sem Pesavel S/N ou, quando S, sem Tecla/Validade. `
+        + 'Exporte o cadastro atual do SIA com as colunas operacionais de balanca.',
+        422,
+        'CREARE_BALANCA_INCOMPLETA',
       );
     }
 

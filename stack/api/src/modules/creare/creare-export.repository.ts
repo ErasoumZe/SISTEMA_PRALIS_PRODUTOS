@@ -14,7 +14,9 @@ export interface PendingRecord {
 export type ExportBatch = typeof creareExportBatch.$inferSelect;
 
 const digest = (value: string) => createHash('sha256').update(value, 'ascii').digest('hex');
-const CURRENT_FORMAT_VERSION = 2;
+// Versoes antigas escreveram Pesavel=N sem consultar o cadastro SIA.
+// Nunca reutilizar nem confirmar um lote aberto daquela geracao.
+const CURRENT_FORMAT_VERSION = 3;
 
 /** Serializa criacao e confirmacao por loja, inclusive entre instancias da API. */
 async function lockStore(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], loja: CreareStore) {

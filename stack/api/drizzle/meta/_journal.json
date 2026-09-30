@@ -218,6 +218,20 @@
       "when": 1790718504566,
       "tag": "0030_powerful_thena",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790800141757,
+      "tag": "0031_public_taskmaster",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790800493443,
+      "tag": "0032_legal_mercury",
+      "breakpoints": true
     }
   ]
 }

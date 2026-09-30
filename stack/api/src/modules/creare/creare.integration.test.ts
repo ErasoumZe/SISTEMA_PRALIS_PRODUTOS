@@ -76,9 +76,10 @@ beforeAll(async () => {
     const chave = barras.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
     await db.execute(sqlTag`
       INSERT INTO sia_produto_depara (id, loja, codigo_barras, chave_barras, coditem, descricao,
-                                      cod_grupo, aliq_saida_ecf, cst_saida, csosn, ncm, ativo)
+                                      cod_grupo, aliq_saida_ecf, cst_saida, csosn, ncm, ativo,
+                                      pesavel, tecla_balanca, validade_balanca)
       VALUES (${'s-' + coditem}, 'LI', ${barras}, ${chave}, ${coditem}, 'DO SIA',
-              ${grupo}, ${ecf}, '000', '101', '22030000', 'S')`);
+              ${grupo}, ${ecf}, '000', '101', '22030000', 'S', 'N', '0', '0')`);
   };
 
   const { CreareService } = await import('./creare.service');
@@ -200,8 +201,8 @@ describe('lotes incrementais Criare', () => {
     await siaLinha('012345', '7891149100828', '10');
     const antigoId = 'lote-formato-anterior';
     const antigoHash = 'a'.repeat(64);
-    await db.execute(sqlTag`INSERT INTO creare_export_batch (id, loja, conteudo, sha256, itens)
-      VALUES (${antigoId}, 'LI', 'TXT ANTIGO', ${antigoHash}, '[]'::jsonb)`);
+    await db.execute(sqlTag`INSERT INTO creare_export_batch (id, loja, conteudo, sha256, itens, formato_versao)
+      VALUES (${antigoId}, 'LI', 'TXT ANTIGO', ${antigoHash}, '[]'::jsonb, 2)`);
 
     expect(await service.openBatch('LI')).toBeNull();
     await expect(service.confirm('LI', antigoId, antigoHash))
@@ -209,7 +210,7 @@ describe('lotes incrementais Criare', () => {
 
     const corrigido = (await service.pending('LI'))!;
     expect(corrigido.id).not.toBe(antigoId);
-    expect(corrigido.formatoVersao).toBe(2);
+    expect(corrigido.formatoVersao).toBe(3);
     const { Creare } = await import('@pralis/shared');
     const campos = Creare.parseCreareRecord(corrigido.conteudo.trimEnd());
     expect(campos.barcode).toBe('0000000000000');
@@ -234,7 +235,7 @@ describe('lotes incrementais Criare', () => {
 
       const novo = (await service.pending('LI'))!;
       expect(novo.id).not.toBe(antigoId);
-      expect(novo.formatoVersao).toBe(2);
+      expect(novo.formatoVersao).toBe(3);
       const antigo = await db.execute(sqlTag`SELECT cancelado_em, confirmado_em
         FROM creare_export_batch WHERE id = ${antigoId}`);
       expect(antigo.rows[0]?.cancelado_em).not.toBeNull();
@@ -252,6 +253,24 @@ describe('lotes incrementais Criare', () => {
 });
 
 describe('exportação Criare: só sai o que casou no SIA', () => {
+  it('preserva o Pesavel S de um produto UN pelo coditem, mesmo sem casar pelas barras', async () => {
+    await produto('p1', 'PRODUTO DE BALANCA', '2999999999999', '13535');
+    await siaLinha('13535', '2123456789012', '03');
+    await db.execute(sqlTag`UPDATE sia_produto_depara SET pesavel = 'S', tecla_balanca = '35', validade_balanca = '3' WHERE coditem = '13535'`);
+    const { Creare } = await import('@pralis/shared');
+    const linha = (await service.generate('LI')).toString('ascii').split('\n')[0]!;
+    expect(Creare.parseCreareRecord(linha)).toMatchObject({ weighable: 'S', scaleKey: '035', scaleValidity: '003' });
+  });
+
+  it('nao exporta produto com Pesavel desconhecido no espelho antigo', async () => {
+    await produto('p1', 'PRODUTO DE BALANCA', '2123456789012', '13535');
+    await siaLinha('13535', '2123456789012', '03');
+    await db.execute(sqlTag`UPDATE sia_produto_depara SET pesavel = NULL WHERE coditem = '13535'`);
+    const d = (await service.health()).lojas.find((loja) => loja.loja === 'LI')!;
+    expect(d.invalidos).toBe(1);
+    expect(d.exemplosInvalidos[0]?.motivo).toMatch(/Pesavel sem confirmacao/);
+  });
+
   it('TNP usa campo longo homologado mesmo se ambiente pedir automatico', async () => {
     await produto('p1', 'DESENGORDURANTE MULTIUSO UAU', '7891242211506');
     await siaLinha('013153', '7891242211506', '12');
@@ -350,9 +369,9 @@ describe('exportação Criare: só sai o que casou no SIA', () => {
     await siaLinha('012345', '7891149100828', '10');
     await db.execute(sqlTag`
       INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
-                            habilitar_ajuda, auto, codigo_barras, codigo_interno, grupo_id, custo, v_venda_pontual)
+                            habilitar_ajuda, auto, codigo_barras, codigo_interno, grupo_id, custo, v_venda_pontual, pesavel)
       VALUES ('p2', 'LI', 'PR-p2', 'INATIVO BISC LEVISSIMO', 'UN', 'revenda', 'inativo', 0, 1,
-              false, false, '7', '00007', '102', 1.47, NULL)`);
+              false, false, '7', '00007', '102', 1.47, NULL, 'N')`);
     await db.execute(sqlTag`
       INSERT INTO product_fiscal (product_id, ncm, cest, categoria, cst_pis_cofins, aliquota_ecf_id)
       VALUES ('p2', '00000000', '0000000', NULL, '00', '00')`);
@@ -393,9 +412,9 @@ describe('exportação Criare: só sai o que casou no SIA', () => {
     // o novo, na loja, com o nome e SEM o id
     await db.execute(sqlTag`
       INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, status, quantidade, qt_cad,
-                            habilitar_ajuda, auto, codigo_barras, codigo_interno, grupo, custo, v_venda_pontual)
+                            habilitar_ajuda, auto, codigo_barras, codigo_interno, grupo, custo, v_venda_pontual, pesavel)
       VALUES ('p2', 'LI', 'PR-p2', 'LIMPADOR PERFUMADO CASAFLOR', 'UN', 'revenda', 'ativo', 0, 1,
-              false, false, '886748404641', '13152', 'MER MERCEARIA - PRODUTOS DE LIMPEZA', 7.0, 8.9)`);
+              false, false, '886748404641', '13152', 'MER MERCEARIA - PRODUTOS DE LIMPEZA', 7.0, 8.9, 'N')`);
 
     const linhas = (await service.generate('LI')).toString('ascii').split('\n').filter((l) => l);
     const { Creare } = await import('@pralis/shared');

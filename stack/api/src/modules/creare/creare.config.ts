@@ -34,7 +34,8 @@ const storeConfigSchema = z.object({
   noPromotionDate: z.string().regex(/^\d{2}\/\d{2}\/\d{2}$/),
   iat: z.enum(['A', 'T']),
   ipptByProductType: z.object({ revenda: z.enum(['P', 'T']), transformacao: z.enum(['P', 'T']) }),
-  weighableByMeasure: z.object({ UN: yesNo, KG: yesNo, G: yesNo, LT: yesNo, ML: yesNo }),
+  // Campo legado do Coolify: aceito para compatibilidade, mas nunca usado para inferir Pesavel.
+  weighableByMeasure: z.object({ UN: yesNo, KG: yesNo, G: yesNo, LT: yesNo, ML: yesNo }).optional(),
   stockControlledByProductType: z.object({ revenda: yesNo, transformacao: yesNo }),
 }).strict();
 

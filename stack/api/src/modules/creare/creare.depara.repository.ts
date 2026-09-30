@@ -18,6 +18,9 @@ export interface SiaDePara {
   csosn: string;
   ncm: string;
   ativo: string;
+  pesavel: string | null;
+  teclaBalanca: string | null;
+  validadeBalanca: string | null;
 }
 
 @injectable()
@@ -38,6 +41,9 @@ export class CreareDeParaRepository {
         csosn: siaProdutoDePara.csosn,
         ncm: siaProdutoDePara.ncm,
         ativo: siaProdutoDePara.ativo,
+        pesavel: siaProdutoDePara.pesavel,
+        teclaBalanca: siaProdutoDePara.teclaBalanca,
+        validadeBalanca: siaProdutoDePara.validadeBalanca,
       })
       .from(siaProdutoDePara)
       .where(eq(siaProdutoDePara.loja, loja));
