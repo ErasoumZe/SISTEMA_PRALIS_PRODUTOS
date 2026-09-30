@@ -919,7 +919,7 @@ onMounted(async () => {
             cadastro; ele continua disparando a classificação fiscal igual.
           -->
           <v-col cols="12">
-            <v-select
+            <v-autocomplete
               v-model="form.grupo"
               :items="groupItems"
               :loading="loadingGroups"
@@ -927,7 +927,8 @@ onMounted(async () => {
               label="Grupo de mercadorias *"
               variant="outlined"
               density="comfortable"
-              no-data-text="Nenhum grupo fiscal disponível"
+              placeholder="Digite parte do nome, ex.: LEITE"
+              :no-data-text="groupItems.length ? 'Nenhum grupo encontrado' : 'Nenhum grupo fiscal disponível'"
               :hint="ajuda('grupo')"
             />
           </v-col>
