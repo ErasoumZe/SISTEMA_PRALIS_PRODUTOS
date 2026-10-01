@@ -15,7 +15,8 @@
     "gen:base": "tsx src/db/gen-base-json.ts",
     "seed:base": "tsx src/db/seed-base.ts",
     "backfill:codigo": "tsx src/db/backfill-codigo-interno.ts",
-    "creare:depara": "cross-env DOTENV_CONFIG_PATH=.env tsx src/modules/creare/import-sia-depara.ts"
+    "creare:depara": "cross-env DOTENV_CONFIG_PATH=.env tsx src/modules/creare/import-sia-depara.ts",
+    "creare:pesavel:conciliar": "tsx scripts/reconciliar-pesavel-sia.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
