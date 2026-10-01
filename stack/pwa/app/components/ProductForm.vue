@@ -17,6 +17,10 @@ const MEDIDAS_BASE = ['UN', 'KG', 'G', 'LT', 'ML'];
 const MEDIDAS_COMPRA = ['UN', 'KG', 'LT'];
 const EMBALAGENS = ['UN', 'KG', 'LT', 'MIL', 'FD', 'PCT', 'CX', 'POTE', 'EMB', 'SACO', 'BAND'];
 const UNIDADES_TR = ['UN', 'G', 'ML'];
+// Confirmado com o consultor Criare para o cadastro usado na TNP: tecla 000.
+// No produto/API o valor e numerico; o TXT posicional completa as tres casas.
+const TECLA_BALANCA_FIXA = 0;
+const teclaBalancaExibicao = String(TECLA_BALANCA_FIXA).padStart(3, '0');
 const SETORES = [
   'LJ - CAIXAS', 'LJ - VITRINES', 'LJ - ESTOQUE  LOJA', 'LJ - TREINAMENTO',
   'PROD. - PANIFICAÇÃO', 'PROD. - CONFEITARIA', 'PROD. - ESTOQUE PRODUÇÃO',
@@ -516,7 +520,7 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
     quantidade: Number(form.quantidade) || 0,
     medidaBase: form.medidaBase as ProductRequests.CreateProductRequest['medidaBase'],
     pesavel: form.pesavel,
-    teclaBalanca: form.pesavel === 'S' ? form.teclaBalanca : null,
+    teclaBalanca: form.pesavel === 'S' ? TECLA_BALANCA_FIXA : null,
     validadeBalanca: form.pesavel === 'S' ? form.validadeBalanca : null,
     codigoBarras: form.codigoBarras || null,
     marca: form.marca || null,
@@ -582,9 +586,9 @@ const duplicado = ref('');
 
 async function salvar(forcar = false) {
   if (!form.nome.trim()) { erro.value = 'Informe o nome do produto.'; return; }
-  if (form.pesavel === 'S' && [form.teclaBalanca, form.validadeBalanca]
-    .some((valor) => typeof valor !== 'number' || !Number.isInteger(valor) || valor < 0 || valor > 999)) {
-    erro.value = 'Informe tecla e validade da balança (0 a 999), conforme o cadastro SIA.';
+  if (form.pesavel === 'S' && (typeof form.validadeBalanca !== 'number'
+    || !Number.isInteger(form.validadeBalanca) || form.validadeBalanca < 0 || form.validadeBalanca > 999)) {
+    erro.value = 'Informe a validade da balança em dias (0 a 999).';
     return;
   }
   const grupoOriginal = produtoSalvo.value?.grupo;
@@ -863,10 +867,10 @@ onMounted(async () => {
           </v-col>
           <template v-if="form.pesavel === 'S'">
             <v-col cols="6" sm="3">
-              <v-text-field v-model.number="form.teclaBalanca" type="number" min="0" max="999" @wheel="semRolagemNoNumero" label="Tecla da balança" variant="outlined" density="comfortable" />
+              <v-text-field :model-value="teclaBalancaExibicao" label="Tecla da balança" variant="outlined" density="comfortable" readonly persistent-hint hint="Valor fixo 000 confirmado para a TNP." />
             </v-col>
             <v-col cols="6" sm="3">
-              <v-text-field v-model.number="form.validadeBalanca" type="number" min="0" max="999" @wheel="semRolagemNoNumero" label="Validade da balança" variant="outlined" density="comfortable" />
+              <v-text-field v-model.number="form.validadeBalanca" type="number" min="0" max="999" @wheel="semRolagemNoNumero" label="Validade na balança (dias)" variant="outlined" density="comfortable" persistent-hint hint="Informe o número de dias definido para este produto." />
             </v-col>
           </template>
           <v-col cols="12">
