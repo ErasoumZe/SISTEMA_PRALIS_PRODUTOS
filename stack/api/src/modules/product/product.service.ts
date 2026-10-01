@@ -45,7 +45,7 @@ export type UpdatedProduct = ProductSchemas.ProductEntity & {
  * mesma regra de todo campo.
  */
 const CAMPOS_HERDADOS = [
-  'nome', 'quantidade', 'medidaBase', 'codigoBarras', 'marca', 'embalagem', 'cDe',
+  'nome', 'quantidade', 'medidaBase', 'pesavel', 'teclaBalanca', 'validadeBalanca', 'codigoBarras', 'marca', 'embalagem', 'cDe',
   'qtCad', 'medidaCompra', 'compraAproximada', 'codigoInterno', 'fotoUrl', 'grupo', 'grupoId', 'tipo',
   'habilitarAjuda',
 ] as const satisfies readonly (keyof ProductSchemas.ProductEntity)[];
@@ -739,7 +739,9 @@ export class ProductService {
    */
   private toCreatePayload(p: ProductSchemas.ProductEntity): ProductRequests.CreateProductRequest {
     return {
-      nome: p.nome, quantidade: p.quantidade, medidaBase: p.medidaBase, codigoBarras: p.codigoBarras,
+      nome: p.nome, quantidade: p.quantidade, medidaBase: p.medidaBase,
+      pesavel: p.pesavel, teclaBalanca: p.teclaBalanca, validadeBalanca: p.validadeBalanca,
+      codigoBarras: p.codigoBarras,
       marca: p.marca, embalagem: p.embalagem, cDe: p.cDe, qtCad: p.qtCad, medidaCompra: p.medidaCompra,
       compraAproximada: p.compraAproximada,
       codigoInterno: p.codigoInterno, fotoUrl: p.fotoUrl, grupo: p.grupo, grupoId: p.grupoId,

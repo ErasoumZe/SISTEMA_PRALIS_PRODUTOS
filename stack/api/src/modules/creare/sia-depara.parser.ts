@@ -31,10 +31,16 @@ const COLUNAS = {
 } as const;
 
 type Campo = keyof typeof COLUNAS;
+const COLUNAS_BALANCA = {
+  pesavel: ['pesavel'],
+  teclaBalanca: ['tecla', 'teclabalanca'],
+  validadeBalanca: ['validade', 'validadebalanca'],
+} as const;
+type CampoBalanca = keyof typeof COLUNAS_BALANCA;
 
-export function mapearColunas(cabecalho: unknown[]): Record<Campo, number> {
+export function mapearColunas(cabecalho: unknown[]): Record<Campo, number> & Partial<Record<CampoBalanca, number>> {
   const normalizado = cabecalho.map((c) => semAcento(String(c ?? '')));
-  const indices = {} as Record<Campo, number>;
+  const indices = {} as Record<Campo, number> & Partial<Record<CampoBalanca, number>>;
   const faltando: string[] = [];
   for (const [campo, nomes] of Object.entries(COLUNAS) as [Campo, readonly string[]][]) {
     const i = normalizado.findIndex((c) => nomes.includes(c));
@@ -43,6 +49,10 @@ export function mapearColunas(cabecalho: unknown[]): Record<Campo, number> {
   }
   if (faltando.length) {
     throw new Error(`Colunas não encontradas na exportação: ${faltando.join(', ')}.`);
+  }
+  for (const [campo, nomes] of Object.entries(COLUNAS_BALANCA) as [CampoBalanca, readonly string[]][]) {
+    const i = normalizado.findIndex((c) => nomes.includes(c));
+    if (i >= 0) indices[campo] = i;
   }
   return indices;
 }
@@ -60,25 +70,41 @@ export interface LinhaDePara {
   csosn: string;
   ncm: string;
   ativo: string;
+  pesavel: 'S' | 'N' | null;
+  teclaBalanca: string | null;
+  validadeBalanca: string | null;
 }
 
 export interface ResultadoLeitura {
   linhas: LinhaDePara[];
   semBarras: number;
+  semDadosBalanca: number;
   barrasAmbiguas: Array<{ chave: string; coditens: string[] }>;
   coditensRepetidos: string[];
 }
 
 export function lerDePara(tabela: unknown[][]): ResultadoLeitura {
-  const indices = mapearColunas(tabela[0] ?? []);
+  // A BASE SIA FULL tem identificadores na linha 1 e cabecalhos na linha 2.
+  let cabecalho = -1;
+  let indices: ReturnType<typeof mapearColunas> | undefined;
+  for (let i = 0; i < Math.min(tabela.length, 5); i++) {
+    try { indices = mapearColunas(tabela[i] ?? []); cabecalho = i; break; }
+    catch { /* tentar a proxima linha */ }
+  }
+  if (!indices) throw new Error('Colunas obrigatorias do SIA nao encontradas nas primeiras cinco linhas.');
   const texto = (linha: unknown[], campo: Campo) => String(linha[indices[campo]] ?? '').trim();
+  const textoBalanca = (linha: unknown[], campo: CampoBalanca): string | null => {
+    const posicao = indices[campo];
+    return posicao === undefined ? null : String(linha[posicao] ?? '').trim() || null;
+  };
 
   const porChave = new Map<string, string[]>();
   const porCoditem = new Map<string, number>();
   const linhas: LinhaDePara[] = [];
   let semBarras = 0;
+  let semDadosBalanca = 0;
 
-  for (const linha of tabela.slice(1)) {
+  for (const linha of tabela.slice(cabecalho + 1)) {
     const coditem = texto(linha, 'coditem');
     if (!coditem) continue;
     const codigoBarras = texto(linha, 'codigoBarras');
@@ -94,6 +120,20 @@ export function lerDePara(tabela: unknown[][]): ResultadoLeitura {
     porCoditem.set(coditem, (porCoditem.get(coditem) ?? 0) + 1);
     const reducao = texto(linha, 'reducao').replace(',', '.');
     const aliquotaInterna = texto(linha, 'aliquotaInterna').replace(',', '.');
+    const pesavel = textoBalanca(linha, 'pesavel')?.toUpperCase() ?? null;
+    const teclaBalanca = textoBalanca(linha, 'teclaBalanca');
+    const validadeBalanca = textoBalanca(linha, 'validadeBalanca');
+    if (pesavel !== null && pesavel !== 'S' && pesavel !== 'N') {
+      throw new Error(`Coditem ${coditem}: Pesavel deve ser S ou N; recebido ${pesavel}.`);
+    }
+    for (const [nome, valor] of [['Tecla', teclaBalanca], ['Validade', validadeBalanca]] as const) {
+      if (valor !== null && !/^\d{1,3}$/.test(valor)) {
+        throw new Error(`Coditem ${coditem}: ${nome} de balanca deve ter ate tres digitos.`);
+      }
+    }
+    if (!pesavel || (pesavel === 'S' && (teclaBalanca === null || validadeBalanca === null))) {
+      semDadosBalanca += 1;
+    }
 
     linhas.push({
       coditem,
@@ -108,12 +148,16 @@ export function lerDePara(tabela: unknown[][]): ResultadoLeitura {
       csosn: texto(linha, 'csosn'),
       ncm: texto(linha, 'ncm'),
       ativo: texto(linha, 'ativo'),
+      pesavel,
+      teclaBalanca,
+      validadeBalanca,
     });
   }
 
   return {
     linhas,
     semBarras,
+    semDadosBalanca,
     barrasAmbiguas: [...porChave.entries()]
       .filter(([, coditens]) => coditens.length > 1)
       .map(([chave, coditens]) => ({ chave, coditens })),

@@ -92,6 +92,9 @@ function mapProduct(row: typeof products.$inferSelect): Omit<ProductEntity, 'pro
     nome: row.nome,
     quantidade: Number(row.quantidade),
     medidaBase: row.medidaBase as ProductEntity['medidaBase'],
+    pesavel: row.pesavel as ProductEntity['pesavel'],
+    teclaBalanca: row.teclaBalanca,
+    validadeBalanca: row.validadeBalanca,
     codigoBarras: row.codigoBarras,
     marca: row.marca,
     embalagem: row.embalagem as ProductEntity['embalagem'],
@@ -489,6 +492,9 @@ export class ProductRepository {
     assign('nome', p.nome);
     assign('quantidade', p.quantidade !== undefined ? toDb(p.quantidade) ?? '0' : undefined);
     assign('medidaBase', p.medidaBase);
+    assign('pesavel', p.pesavel);
+    assign('teclaBalanca', p.teclaBalanca);
+    assign('validadeBalanca', p.validadeBalanca);
     assign('codigoBarras', p.codigoBarras);
     assign('marca', p.marca);
     assign('embalagem', p.embalagem);

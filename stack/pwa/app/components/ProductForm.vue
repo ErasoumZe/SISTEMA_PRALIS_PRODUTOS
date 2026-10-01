@@ -24,6 +24,8 @@ const SETORES = [
 
 const form = reactive({
   nome: '', quantidade: 0, medidaBase: 'KG', fotoUrl: '',
+  pesavel: null as 'S' | 'N' | null,
+  teclaBalanca: null as number | null, validadeBalanca: null as number | null,
   marca: '', embalagem: '', cDe: 'DE', qtCad: 1, medidaCompra: '', compraAproximada: false,
   grupo: '', codigoBarras: '', codigoInterno: '',
   status: 'ativo' as 'ativo' | 'inativo', habilitarAjuda: false,
@@ -58,6 +60,9 @@ const CAMPOS_HERANCA: Array<{ campo: string; label: string }> = [
   { campo: 'nome', label: 'Nome' },
   { campo: 'quantidade', label: 'Quantidade' },
   { campo: 'medidaBase', label: 'Medida base' },
+  { campo: 'pesavel', label: 'Vai para balança' },
+  { campo: 'teclaBalanca', label: 'Tecla da balança' },
+  { campo: 'validadeBalanca', label: 'Validade da balança' },
   { campo: 'codigoBarras', label: 'Código de barras' },
   { campo: 'marca', label: 'Marca' },
   { campo: 'embalagem', label: 'Embalagem' },
@@ -143,6 +148,8 @@ function voltarAHerdar() {
   if (!base) return;
   Object.assign(form, {
     nome: base.nome, quantidade: base.quantidade, medidaBase: base.medidaBase,
+    pesavel: base.pesavel ?? null, teclaBalanca: base.teclaBalanca ?? null,
+    validadeBalanca: base.validadeBalanca ?? null,
     marca: base.marca ?? '', embalagem: base.embalagem ?? '', cDe: base.cDe ?? 'DE',
     qtCad: base.qtCad, medidaCompra: base.medidaCompra ?? '',
     compraAproximada: base.compraAproximada ?? false, grupo: base.grupo ?? '',
@@ -508,6 +515,9 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
     nome: form.nome,
     quantidade: Number(form.quantidade) || 0,
     medidaBase: form.medidaBase as ProductRequests.CreateProductRequest['medidaBase'],
+    pesavel: form.pesavel,
+    teclaBalanca: form.pesavel === 'S' ? form.teclaBalanca : null,
+    validadeBalanca: form.pesavel === 'S' ? form.validadeBalanca : null,
     codigoBarras: form.codigoBarras || null,
     marca: form.marca || null,
     embalagem: (form.embalagem || null) as ProductRequests.CreateProductRequest['embalagem'],
@@ -572,6 +582,11 @@ const duplicado = ref('');
 
 async function salvar(forcar = false) {
   if (!form.nome.trim()) { erro.value = 'Informe o nome do produto.'; return; }
+  if (form.pesavel === 'S' && [form.teclaBalanca, form.validadeBalanca]
+    .some((valor) => typeof valor !== 'number' || !Number.isInteger(valor) || valor < 0 || valor > 999)) {
+    erro.value = 'Informe tecla e validade da balança (0 a 999), conforme o cadastro SIA.';
+    return;
+  }
   const grupoOriginal = produtoSalvo.value?.grupo;
   if (!form.grupo && (!props.productId || grupoOriginal)) {
     erro.value = 'Selecione o grupo de mercadorias para aplicar os impostos.';
@@ -624,6 +639,8 @@ onMounted(async () => {
     const p = await api.getProduct(props.productId);
     Object.assign(form, {
       nome: p.nome, quantidade: p.quantidade, medidaBase: p.medidaBase,
+      pesavel: p.pesavel ?? null, teclaBalanca: p.teclaBalanca ?? null,
+      validadeBalanca: p.validadeBalanca ?? null,
       marca: p.marca ?? '', embalagem: p.embalagem ?? '', cDe: p.cDe ?? 'DE',
       qtCad: p.qtCad, medidaCompra: p.medidaCompra ?? '', grupo: p.grupo ?? '', fotoUrl: p.fotoUrl ?? '',
       codigoBarras: p.codigoBarras ?? '', codigoInterno: p.codigoInterno ?? '',
@@ -841,6 +858,17 @@ onMounted(async () => {
           <v-col cols="6">
             <v-select v-model="form.medidaBase" :items="MEDIDAS_BASE" label="Medida base" variant="outlined" density="comfortable" :hint="ajuda('medidaBase')" />
           </v-col>
+          <v-col cols="12" sm="6">
+            <v-select v-model="form.pesavel" :items="[{ title: 'Não conferido', value: null }, { title: 'Sim', value: 'S' }, { title: 'Não', value: 'N' }]" label="Vai para balança?" variant="outlined" density="comfortable" persistent-hint hint="Confirme no cadastro SIA. A medida KG não define este campo automaticamente." />
+          </v-col>
+          <template v-if="form.pesavel === 'S'">
+            <v-col cols="6" sm="3">
+              <v-text-field v-model.number="form.teclaBalanca" type="number" min="0" max="999" @wheel="semRolagemNoNumero" label="Tecla da balança" variant="outlined" density="comfortable" />
+            </v-col>
+            <v-col cols="6" sm="3">
+              <v-text-field v-model.number="form.validadeBalanca" type="number" min="0" max="999" @wheel="semRolagemNoNumero" label="Validade da balança" variant="outlined" density="comfortable" />
+            </v-col>
+          </template>
           <v-col cols="12">
             <v-text-field :model-value="descricao" label="Descrição (automática)" variant="outlined" density="comfortable" readonly bg-color="grey-lighten-4" />
           </v-col>

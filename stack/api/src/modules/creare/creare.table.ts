@@ -50,6 +50,10 @@ export const siaProdutoDePara = pgTable(
     csosn: text('csosn').notNull().default(''),
     ncm: text('ncm').notNull().default(''),
     ativo: text('ativo').notNull().default(''),
+    // Nulo significa "nao veio da fonte"; nunca transformar ausencia em N/zero.
+    pesavel: text('pesavel'),
+    teclaBalanca: text('tecla_balanca'),
+    validadeBalanca: text('validade_balanca'),
     importadoEm: timestamp('importado_em', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

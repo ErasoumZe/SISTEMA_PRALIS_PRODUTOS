@@ -142,6 +142,9 @@ export class CreareService {
       csosn: '',
       ncm: produto.fiscal?.ncm ?? '',
       ativo: produto.status === 'ativo' ? 'S' : 'N',
+      pesavel: null,
+      teclaBalanca: null,
+      validadeBalanca: null,
     };
   }
 
@@ -150,6 +153,7 @@ export class CreareService {
       this.products.list(store, {}),
       this.dePara.porBarras(store),
     ]);
+    const siaPorCoditem = new Map([...sia.values()].map((linha) => [linha.coditem.replace(/^0+(?=\d)/, ''), linha]));
 
     const casados: Lote['casados'] = [];
     const naoCasados: CreareForaDoArquivo[] = [];
@@ -166,7 +170,8 @@ export class CreareService {
         if (!idsPorNome.has(produto.grupo)) idsPorNome.set(produto.grupo, await this.products.grupoIdPorNome(produto.grupo));
         produto.grupoId = idsPorNome.get(produto.grupo) ?? produto.grupoId ?? null;
       }
-      const linha = this.casar(produto, sia) ?? this.casarPeloCodigoInterno(produto);
+      const codigoInterno = String(produto.codigoInterno ?? '').replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+      const linha = this.casar(produto, sia) ?? siaPorCoditem.get(codigoInterno) ?? this.casarPeloCodigoInterno(produto);
       if (!linha) {
         naoCasados.push(resumo(produto, 'sem par no SIA pelo codigo de barras e sem codigo interno para valer como coditem'));
         continue;

@@ -18,8 +18,8 @@ const FRASE = 'SUBSTITUIR O DE-PARA DESTA LOJA';
 
 /** Um CSV no formato do SIA Supervisor. */
 const csv = (linhas: Array<[string, string, string]>) => Buffer.from(
-  ['CODITEM;COD_BARRAS;NOME;ATIVO;ALIQ_ECF;CST;CSOSN;NCM;REDUCAO;ALIQ_INTERNA;GRUPO']
-    .concat(linhas.map(([cod, barras, nome]) => `${cod};${barras};${nome};A;3;"040";102;08043000;0;18;MAT. PRIMA`))
+  ['CODITEM;COD_BARRAS;NOME;ATIVO;ALIQ_ECF;CST;CSOSN;NCM;REDUCAO;ALIQ_INTERNA;GRUPO;PESAVEL;TECLA;VALIDADE']
+    .concat(linhas.map(([cod, barras, nome]) => `${cod};${barras};${nome};A;3;"040";102;08043000;0;18;MAT. PRIMA;N;0;0`))
     .join('\n'),
   'utf8',
 );
@@ -150,6 +150,14 @@ describe('previa', () => {
 });
 
 describe('aplicar', () => {
+  it('recusa espelho sem Pesavel antes de substituir o cadastro existente', async () => {
+    await servico.aplicar('LI', csv([['10000', '7891000249239', 'ANTIGO']]), 'atual.csv', FRASE);
+    const incompleto = Buffer.from('CODITEM;COD_BARRAS;NOME;ATIVO;ALIQ_ECF;CST;CSOSN;NCM;REDUCAO;ALIQ_INTERNA;GRUPO\n10001;7891000249246;NOVO;A;3;040;102;08043000;0;18;MAT. PRIMA', 'utf8');
+    await expect(servico.aplicar('LI', incompleto, 'antigo.csv', FRASE))
+      .rejects.toMatchObject({ code: 'CREARE_BALANCA_INCOMPLETA' });
+    expect((await linhasDe('LI')).map((l) => l.coditem)).toEqual(['10000']);
+  });
+
   it('grava as linhas da loja', async () => {
     const r = await servico.aplicar('LI', csv([
       ['10000', '7891000249239', 'ABACAXI UNID'],

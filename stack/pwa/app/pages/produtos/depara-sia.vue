@@ -39,7 +39,8 @@ const arquivo = computed<File | null>(() => {
   if (!valor) return null;
   return Array.isArray(valor) ? (valor[0] ?? null) : valor;
 });
-const problemas = computed(() => (resumo.value?.barrasAmbiguas.length ?? 0) + (resumo.value?.coditensRepetidos.length ?? 0));
+const problemas = computed(() => (resumo.value?.barrasAmbiguas.length ?? 0) + (resumo.value?.coditensRepetidos.length ?? 0)
+  + (resumo.value?.semDadosBalanca ?? 0));
 const podeGravar = computed(() => !!resumo.value
   && problemas.value === 0
   && resumo.value.linhas > 0
@@ -173,6 +174,10 @@ async function gravar() {
           </div>
           <div v-if="resumo.coditensRepetidos.length" class="text-body-2 mt-2">
             Coditem repetido na exportação: {{ resumo.coditensRepetidos.join(', ') }}
+          </div>
+          <div v-if="resumo.semDadosBalanca" class="text-body-2 mt-2">
+            {{ resumo.semDadosBalanca }} produto(s) sem Pesável S/N ou, quando S, sem Tecla/Validade.
+            Exporte um cadastro atual do SIA com esses campos antes de substituir o de-para.
           </div>
         </v-alert>
 

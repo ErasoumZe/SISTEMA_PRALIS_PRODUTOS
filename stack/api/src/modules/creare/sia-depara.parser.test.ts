@@ -82,6 +82,22 @@ describe('mapeamento do CSV normalizado', () => {
 });
 
 describe('leitura do de-para', () => {
+  it('le Pesavel, Tecla e Validade da segunda linha de cabecalho da BASE SIA FULL', () => {
+    const r = lerDePara([
+      cabecalho.map((_, i) => `COL${i}`),
+      [...cabecalho, 'Pesável', 'Tecla', 'Validade'],
+      [...linha('13535', '2123456789012'), 'S', '35', '3'],
+    ]);
+    expect(r.semDadosBalanca).toBe(0);
+    expect(r.linhas[0]).toMatchObject({ coditem: '13535', pesavel: 'S', teclaBalanca: '35', validadeBalanca: '3' });
+  });
+
+  it('nao infere Pesavel pela unidade nem transforma campo ausente em N', () => {
+    const r = lerDePara([cabecalho, linha('13535', '2123456789012')]);
+    expect(r.linhas[0]?.pesavel).toBeNull();
+    expect(r.semDadosBalanca).toBe(1);
+  });
+
   it('normaliza a chave e preserva o codigo de barras original', () => {
     const r = lerDePara([cabecalho, linha('10000', '00000000010000')]);
 
