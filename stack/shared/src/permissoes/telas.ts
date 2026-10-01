@@ -139,6 +139,14 @@ export const TELAS: readonly Tela[] = [
     icone: 'monitoring',
   },
   {
+    id: 'vendas-gerentes',
+    titulo: 'Relatório Gerentes',
+    subtitulo: 'Pontuação por PDV e período',
+    path: '/vendas/gerentes',
+    secao: 'Vendas',
+    icone: 'leaderboard',
+  },
+  {
     id: 'vendas-de-para',
     titulo: 'Produtos do PDV sem cadastro',
     subtitulo: 'Ligue o que o PDV vendeu ao cadastro certo',

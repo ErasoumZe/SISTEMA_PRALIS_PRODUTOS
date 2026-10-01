@@ -2,7 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, buildResponse } from '@/config/api.replies';
 import { VendasReportService } from './vendas-report.service';
-import type { VendasSchemas, VendasPdv, VendasLista } from '@pralis/shared';
+import type { VendasSchemas, VendasPdv, VendasLista, VendasGerentes } from '@pralis/shared';
 import type { VendasRanking } from '@pralis/shared';
 import { VendasRankingService } from './vendas-ranking.service';
 import { podeVerDinheiro, semDinheiro } from './vendas-ranking-sigilo';
@@ -12,6 +12,7 @@ import { VendasReportRepository } from './vendas-report.repository';
 import { montarPulso } from './vendas-pulso';
 import { VendasPdvService } from './vendas-pdv.service';
 import { VendasListaService } from './vendas-lista.service';
+import { VendasGerentesService } from './vendas-gerentes.service';
 
 type VendasReportQuery = VendasSchemas.VendasReportQuery;
 
@@ -78,6 +79,18 @@ export class VendasRankingController {
       ? data
       : semDinheiro(data);
     return reply.status(200).send(buildResponse(visivel, 'Ranking de vendas'));
+  }
+}
+
+@injectable()
+export class VendasGerentesController {
+  constructor(@inject(VendasGerentesService) private service: VendasGerentesService) {}
+
+  async relatorio(request: FastifyRequest<{ Querystring: VendasGerentes.GerentesQuery }>, reply: FastifyReply) {
+    const loja = reportStore(request, request.query.loja);
+    const dados = await this.service.relatorio(loja, request.query);
+    // Apenas pontos saem desta rota; não serializar fechamento em reais.
+    return reply.status(200).send(buildResponse(dados, 'Relatório gerentes'));
   }
 }
 

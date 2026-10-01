@@ -1,4 +1,4 @@
-import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasPdv, VendasAbc, VendasPulso } from '@pralis/shared';
+import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasGerentes, VendasPdv, VendasAbc, VendasPulso } from '@pralis/shared';
 import type { VendasLista } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
@@ -10,6 +10,8 @@ export type VendasRankingResposta = VendasRanking.VendasRanking;
 export type DetalhePdv = VendasPdv.DetalhePdv;
 export type DetalhePdvQuery = VendasPdv.DetalhePdvQuery;
 export type VendasRankingQuery = VendasRanking.VendasRankingQuery;
+export type RelatorioGerentes = VendasGerentes.Gerentes;
+export type RelatorioGerentesQuery = VendasGerentes.GerentesQuery;
 export type ItemRanking = VendasRanking.ItemRanking;
 export type AbcProdutos = VendasAbc.AbcProdutos;
 export type AbcProdutosQuery = VendasAbc.AbcProdutosQuery;
@@ -496,6 +498,8 @@ export function useApi() {
     /** Ranking de vendas por produto, grupo, setor ou PDV. */
     vendasRanking: (query: VendasRankingQuery) =>
       unwrap($fetch<{ data: VendasRankingResposta }>('/vendas/ranking', { ...base, query })),
+    relatorioGerentes: (query: RelatorioGerentesQuery) =>
+      unwrap($fetch<{ data: RelatorioGerentes }>('/vendas/gerentes', { ...base, query })),
 
     vendasPdvDetalhe: (query: DetalhePdvQuery) =>
       unwrap($fetch<{ data: DetalhePdv }>('/vendas/pdv/detalhe', { ...base, query })),
