@@ -10,16 +10,17 @@ import {
 } from './vendas.schemas';
 import { vendasImportAuth } from './vendas.auth';
 import { authMiddleware } from '@/middlewares/auth-handler';
-import { VendasReportController, VendasRankingController, VendasPdvController, VendasAbcController, VendasPulsoController, VendasListaController } from './vendas-report.controller';
+import { VendasReportController, VendasRankingController, VendasGerentesController, VendasPdvController, VendasAbcController, VendasPulsoController, VendasListaController } from './vendas-report.controller';
 import { VendasDeParaController } from './vendas-depara.controller';
 import { VendasUnicosController } from './vendas-unicos.controller';
 import { z } from 'zod/v4';
-import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasPdv, VendasAbc, VendasPulso, VendasLista } from '@pralis/shared';
+import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasGerentes, VendasPdv, VendasAbc, VendasPulso, VendasLista } from '@pralis/shared';
 
 export async function vendasRoutes(app: FastifyInstance) {
   const controller = container.resolve(VendasController);
   const reportController = container.resolve(VendasReportController);
   const rankingController = container.resolve(VendasRankingController);
+  const gerentesController = container.resolve(VendasGerentesController);
   const pdvController = container.resolve(VendasPdvController);
   const abcController = container.resolve(VendasAbcController);
   const pulsoController = container.resolve(VendasPulsoController);
@@ -76,6 +77,20 @@ export async function vendasRoutes(app: FastifyInstance) {
       },
     },
     rankingController.ranking.bind(rankingController),
+  );
+
+  typed.get<{ Querystring: VendasGerentes.GerentesQuery }>(
+    '/vendas/gerentes',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: VendasGerentes.gerentesQuerySchema,
+        response: { 200: apiResponseSchema(VendasGerentes.gerentesSchema) },
+        summary: 'Pontuação diária por PDV para gerentes',
+        tags: ['VENDAS'],
+      },
+    },
+    gerentesController.relatorio.bind(gerentesController),
   );
 
   typed.get<{ Querystring: VendasPdv.DetalhePdvQuery }>(

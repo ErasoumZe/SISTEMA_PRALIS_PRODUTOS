@@ -15,6 +15,8 @@ export * as VendasDatas from './src/vendas/vendas.datas';
 export * as VendasDePara from './src/vendas/vendas-depara.schemas';
 export * as VendasUnicos from './src/vendas/vendas-unicos.schemas';
 export * as VendasRanking from './src/vendas/vendas-ranking.schemas';
+export * as VendasGerentes from './src/vendas/vendas-gerentes.schemas';
+export * as VendasGerentesPeriodo from './src/vendas/vendas-gerentes.periodo';
 export * as VendasAbc from './src/vendas/vendas-abc.schemas';
 export * as VendasPulso from './src/vendas/vendas-pulso.schemas';
 export * as VendasPdv from './src/vendas/vendas-pdv.schemas';
