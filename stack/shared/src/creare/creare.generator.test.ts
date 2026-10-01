@@ -241,6 +241,16 @@ describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
     expect(parsed.scaleValidity).toBe('002');
   });
 
+  it('grava tecla 000 e validade em dias com tres digitos para produto novo pesavel', () => {
+    const parsed = parseCreareRecord(generateCreareRecord(
+      bread({ pesavel: 'S', teclaBalanca: 0, validadeBalanca: 7 }),
+      config,
+    ));
+    expect(parsed.weighable).toBe('S');
+    expect(parsed.scaleKey).toBe('000');
+    expect(parsed.scaleValidity).toBe('007');
+  });
+
   it('recusa cadastro SIA sem classificacao de balanca', () => {
     expect(() => generateCreareRecord(bread({ codigoInterno: null, pesavel: null }), config, { ...sia, pesavel: null }))
       .toThrow(/Pesavel sem confirmacao/);
