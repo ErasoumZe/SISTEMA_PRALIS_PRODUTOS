@@ -93,6 +93,19 @@ export async function vendasRoutes(app: FastifyInstance) {
     gerentesController.relatorio.bind(gerentesController),
   );
 
+  typed.get(
+    '/vendas/gerentes/acesso',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        response: { 200: apiResponseSchema(VendasGerentes.gerentesAcessoSchema) },
+        summary: 'Lojas permitidas para esta conta no Relatório Gerentes',
+        tags: ['VENDAS'],
+      },
+    },
+    gerentesController.acesso.bind(gerentesController),
+  );
+
   typed.get<{ Querystring: VendasPdv.DetalhePdvQuery }>(
     '/vendas/pdv/detalhe',
     {

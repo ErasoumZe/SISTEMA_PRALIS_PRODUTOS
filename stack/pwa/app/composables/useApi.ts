@@ -500,6 +500,8 @@ export function useApi() {
       unwrap($fetch<{ data: VendasRankingResposta }>('/vendas/ranking', { ...base, query })),
     relatorioGerentes: (query: RelatorioGerentesQuery) =>
       unwrap($fetch<{ data: RelatorioGerentes }>('/vendas/gerentes', { ...base, query })),
+    acessoGerentes: () =>
+      unwrap($fetch<{ data: { lojas: Array<'TNP' | 'LI'> } }>('/vendas/gerentes/acesso', { ...base })),
 
     vendasPdvDetalhe: (query: DetalhePdvQuery) =>
       unwrap($fetch<{ data: DetalhePdv }>('/vendas/pdv/detalhe', { ...base, query })),

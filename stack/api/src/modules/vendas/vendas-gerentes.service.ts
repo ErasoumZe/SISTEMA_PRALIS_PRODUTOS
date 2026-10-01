@@ -56,19 +56,20 @@ export function montarRelatorioGerentes(
 export class VendasGerentesService {
   async relatorio(loja: Loja, pedido: VendasGerentes.GerentesQuery): Promise<VendasGerentes.Gerentes> {
     datasDoPeriodo(pedido.inicio, pedido.fim);
-    const [opcoes, movimento] = await Promise.all([
-      db.execute(sql`SELECT DISTINCT pdv FROM fechamento_caixa_dia WHERE loja = ${loja} ORDER BY pdv`),
-      db.execute(sql`
+    const movimento = await db.execute(sql`
         SELECT data::text AS data, pdv, SUM(total_pagamento)::float8 AS total
         FROM fechamento_caixa_dia
         WHERE loja = ${loja} AND data BETWEEN ${pedido.inicio}::date AND ${pedido.fim}::date
+          AND NULLIF(BTRIM(pdv), '') IS NOT NULL
         GROUP BY data, pdv ORDER BY data, pdv
-      `),
-    ]);
+      `);
+    const linhas = movimento.rows.map((r) => ({ data: String(r.data), pdv: String(r.pdv), total: Number(r.total) }));
+    // Só oferecer PDVs com fechamento NESTE período. Um dispositivo cadastrado
+    // historicamente, mas sem movimento agora, não é uma série de zero pontos.
+    const pdvs = [...new Set(linhas.map((r) => r.pdv))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
     return montarRelatorioGerentes(
       loja, pedido.inicio, pedido.fim,
-      opcoes.rows.map((r) => String(r.pdv)),
-      movimento.rows.map((r) => ({ data: String(r.data), pdv: String(r.pdv), total: Number(r.total) })),
+      pdvs, linhas,
       pedido.pdv,
     );
   }

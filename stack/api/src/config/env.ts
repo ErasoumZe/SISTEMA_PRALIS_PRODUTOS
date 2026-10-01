@@ -81,6 +81,8 @@ export const env = {
   JWT_SECRET: envVar('JWT_SECRET', SEGREDOS_DE_DESENVOLVIMENTO.JWT_SECRET),
   COOKIE_SECRET: envVar('COOKIE_SECRET', SEGREDOS_DE_DESENVOLVIMENTO.COOKIE_SECRET),
   ADMIN_EMAIL: envVar('ADMIN_EMAIL', 'rodrigo@cicluz.com.br').toLowerCase(),
+  // Segunda exceção do Relatório Gerentes. Sem valor, somente o admin-raiz vê as duas lojas.
+  GERENTES_PROGRAMADOR_EMAIL: envVar('GERENTES_PROGRAMADOR_EMAIL', 'zezinrique@gmail.com').toLowerCase(),
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME ?? '',
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY ?? '',
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET ?? '',
