@@ -7,6 +7,8 @@ export const gerentesQuerySchema = z.object({
   pdv: z.string().trim().min(1).max(80).optional(),
 });
 
+export const gerentesAcessoSchema = z.object({ lojas: z.array(z.enum(['TNP', 'LI'])) });
+
 export const gerentesSchema = z.object({
   loja: z.enum(['TNP', 'LI']),
   periodo: z.object({ inicio: z.iso.date(), fim: z.iso.date() }),

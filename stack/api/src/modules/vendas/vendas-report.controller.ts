@@ -13,6 +13,8 @@ import { montarPulso } from './vendas-pulso';
 import { VendasPdvService } from './vendas-pdv.service';
 import { VendasListaService } from './vendas-lista.service';
 import { VendasGerentesService } from './vendas-gerentes.service';
+import { lojaGerentes, lojasGerentes } from './vendas-gerentes-acesso';
+import { env } from '@/config/env';
 
 type VendasReportQuery = VendasSchemas.VendasReportQuery;
 
@@ -86,8 +88,13 @@ export class VendasRankingController {
 export class VendasGerentesController {
   constructor(@inject(VendasGerentesService) private service: VendasGerentesService) {}
 
+  async acesso(request: FastifyRequest, reply: FastifyReply) {
+    const lojas = lojasGerentes(request.currentUser, env.ADMIN_EMAIL, env.GERENTES_PROGRAMADOR_EMAIL);
+    return reply.status(200).send(buildResponse({ lojas }, 'Lojas disponíveis no relatório gerentes'));
+  }
+
   async relatorio(request: FastifyRequest<{ Querystring: VendasGerentes.GerentesQuery }>, reply: FastifyReply) {
-    const loja = reportStore(request, request.query.loja);
+    const loja = lojaGerentes(request.currentUser, request.query.loja, env.ADMIN_EMAIL, env.GERENTES_PROGRAMADOR_EMAIL);
     const dados = await this.service.relatorio(loja, request.query);
     // Apenas pontos saem desta rota; não serializar fechamento em reais.
     return reply.status(200).send(buildResponse(dados, 'Relatório gerentes'));

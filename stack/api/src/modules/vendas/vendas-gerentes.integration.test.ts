@@ -42,6 +42,7 @@ describe('relatório gerentes contra o fechamento real', () => {
     await fechamento('TNP', '2026-10-01', 'PDV 1', 'ANA', 100);
     await fechamento('TNP', '2026-10-01', 'PDV 1', 'JOAO', 20);
     await fechamento('TNP', '2026-10-03', 'PDV 2', 'ANA', 80);
+    await fechamento('TNP', '2026-10-03', ' ', 'SEM PDV', 500);
     await fechamento('LI', '2026-10-01', 'PDV 9', 'ANA', 1000);
 
     const r = await servico.relatorio('TNP', { inicio: '2026-10-01', fim: '2026-10-03' });
@@ -58,5 +59,9 @@ describe('relatório gerentes contra o fechamento real', () => {
     const filtrado = await servico.relatorio('TNP', { inicio: '2026-10-01', fim: '2026-10-03', pdv: 'PDV 2' });
     expect(filtrado.series).toHaveLength(1);
     expect(filtrado.totalPontos).toBe(20);
+
+    const soDiaUm = await servico.relatorio('TNP', { inicio: '2026-10-01', fim: '2026-10-01' });
+    expect(soDiaUm.pdvs).toEqual(['PDV 1']);
+    expect(soDiaUm.series).toHaveLength(1);
   });
 });
