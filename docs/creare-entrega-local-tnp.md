@@ -56,3 +56,46 @@ mas nao bloqueia o proximo download.
 Um lote criado antes de uma edicao e imutavel. A edicao aparece no lote
 seguinte depois que o primeiro for salvo e reconhecido. Produtos invalidos ou
 sem correspondencia continuam fora e devem ser verificados no health.
+
+## Ocultar a janela da tarefa a cada 5 minutos (sem senha)
+
+Nao altere `SINCRONIZAR-TXT-TNP.ps1` para esconder a propria janela: quando ele
+comeca a executar, a janela do `powershell.exe` ja foi aberta. A alteracao
+necessaria e na acao da tarefa `Download TXT SIA TNP`. Se a interface do
+Agendador pede a senha do usuario Servidor ao salvar, use o utilitario
+`automacao/robo-sia/OCULTAR-TAREFA-TXT-TNP.ps1`. Ele usa a sessao Windows
+atual e a API do Agendador; nao pede nem armazena senha.
+
+1. No PC da padaria, confirme que `whoami` mostra `servidor\servidor`.
+2. Copie **somente** `OCULTAR-TAREFA-TXT-TNP.ps1` para `C:\importação-sia`.
+   Nao substitua o robo.
+3. Abra o Windows PowerShell nessa conta e execute a conferencia, sem alterar nada:
+
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\importação-sia\OCULTAR-TAREFA-TXT-TNP.ps1'
+   ```
+
+4. Se o diagnostico mostrar login `3`, aplique:
+
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\importação-sia\OCULTAR-TAREFA-TXT-TNP.ps1' -Aplicar
+   ```
+
+   Se mostrar login diferente de `3`, use `-Aplicar -SomenteUsuarioConectado`
+   **apenas se aceitar que a tarefa passe a rodar somente enquanto a conta
+   Servidor estiver conectada**. Sem essa opcao, o utilitario para sem mudar
+   nada. Se a conta da tarefa nao for a mesma da sessao, tambem para.
+
+5. O utilitario salva o XML original em `C:\importação-sia\backup-tarefas` e
+   preserva os disparadores, incluindo a repeticao a cada 5 minutos. Teste:
+
+   ```powershell
+   Start-ScheduledTask -TaskName 'Download TXT SIA TNP'
+   Get-ScheduledTaskInfo -TaskName 'Download TXT SIA TNP' | Select-Object LastRunTime,LastTaskResult,NextRunTime
+   Get-Content -LiteralPath 'C:\importação-sia\logs\sincronizar-tnp.log' -Tail 5
+   ```
+
+   O esperado e `LastTaskResult` igual a `0`, uma linha recente no log e
+   nenhuma janela de PowerShell abrindo na area de trabalho. Se houver erro
+   de permissao, **nao apague nem recrie a tarefa**: conserve o backup e
+   envie a mensagem de erro para diagnostico.
