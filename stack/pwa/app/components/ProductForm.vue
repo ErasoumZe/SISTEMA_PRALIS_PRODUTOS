@@ -28,7 +28,8 @@ const SETORES = [
 
 const form = reactive({
   nome: '', quantidade: 0, medidaBase: 'KG', fotoUrl: '',
-  pesavel: null as 'S' | 'N' | null,
+  // Cadastro novo começa em "Não"; quem envia um pesável escolhe "Sim".
+  pesavel: 'N' as 'S' | 'N' | null,
   teclaBalanca: null as number | null, validadeBalanca: null as number | null,
   marca: '', embalagem: '', cDe: 'DE', qtCad: 1, medidaCompra: '', compraAproximada: false,
   grupo: '', codigoBarras: '', codigoInterno: '',
@@ -586,6 +587,10 @@ const duplicado = ref('');
 
 async function salvar(forcar = false) {
   if (!form.nome.trim()) { erro.value = 'Informe o nome do produto.'; return; }
+  if (form.pesavel !== 'S' && form.pesavel !== 'N') {
+    erro.value = 'Escolha Sim ou Não para o campo Vai para balança.';
+    return;
+  }
   if (form.pesavel === 'S' && (typeof form.validadeBalanca !== 'number'
     || !Number.isInteger(form.validadeBalanca) || form.validadeBalanca < 0 || form.validadeBalanca > 999)) {
     erro.value = 'Informe a validade da balança em dias (0 a 999).';
@@ -863,7 +868,7 @@ onMounted(async () => {
             <v-select v-model="form.medidaBase" :items="MEDIDAS_BASE" label="Medida base" variant="outlined" density="comfortable" :hint="ajuda('medidaBase')" />
           </v-col>
           <v-col cols="12" sm="6">
-            <v-select v-model="form.pesavel" :items="[{ title: 'Não conferido', value: null }, { title: 'Sim', value: 'S' }, { title: 'Não', value: 'N' }]" label="Vai para balança?" variant="outlined" density="comfortable" persistent-hint hint="Confirme no cadastro SIA. A medida KG não define este campo automaticamente." />
+            <v-select v-model="form.pesavel" :items="[{ title: 'Não', value: 'N' }, { title: 'Sim', value: 'S' }]" label="Vai para balança?" variant="outlined" density="comfortable" persistent-hint hint="Novos produtos começam em Não. Para produtos já existentes, confira o cadastro SIA; a medida KG não define este campo." />
           </v-col>
           <template v-if="form.pesavel === 'S'">
             <v-col cols="6" sm="3">
