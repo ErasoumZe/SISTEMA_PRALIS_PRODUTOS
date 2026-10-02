@@ -87,6 +87,7 @@ export const products = pgTable(
      * ele fica guardado — sao coisas diferentes e coexistem.
      */
     setorVenda1: text('setor_venda_1'),
+    areaVenda: text('area_venda'),
     setorVenda2: text('setor_venda_2'),
     localVenda1: text('local_venda_1'),
     localVenda2: text('local_venda_2'),

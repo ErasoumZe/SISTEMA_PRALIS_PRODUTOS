@@ -29,6 +29,7 @@ export interface ProdutoCadastro {
   grupo?: string | null;
   setorEstoque?: string | null;
   setorVenda1?: string | null;
+  areaVenda?: string | null;
   /**
    * Os limites de reposição, como o cadastro os guarda.
    *

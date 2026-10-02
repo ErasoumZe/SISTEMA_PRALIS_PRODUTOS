@@ -19,6 +19,7 @@ const diaDigitado = ref('');
 const semana = ref(1);
 const TODOS_PDV = '__todos_os_pdvs__';
 const pdv = ref(TODOS_PDV);
+const pdvsHora = ref<string[]>([]);
 const aba = ref<'pdvs' | 'areas'>('pdvs');
 
 const MESES = [
@@ -102,11 +103,11 @@ onMounted(carregarAcesso);
 watch(() => user.value?.id, carregarAcesso);
 watch([loja, mes, modo, diaDigitado, semana, pdv], carregar);
 watch([ano, mesNumero], () => { semana.value = 1; diaDigitado.value = ''; });
-watch([loja, mes, modo, diaDigitado, semana], () => { pdv.value = TODOS_PDV; });
+watch([loja, mes, modo, diaDigitado, semana], () => { pdv.value = TODOS_PDV; pdvsHora.value = []; });
 
 const opcoesPdv = computed(() => [
   { title: 'Todos os PDVs com fechamento', value: TODOS_PDV },
-  ...(dados.value?.pdvs ?? []).filter((nome) => nome.trim()).map((nome) => ({ title: nome, value: nome })),
+  ...(modo.value === 'dia' ? pdvsHora.value : dados.value?.pdvs ?? []).filter((nome) => nome.trim()).map((nome) => ({ title: nome, value: nome })),
 ]);
 const diasComFechamento = computed(() => {
   const series = dados.value?.series ?? [];
@@ -257,7 +258,9 @@ const metaBatida = computed(() => metaSemanalPontos.value !== null && entregueNa
       </v-card>
     </div>
 
-    <v-card flat class="gm-card gm-grafico">
+    <GerentesGraficoHorasPdv v-if="modo === 'dia' && lojasPermitidas.includes(loja)"
+      :loja="loja" :data="periodo?.inicio ?? ''" :pdv="pdv === TODOS_PDV ? null : pdv" @pdvs="pdvsHora = $event" />
+    <v-card v-else flat class="gm-card gm-grafico">
       <div class="gm-grafico-cabecalho">
         <div class="gm-grafico-titulo">
           <span class="gm-icone gm-icone--grafico"><v-icon icon="show_chart" size="23" /></span>

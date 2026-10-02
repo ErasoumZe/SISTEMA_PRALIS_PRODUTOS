@@ -80,5 +80,14 @@ describe('relatório gerentes contra o fechamento real', () => {
     const soDiaUm = await servico.relatorio('TNP', { inicio: '2026-10-01', fim: '2026-10-01' });
     expect(soDiaUm.pdvs).toEqual(['PDV 1']);
     expect(soDiaUm.series).toHaveLength(1);
+
+    const horas = await servico.relatorioHoras('TNP', { data: '2026-10-01' });
+    expect(horas.origem).toBe('venda_item_pdv');
+    expect(horas.horas).toHaveLength(17);
+    expect(horas.pdvs).toEqual(['PDV']);
+    expect(horas.series[0]?.horas[0]).toMatchObject({ hora: '10h', pontos: 8.75, quantidade: 3.5, numeroVendas: 1, faturamento: null });
+    expect(JSON.stringify(horas)).not.toContain('990');
+    const horasAdmin = await servico.relatorioHoras('TNP', { data: '2026-10-01' }, true);
+    expect(horasAdmin.series[0]?.horas[0]).toMatchObject({ faturamento: 35, ticketMedio: 35 });
   });
 });

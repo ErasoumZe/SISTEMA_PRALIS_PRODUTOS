@@ -232,6 +232,13 @@
       "when": 1790800493443,
       "tag": "0032_legal_mercury",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790971555982,
+      "tag": "0033_equal_whistler",
+      "breakpoints": true
     }
   ]
 }

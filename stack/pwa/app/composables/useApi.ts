@@ -12,6 +12,9 @@ export type DetalhePdvQuery = VendasPdv.DetalhePdvQuery;
 export type VendasRankingQuery = VendasRanking.VendasRankingQuery;
 export type RelatorioGerentes = VendasGerentes.Gerentes;
 export type RelatorioGerentesQuery = VendasGerentes.GerentesQuery;
+export type RelatorioGerentesAreas = VendasGerentes.GerentesAreas;
+export type RelatorioGerentesAreasQuery = VendasGerentes.GerentesAreasQuery;
+export type RelatorioGerentesHoras = VendasGerentes.GerentesHoras;
 export type ItemRanking = VendasRanking.ItemRanking;
 export type AbcProdutos = VendasAbc.AbcProdutos;
 export type AbcProdutosQuery = VendasAbc.AbcProdutosQuery;
@@ -504,6 +507,10 @@ export function useApi() {
       unwrap($fetch<{ data: { lojas: Array<'TNP' | 'LI'> } }>('/vendas/gerentes/acesso', { ...base })),
     plantaGerentes: () =>
       $fetch<Blob>('/vendas/gerentes/planta', { ...base, query: { loja: 'TNP' }, responseType: 'blob' }),
+    relatorioGerentesAreas: (query: RelatorioGerentesAreasQuery) =>
+      unwrap($fetch<{ data: RelatorioGerentesAreas }>('/vendas/gerentes/areas', { ...base, query })),
+    relatorioGerentesHoras: (query: VendasGerentes.GerentesHorasQuery) =>
+      unwrap($fetch<{ data: RelatorioGerentesHoras }>('/vendas/gerentes/horas', { ...base, query })),
 
     vendasPdvDetalhe: (query: DetalhePdvQuery) =>
       unwrap($fetch<{ data: DetalhePdv }>('/vendas/pdv/detalhe', { ...base, query })),

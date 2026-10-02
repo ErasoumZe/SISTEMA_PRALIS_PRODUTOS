@@ -106,6 +106,34 @@ export async function vendasRoutes(app: FastifyInstance) {
     gerentesController.planta.bind(gerentesController),
   );
 
+  typed.get<{ Querystring: VendasGerentes.GerentesAreasQuery }>(
+    '/vendas/gerentes/areas',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: VendasGerentes.gerentesAreasQuerySchema,
+        response: { 200: apiResponseSchema(VendasGerentes.gerentesAreasSchema) },
+        summary: 'Pontuação por área física da TNP a partir de itens de cupom',
+        tags: ['VENDAS'],
+      },
+    },
+    gerentesController.areas.bind(gerentesController),
+  );
+
+  typed.get<{ Querystring: VendasGerentes.GerentesHorasQuery }>(
+    '/vendas/gerentes/horas',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: VendasGerentes.gerentesHorasQuerySchema,
+        response: { 200: apiResponseSchema(VendasGerentes.gerentesHorasSchema) },
+        summary: 'Pontuação por hora e PDV a partir de itens de cupom',
+        tags: ['VENDAS'],
+      },
+    },
+    gerentesController.horas.bind(gerentesController),
+  );
+
   typed.get(
     '/vendas/gerentes/acesso',
     {
