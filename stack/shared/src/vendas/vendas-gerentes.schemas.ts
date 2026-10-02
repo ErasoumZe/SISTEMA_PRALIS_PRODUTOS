@@ -20,7 +20,17 @@ export const gerentesSchema = z.object({
   series: z.array(z.object({
     pdv: z.string(),
     pontosTotal: z.number(),
-    dias: z.array(z.object({ data: z.iso.date(), pontos: z.number().nullable() })),
+    dias: z.array(z.object({
+      data: z.iso.date(),
+      pontos: z.number().nullable(),
+      /** Total do fechamento, visivel apenas para quem ja pode ver dinheiro. */
+      faturamento: z.number().nullable(),
+      numeroVendas: z.number().nullable(),
+      ticketMedio: z.number().nullable(),
+      /** Apenas itens ligados ao dispositivo pela chave do ERP; null = sem cobertura. */
+      quantidade: z.number().nullable(),
+      vendasComItens: z.number().nullable(),
+    })),
   })),
 });
 

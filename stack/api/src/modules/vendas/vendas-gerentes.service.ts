@@ -5,8 +5,10 @@ import { AppError } from '@/config/api.replies';
 import { db } from '@/db/databases';
 
 type Loja = 'TNP' | 'LI';
-type Linha = { data: string; pdv: string; total: number };
+type Linha = { data: string; pdv: string; dispositivoIdErp: string; total: number; numeroVendas: number };
+type ItemLinha = { data: string; dispositivoIdErp: string; quantidade: number; vendas: number };
 const pontos = (valor: number) => Math.round(valor * VendasRanking.PONTOS_POR_REAL * 100) / 100;
+const dinheiro = (valor: number) => Math.round(valor * 100) / 100;
 
 function datasDoPeriodo(inicio: string, fim: string): string[] {
   const inicioMs = Date.parse(`${inicio}T00:00:00Z`);
@@ -23,25 +25,55 @@ function datasDoPeriodo(inicio: string, fim: string): string[] {
 
 export function montarRelatorioGerentes(
   loja: Loja, inicio: string, fim: string, pdvs: string[], linhas: Linha[], filtroPdv?: string,
+  itens: ItemLinha[] = [], podeVerDinheiro = false,
 ): VendasGerentes.Gerentes {
   const datas = datasDoPeriodo(inicio, fim);
   if (filtroPdv && !pdvs.includes(filtroPdv)) throw new AppError('PDV não encontrado nesta loja.', 422, 'PDV_NOT_FOUND');
   const visiveis = filtroPdv ? [filtroPdv] : pdvs;
   const somas = new Map<string, number>();
-  const porDia = new Map<string, number>();
+  const porDia = new Map<string, { total: number; numeroVendas: number; ids: Map<string, number>; semId: boolean }>();
+  const donos = new Map<string, Set<string>>();
   for (const linha of linhas) {
+    if (linha.dispositivoIdErp) {
+      const idDia = `${linha.data}\u0000${linha.dispositivoIdErp}`;
+      const nomes = donos.get(idDia) ?? new Set<string>();
+      nomes.add(linha.pdv);
+      donos.set(idDia, nomes);
+    }
     if (!visiveis.includes(linha.pdv)) continue;
     const chave = `${linha.pdv}\u0000${linha.data}`;
     somas.set(linha.pdv, (somas.get(linha.pdv) ?? 0) + linha.total);
-    porDia.set(chave, (porDia.get(chave) ?? 0) + linha.total);
+    const dia = porDia.get(chave) ?? { total: 0, numeroVendas: 0, ids: new Map<string, number>(), semId: false };
+    dia.total += linha.total;
+    dia.numeroVendas += linha.numeroVendas;
+    if (linha.dispositivoIdErp) dia.ids.set(linha.dispositivoIdErp, (dia.ids.get(linha.dispositivoIdErp) ?? 0) + linha.numeroVendas);
+    else dia.semId = true;
+    porDia.set(chave, dia);
   }
+  const itensPorDispositivo = new Map(itens.map((item) => [`${item.data}\u0000${item.dispositivoIdErp}`, item]));
   const series = visiveis.map((pdv) => ({
     pdv,
     pontosTotal: pontos(somas.get(pdv) ?? 0),
     // Null significa "não chegou fechamento", não venda de zero pontos.
     dias: datas.map((data) => {
-      const valor = porDia.get(`${pdv}\u0000${data}`);
-      return { data, pontos: valor === undefined ? null : pontos(valor) };
+      const dia = porDia.get(`${pdv}\u0000${data}`);
+      if (!dia) return { data, pontos: null, faturamento: null, numeroVendas: null, ticketMedio: null, quantidade: null, vendasComItens: null };
+      // Detalhes sem chave de dispositivo, ou com chave ambigua entre PDVs,
+      // nao autorizam atribuir quantidade ao caixa por nome ou horario.
+      const pares = [...dia.ids].map(([id, vendas]) => ({
+        id, vendas, item: itensPorDispositivo.get(`${data}\u0000${id}`),
+      }));
+      const quantidadeConfiavel = !dia.semId && pares.length > 0 && pares.every(({ id, vendas, item }) =>
+        donos.get(`${data}\u0000${id}`)?.size === 1 && (item !== undefined || vendas === 0));
+      const quantidade = quantidadeConfiavel ? pares.reduce((soma, { item }) => soma + (item?.quantidade ?? 0), 0) : null;
+      const vendasComItens = quantidadeConfiavel ? pares.reduce((soma, { item }) => soma + (item?.vendas ?? 0), 0) : null;
+      return {
+        data, pontos: pontos(dia.total),
+        faturamento: podeVerDinheiro ? dinheiro(dia.total) : null,
+        numeroVendas: dia.numeroVendas,
+        ticketMedio: podeVerDinheiro && dia.numeroVendas > 0 ? dinheiro(dia.total / dia.numeroVendas) : null,
+        quantidade, vendasComItens,
+      };
     }),
   }));
   return {
@@ -54,23 +86,50 @@ export function montarRelatorioGerentes(
 
 @injectable()
 export class VendasGerentesService {
-  async relatorio(loja: Loja, pedido: VendasGerentes.GerentesQuery): Promise<VendasGerentes.Gerentes> {
+  async relatorio(loja: Loja, pedido: VendasGerentes.GerentesQuery, podeVerDinheiro = false): Promise<VendasGerentes.Gerentes> {
     datasDoPeriodo(pedido.inicio, pedido.fim);
     const movimento = await db.execute(sql`
-        SELECT data::text AS data, pdv, SUM(total_pagamento)::float8 AS total
+        SELECT data::text AS data, pdv, dispositivo_id_erp,
+          SUM(total_pagamento)::float8 AS total, SUM(numero_vendas)::int AS numero_vendas
         FROM fechamento_caixa_dia
         WHERE loja = ${loja} AND data BETWEEN ${pedido.inicio}::date AND ${pedido.fim}::date
           AND NULLIF(BTRIM(pdv), '') IS NOT NULL
-        GROUP BY data, pdv ORDER BY data, pdv
+        GROUP BY data, pdv, dispositivo_id_erp ORDER BY data, pdv, dispositivo_id_erp
       `);
-    const linhas = movimento.rows.map((r) => ({ data: String(r.data), pdv: String(r.pdv), total: Number(r.total) }));
+    const linhas = movimento.rows.map((r) => ({
+      data: String(r.data), pdv: String(r.pdv), dispositivoIdErp: String(r.dispositivo_id_erp ?? ''),
+      total: Number(r.total), numeroVendas: Number(r.numero_vendas),
+    }));
     // Só oferecer PDVs com fechamento NESTE período. Um dispositivo cadastrado
     // historicamente, mas sem movimento agora, não é uma série de zero pontos.
     const pdvs = [...new Set(linhas.map((r) => r.pdv))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const detalhe = await db.execute(sql`
+      WITH dispositivos AS (
+        SELECT DISTINCT dispositivo_id_erp
+        FROM fechamento_caixa_dia
+        WHERE loja = ${loja} AND data BETWEEN ${pedido.inicio}::date AND ${pedido.fim}::date
+          AND NULLIF(BTRIM(pdv), '') IS NOT NULL
+          AND NULLIF(BTRIM(dispositivo_id_erp), '') IS NOT NULL
+      )
+      SELECT i.vendido_em::date::text AS data, i.dispositivo_id_erp,
+        SUM(i.quantidade)::float8 AS quantidade,
+        COUNT(DISTINCT i.venda_id_erp)::int AS vendas
+      FROM venda_item_pdv i
+      JOIN dispositivos d ON d.dispositivo_id_erp = i.dispositivo_id_erp
+      WHERE i.loja = ${loja}
+        AND i.vendido_em >= ${pedido.inicio}::date
+        AND i.vendido_em < (${pedido.fim}::date + INTERVAL '1 day')
+        AND NOT i.item_cancelado AND i.venda_confirmada
+      GROUP BY i.vendido_em::date, i.dispositivo_id_erp
+    `);
+    const itens = detalhe.rows.map((r) => ({
+      data: String(r.data), dispositivoIdErp: String(r.dispositivo_id_erp),
+      quantidade: Number(r.quantidade), vendas: Number(r.vendas),
+    }));
     return montarRelatorioGerentes(
       loja, pedido.inicio, pedido.fim,
       pdvs, linhas,
-      pedido.pdv,
+      pedido.pdv, itens, podeVerDinheiro,
     );
   }
 }

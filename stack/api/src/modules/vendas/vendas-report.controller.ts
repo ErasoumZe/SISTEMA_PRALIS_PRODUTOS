@@ -95,8 +95,8 @@ export class VendasGerentesController {
 
   async relatorio(request: FastifyRequest<{ Querystring: VendasGerentes.GerentesQuery }>, reply: FastifyReply) {
     const loja = lojaGerentes(request.currentUser, request.query.loja, env.ADMIN_EMAIL, env.GERENTES_PROGRAMADOR_EMAIL);
-    const dados = await this.service.relatorio(loja, request.query);
-    // Apenas pontos saem desta rota; não serializar fechamento em reais.
+    const dados = await this.service.relatorio(loja, request.query, podeVerDinheiro(request.currentUser));
+    // Dinheiro e ticket so saem para contas ja autorizadas; o corte e na API.
     return reply.status(200).send(buildResponse(dados, 'Relatório gerentes'));
   }
 }
