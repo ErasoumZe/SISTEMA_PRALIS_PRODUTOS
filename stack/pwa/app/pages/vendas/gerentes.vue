@@ -115,7 +115,12 @@ const diasComFechamento = computed(() => {
 const temMovimento = computed(() => diasComFechamento.value.length > 0);
 const apenasUmDia = computed(() => diasComFechamento.value.length === 1);
 const pontos = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const moeda = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 function rotuloData(iso: string) { return iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : ''; }
+function escaparHtml(valor: string) {
+  const entidades: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  return valor.replace(/[&<>"']/g, (c) => entidades[c] ?? c);
+}
 // Cores categóricas vivas e estáveis ao alternar entre Todos e um PDV.
 const PALETA_PDV = ['#F9AB00', '#1A73E8', '#34A853', '#EA4335', '#A142F4', '#00ACC1', '#FF6D00', '#D81B60'];
 const coresGrafico = computed(() => (dados.value?.series ?? []).map((serie) => {
@@ -126,14 +131,31 @@ const seriesGrafico = computed(() => (dados.value?.series ?? []).map((s) => ({
   name: s.pdv,
   data: diasComFechamento.value.map((data) => s.dias.find((dia) => dia.data === data)?.pontos ?? null),
 })));
+function tooltipGerentes(serieIndex: number, pontoIndex: number): string {
+  const data = diasComFechamento.value[pontoIndex];
+  const serie = dados.value?.series[serieIndex];
+  const dia = serie?.dias.find((d) => d.data === data);
+  if (!data || !serie || !dia || dia.pontos === null) return '';
+  const cor = coresGrafico.value[serieIndex] ?? '#667085';
+  const linha = (rotulo: string, valor: string, classe: string) =>
+    `<div class="gm-hover-linha ${classe}"><span>${rotulo}</span><strong>${valor}</strong></div>`;
+  const dinheiroRestrito = dia.faturamento === null;
+  return `<div class="gm-hover">
+    <div class="gm-hover-topo"><span class="gm-hover-ponto" style="background:${cor}"></span><strong>${escaparHtml(serie.pdv)}</strong><span>${rotuloData(data)}</span></div>
+    ${linha('Pontuação', `${pontos(dia.pontos)} pts`, 'gm-hover-pontos')}
+    ${linha('Faturamento do fechamento', dinheiroRestrito ? 'Restrito' : moeda(dia.faturamento!), 'gm-hover-faturamento')}
+    ${linha(dia.quantidade !== null && dia.vendasComItens !== dia.numeroVendas ? 'Quantidade vendida (parcial)' : 'Quantidade vendida', dia.quantidade === null ? 'Sem detalhe confiável' : pontos(dia.quantidade), 'gm-hover-quantidade')}
+    ${linha('Número de vendas', String(dia.numeroVendas ?? '—'), 'gm-hover-vendas')}
+    ${linha('Ticket médio', dia.ticketMedio === null ? (dinheiroRestrito ? 'Restrito' : '—') : moeda(dia.ticketMedio), 'gm-hover-ticket')}
+    ${dia.quantidade !== null ? `<div class="gm-hover-nota">Soma de itens/peso vinculados pelo ERP em ${dia.vendasComItens} de ${dia.numeroVendas} venda(s).</div>` : '<div class="gm-hover-nota">Quantidade sem vínculo confiável ao PDV neste dia.</div>'}
+  </div>`;
+}
 const opcoesGrafico = computed<ApexOptions>(() => ({
-  chart: { type: apenasUmDia.value ? 'bar' : 'area', height: 420, toolbar: { show: false }, zoom: { enabled: false }, fontFamily: 'inherit', animations: { enabled: true, speed: 400 }, foreColor: '#667085' },
+  chart: { type: 'line', height: 420, toolbar: { show: false }, zoom: { enabled: false }, fontFamily: 'inherit', animations: { enabled: true, speed: 400 }, foreColor: '#667085' },
   colors: coresGrafico.value,
-  stroke: { curve: 'smooth', width: apenasUmDia.value ? 0 : 3, lineCap: 'round' },
-  fill: apenasUmDia.value ? { opacity: 1 } : { type: 'gradient', gradient: { shadeIntensity: 0, opacityFrom: 0.16, opacityTo: 0.01, stops: [0, 100] } },
-  plotOptions: { bar: { borderRadius: 8, columnWidth: '48%', distributed: false } },
+  stroke: { curve: 'smooth', width: 3, lineCap: 'round' },
   dataLabels: { enabled: false },
-  markers: { size: 0, strokeWidth: 2, strokeColors: '#FFFFFF', hover: { size: 8 } },
+  markers: { size: apenasUmDia.value ? 7 : 3, strokeWidth: 2, strokeColors: '#FFFFFF', hover: { size: 8 } },
   grid: { borderColor: '#E5E7EB', xaxis: { lines: { show: false } }, padding: { left: 12, right: 24, top: 8 } },
   xaxis: {
     categories: diasComFechamento.value.map(rotuloData),
@@ -144,7 +166,7 @@ const opcoesGrafico = computed<ApexOptions>(() => ({
   },
   yaxis: { min: 0, labels: { style: { colors: '#667085', fontSize: '12px' }, formatter: (v) => `${pontos(v)} pts` } },
   legend: { show: (dados.value?.series.length ?? 0) > 1, position: 'bottom', fontSize: '12px' },
-  tooltip: { shared: false, intersect: !apenasUmDia.value, x: { formatter: (_v, o) => rotuloData(diasComFechamento.value[o?.dataPointIndex ?? 0] ?? '') }, y: { formatter: (v) => `${pontos(v)} pontos` } },
+  tooltip: { shared: false, intersect: false, custom: ({ seriesIndex, dataPointIndex }) => tooltipGerentes(seriesIndex, dataPointIndex) },
   noData: { text: 'Sem fechamento no período' },
 }));
 
@@ -242,11 +264,12 @@ const metaBatida = computed(() => metaSemanalPontos.value !== null && entregueNa
       <v-progress-linear v-if="carregando" indeterminate color="primary" class="mb-3" />
       <div v-if="erroPeriodo" class="estado-vazio"><v-icon icon="event_busy" size="34" />Corrija o período para ver o gráfico.</div>
       <div v-else-if="!carregando && !temMovimento" class="estado-vazio"><v-icon icon="query_stats" size="34" />Nenhum fechamento de PDV chegou neste período.</div>
-      <apexchart v-else-if="dados && temMovimento" :type="apenasUmDia ? 'bar' : 'area'" :height="420" :options="opcoesGrafico" :series="seriesGrafico" />
+      <apexchart v-else-if="dados && temMovimento" type="line" :height="420" :options="opcoesGrafico" :series="seriesGrafico" />
       <div class="gm-rodape">
         <v-icon icon="info" size="16" />
         <span>Apenas PDVs identificados e dias com fechamento entram no gráfico; dias sem dados não viram zero.
-          A pontuação segue a regra vigente do ranking; o fechamento pode conter lançamentos além de vendas de produtos.</span>
+          O faturamento e o ticket vêm do fechamento, que pode incluir lançamentos além de vendas de produtos.
+          A quantidade vem somente dos itens vinculados ao dispositivo pelo ERP e pode ter cobertura parcial.</span>
       </div>
     </v-card>
   </div>
@@ -316,4 +339,19 @@ const metaBatida = computed(() => metaSemanalPontos.value !== null && entregueNa
   .gm-grafico-cabecalho { align-items: flex-start; flex-direction: column; }
   .gm-contagem { align-self: flex-start; }
 }
+</style>
+
+<style>
+.gm-hover { min-width: 245px; max-width: 300px; padding: 13px 15px; border: 1px solid #e7e8ed; border-radius: 14px; background: #fff; box-shadow: 0 12px 30px rgba(25, 31, 47, .14); color: #282a32; font-family: inherit; font-size: 12px; line-height: 1.4; }
+.gm-hover-topo { display: flex; align-items: center; gap: 7px; padding-bottom: 10px; margin-bottom: 7px; border-bottom: 1px solid #edf0f3; font-size: 12px; }
+.gm-hover-topo strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.gm-hover-topo > span:last-child { color: #667085; white-space: nowrap; }
+.gm-hover-ponto { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+.gm-hover-linha { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 4px 0; }
+.gm-hover-linha span { color: #667085; }
+.gm-hover-linha strong { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+.gm-hover-faturamento strong, .gm-hover-vendas strong { color: #a66b00; }
+.gm-hover-quantidade strong, .gm-hover-ticket strong { color: #17733c; }
+.gm-hover-pontos strong { color: #6c39bd; }
+.gm-hover-nota { margin-top: 7px; padding-top: 8px; border-top: 1px solid #edf0f3; color: #667085; font-size: 11px; line-height: 1.4; }
 </style>
