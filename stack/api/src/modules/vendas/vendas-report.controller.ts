@@ -13,8 +13,10 @@ import { montarPulso } from './vendas-pulso';
 import { VendasPdvService } from './vendas-pdv.service';
 import { VendasListaService } from './vendas-lista.service';
 import { VendasGerentesService } from './vendas-gerentes.service';
+import { VendasGerentesAreasService } from './vendas-gerentes-areas.service';
 import { lojaGerentes, lojasGerentes } from './vendas-gerentes-acesso';
 import { env } from '@/config/env';
+import { readFile } from 'node:fs/promises';
 
 type VendasReportQuery = VendasSchemas.VendasReportQuery;
 
@@ -86,7 +88,10 @@ export class VendasRankingController {
 
 @injectable()
 export class VendasGerentesController {
-  constructor(@inject(VendasGerentesService) private service: VendasGerentesService) {}
+  constructor(
+    @inject(VendasGerentesService) private service: VendasGerentesService,
+    @inject(VendasGerentesAreasService) private areasService: VendasGerentesAreasService,
+  ) {}
 
   async acesso(request: FastifyRequest, reply: FastifyReply) {
     const lojas = lojasGerentes(request.currentUser, env.ADMIN_EMAIL, env.GERENTES_PROGRAMADOR_EMAIL);
@@ -98,6 +103,26 @@ export class VendasGerentesController {
     const dados = await this.service.relatorio(loja, request.query, podeVerDinheiro(request.currentUser));
     // Dinheiro e ticket so saem para contas ja autorizadas; o corte e na API.
     return reply.status(200).send(buildResponse(dados, 'Relatório gerentes'));
+  }
+
+  async planta(request: FastifyRequest<{ Querystring: { loja: 'TNP' } }>, reply: FastifyReply) {
+    const loja = lojaGerentes(request.currentUser, request.query.loja, env.ADMIN_EMAIL, env.GERENTES_PROGRAMADOR_EMAIL);
+    if (loja !== 'TNP') throw new AppError('Planta indisponível para esta loja.', 404, 'MAP_NOT_FOUND');
+    const arquivo = new URL('../../../assets/mapas/tnp-unidade-catedral.png', import.meta.url);
+    const imagem = await readFile(arquivo);
+    return reply.header('Cache-Control', 'private, max-age=3600').type('image/png').send(imagem);
+  }
+
+  async areas(request: FastifyRequest<{ Querystring: VendasGerentes.GerentesAreasQuery }>, reply: FastifyReply) {
+    lojaGerentes(request.currentUser, request.query.loja, env.ADMIN_EMAIL, env.GERENTES_PROGRAMADOR_EMAIL);
+    const dados = await this.areasService.relatorio(request.query, podeVerDinheiro(request.currentUser));
+    return reply.status(200).send(buildResponse(dados, 'Pontuação por área'));
+  }
+
+  async horas(request: FastifyRequest<{ Querystring: VendasGerentes.GerentesHorasQuery }>, reply: FastifyReply) {
+    const loja = lojaGerentes(request.currentUser, request.query.loja, env.ADMIN_EMAIL, env.GERENTES_PROGRAMADOR_EMAIL);
+    const dados = await this.service.relatorioHoras(loja, request.query, podeVerDinheiro(request.currentUser));
+    return reply.status(200).send(buildResponse(dados, 'Pontuação horária por PDV'));
   }
 }
 

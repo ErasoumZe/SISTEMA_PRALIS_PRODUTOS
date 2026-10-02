@@ -134,4 +134,14 @@ describe('local e setor de venda (primário e secundário)', () => {
       localVenda1: 'VITRINE', // não foi mandado: continua como estava
     });
   });
+
+  it('grava a area fisica da TNP separada dos setores de venda e estoque', async () => {
+    const p = await repo.create(payload({ areaVenda: 'chapa', setorVenda1: 'PADARIA' }) as never, {
+      loja: 'TNP', codigo: 'PR-AREA', createdByUserId: null, createdByName: 'Teste',
+    });
+    expect(await repo.findById(p.id)).toMatchObject({ areaVenda: 'chapa', setorVenda1: 'PADARIA' });
+    await repo.update(p.id, { areaVenda: 'vitrine' });
+    const r = await db.execute(sqlTag`SELECT area_venda, setor_venda_1 FROM products WHERE id = ${p.id}`);
+    expect(r.rows[0]).toMatchObject({ area_venda: 'vitrine', setor_venda_1: 'PADARIA' });
+  });
 });

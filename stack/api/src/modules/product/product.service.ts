@@ -250,6 +250,7 @@ export class ProductService {
       throw new AppError('Apenas o administrador cadastra produtos novos (na base geral).', 403, 'ONLY_ADMIN_CREATE');
     }
     const alvo = 'BASE' as const;
+    if (payload.areaVenda != null) throw new AppError('Área de venda só pode ser definida no cadastro da TNP.', 422, 'AREA_STORE_MISMATCH');
     if (!payload.grupo?.trim()) {
       throw new AppError('Selecione o grupo de mercadorias para aplicar a regra fiscal.', 422, 'GROUP_REQUIRED');
     }
@@ -353,6 +354,9 @@ export class ProductService {
     if (!p) throw new AppError('Produto não encontrado', 404, 'NOT_FOUND');
     if (user.role !== 'admin' && p.loja !== user.loja) {
       throw new AppError('Você só pode editar produtos da sua loja.', 403, 'FORBIDDEN');
+    }
+    if (payload.areaVenda != null && p.loja !== 'TNP') {
+      throw new AppError('Área de venda desta planta só pode ser definida em produto da TNP.', 422, 'AREA_STORE_MISMATCH');
     }
 
     // O bloco fiscal é DERIVADO do grupo e tem consequência tributária: só o
@@ -753,6 +757,7 @@ export class ProductService {
       habilitarAjuda: p.habilitarAjuda,
       estoqueMin: p.estoqueMin, estoqueMax: p.estoqueMax, setorEstoque: p.setorEstoque,
       setorVenda1: p.setorVenda1, setorVenda2: p.setorVenda2,
+      areaVenda: p.areaVenda ?? null,
       custo: p.custo, margemPontual: p.margemPontual,
       vVendaPontual: p.vVendaPontual, auto: p.auto,
       localVenda1: p.localVenda1, localVenda2: p.localVenda2,

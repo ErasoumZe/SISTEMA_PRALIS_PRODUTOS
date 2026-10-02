@@ -86,6 +86,54 @@ export function montarRelatorioGerentes(
 
 @injectable()
 export class VendasGerentesService {
+  async relatorioHoras(
+    loja: Loja, pedido: VendasGerentes.GerentesHorasQuery, podeVerDinheiro = false,
+  ): Promise<VendasGerentes.GerentesHoras> {
+    const movimento = await db.execute(sql`
+      SELECT to_char(vendido_em, 'HH24') || 'h' AS hora, pdv,
+        SUM(total)::float8 AS total, SUM(quantidade)::float8 AS quantidade,
+        COUNT(DISTINCT venda_id_erp)::int AS numero_vendas
+      FROM venda_item_pdv
+      WHERE loja = ${loja} AND vendido_em >= ${pedido.data}::date
+        AND vendido_em < (${pedido.data}::date + INTERVAL '1 day')
+        AND EXTRACT(HOUR FROM vendido_em) BETWEEN 6 AND 22
+        AND NOT item_cancelado AND venda_confirmada AND NULLIF(BTRIM(pdv), '') IS NOT NULL
+      GROUP BY 1, pdv ORDER BY 1, pdv`);
+    const linhas = movimento.rows.map((r) => ({
+      hora: String(r.hora), pdv: String(r.pdv), total: Number(r.total),
+      quantidade: Number(r.quantidade), numeroVendas: Number(r.numero_vendas),
+    }));
+    const pdvs = [...new Set(linhas.map((r) => r.pdv))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    if (pedido.pdv && !pdvs.includes(pedido.pdv)) throw new AppError('PDV sem itens neste dia.', 422, 'PDV_NOT_FOUND');
+    const visiveis = pedido.pdv ? [pedido.pdv] : pdvs;
+    const fora = await db.execute(sql`
+      SELECT COALESCE(SUM(total), 0)::float8 AS total FROM venda_item_pdv
+      WHERE loja = ${loja} AND vendido_em >= ${pedido.data}::date
+        AND vendido_em < (${pedido.data}::date + INTERVAL '1 day')
+        AND EXTRACT(HOUR FROM vendido_em) NOT BETWEEN 6 AND 22
+        AND NOT item_cancelado AND venda_confirmada
+        AND NULLIF(BTRIM(pdv), '') IS NOT NULL
+        ${pedido.pdv ? sql`AND pdv = ${pedido.pdv}` : sql``}`);
+    const horas = Array.from({ length: 17 }, (_, i) => `${String(i + 6).padStart(2, '0')}h`);
+    const series = visiveis.map((pdv) => {
+      const porPdv = linhas.filter((r) => r.pdv === pdv);
+      return {
+        pdv, pontosTotal: pontos(porPdv.reduce((soma, linha) => soma + linha.total, 0)),
+        horas: porPdv.map((r) => ({
+          hora: r.hora, pontos: pontos(r.total),
+          faturamento: podeVerDinheiro ? dinheiro(r.total) : null,
+          quantidade: r.quantidade, numeroVendas: r.numeroVendas,
+          ticketMedio: podeVerDinheiro && r.numeroVendas > 0 ? dinheiro(r.total / r.numeroVendas) : null,
+        })),
+      };
+    });
+    return {
+      loja, data: pedido.data, origem: 'venda_item_pdv', horas, pdvs, filtroPdv: pedido.pdv ?? null,
+      totalPontos: pontos(linhas.filter((linha) => visiveis.includes(linha.pdv)).reduce((soma, linha) => soma + linha.total, 0)),
+      pontosForaHorario: pontos(Number(fora.rows[0]?.total ?? 0)), series,
+    };
+  }
+
   async relatorio(loja: Loja, pedido: VendasGerentes.GerentesQuery, podeVerDinheiro = false): Promise<VendasGerentes.Gerentes> {
     datasDoPeriodo(pedido.inicio, pedido.fim);
     const movimento = await db.execute(sql`

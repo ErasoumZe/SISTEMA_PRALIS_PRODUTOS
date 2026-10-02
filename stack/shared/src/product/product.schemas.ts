@@ -3,6 +3,7 @@ import {
   statusProduto, tipoProduto, catalogo, medidaBase, medidaCompra,
   embalagem, unidadeTransformacao, precisao, cDe, tipoPromocao,
 } from './product.enums';
+import { areaTnpSchema } from '../vendas/vendas-gerentes.schemas';
 
 /**
  * Modelo MULTI-LOJA: cada produto pertence a UM catálogo (BASE/TNP/LI/HORA).
@@ -138,6 +139,8 @@ export const baseProductSchema = z.object({
    * o que derrubou a producao em 02/09/2026, 149 produtos x 2 campos.
    */
   setorVenda1: z.string().nullable().default(null),
+  /** Área física da TNP para pontuação gerencial; não é setor de estoque nem PDV. */
+  areaVenda: areaTnpSchema.nullable().optional(),
   setorVenda2: z.string().nullable().default(null),
   localVenda1: z.string().nullable(),
   localVenda2: z.string().nullable(),

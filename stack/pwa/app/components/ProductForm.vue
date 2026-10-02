@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ProductRules, ProductRequests as Requests } from '@pralis/shared';
+import { ProductRules, ProductRequests as Requests, VendasGerentes } from '@pralis/shared';
 import type { ProductRequests } from '@pralis/shared';
 import type { FiscalClassification, GroupTaxRule } from '~/composables/useApi';
 import { aplicarFundoPralisComIa } from '~/composables/useProductPhotoAi';
@@ -25,6 +25,7 @@ const SETORES = [
   'LJ - CAIXAS', 'LJ - VITRINES', 'LJ - ESTOQUE  LOJA', 'LJ - TREINAMENTO',
   'PROD. - PANIFICAÇÃO', 'PROD. - CONFEITARIA', 'PROD. - ESTOQUE PRODUÇÃO',
 ];
+const AREAS_VENDA_TNP = VendasGerentes.AREAS_TNP.map((value) => ({ title: VendasGerentes.NOMES_AREAS_TNP[value], value }));
 
 const form = reactive({
   nome: '', quantidade: 0, medidaBase: 'KG', fotoUrl: '',
@@ -39,6 +40,7 @@ const form = reactive({
   custo: 0, margemPct: null as number | null, auto: true, vVendaPontual: 0,
   estoqueMin: 0, estoqueMax: 0, setorEstoque: '', localVenda1: '', localVenda2: '',
   setorVenda1: '', setorVenda2: '',
+  areaVenda: null as VendasGerentes.AreaTnp | null,
   // transformação
   precisao: 'EXATOS', qtdTransf: 0, unidadeTransf: 'G', produtoReceituario: '', refReceituario: '',
   // promoção (revenda)
@@ -572,6 +574,7 @@ function buildPayload(forcar = false): ProductRequests.CreateProductRequest {
   payload.estoqueMax = Number(form.estoqueMax) || null;
   payload.setorEstoque = form.setorEstoque || null;
   payload.setorVenda1 = form.setorVenda1 || null;
+  payload.areaVenda = form.areaVenda;
   payload.setorVenda2 = form.setorVenda2 || null;
   payload.custo = Number(form.custo) || null;
   payload.margemPontual = ProductRules.margemPctParaFracao(form.margemPct);
@@ -661,6 +664,7 @@ onMounted(async () => {
       estoqueMin: p.estoqueMin ?? 0, estoqueMax: p.estoqueMax ?? 0, setorEstoque: p.setorEstoque ?? '',
       localVenda1: p.localVenda1 ?? '', localVenda2: p.localVenda2 ?? '',
       setorVenda1: p.setorVenda1 ?? '', setorVenda2: p.setorVenda2 ?? '',
+      areaVenda: p.areaVenda ?? null,
     });
     if (p.transformacao) Object.assign(form, {
       precisao: p.transformacao.precisao, qtdTransf: p.transformacao.qtd, unidadeTransf: p.transformacao.unidade,
@@ -998,6 +1002,10 @@ onMounted(async () => {
           </v-col>
           <v-col cols="12" sm="6">
             <v-text-field v-model="form.setorVenda2" label="Setor de venda secundário" variant="outlined" density="comfortable" clearable :hint="ajuda('setorVenda2')" />
+          </v-col>
+          <v-col v-if="produtoSalvo?.loja === 'TNP'" cols="12" sm="6">
+            <v-select v-model="form.areaVenda" :items="AREAS_VENDA_TNP" label="Área da loja (Relatório Gerentes)" variant="outlined" density="comfortable" clearable
+              hint="Cada venda deste produto pontua nesta área, independentemente do PDV." persistent-hint />
           </v-col>
           <v-col cols="6" sm="3">
             <MoneyField v-model="form.custo" label="Custo" :hint="ajuda('custo')" />
