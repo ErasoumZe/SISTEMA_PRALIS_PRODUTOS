@@ -15,6 +15,7 @@ import { VendasListaService } from './vendas-lista.service';
 import { VendasGerentesService } from './vendas-gerentes.service';
 import { lojaGerentes, lojasGerentes } from './vendas-gerentes-acesso';
 import { env } from '@/config/env';
+import { readFile } from 'node:fs/promises';
 
 type VendasReportQuery = VendasSchemas.VendasReportQuery;
 
@@ -98,6 +99,14 @@ export class VendasGerentesController {
     const dados = await this.service.relatorio(loja, request.query, podeVerDinheiro(request.currentUser));
     // Dinheiro e ticket so saem para contas ja autorizadas; o corte e na API.
     return reply.status(200).send(buildResponse(dados, 'Relatório gerentes'));
+  }
+
+  async planta(request: FastifyRequest<{ Querystring: { loja: 'TNP' } }>, reply: FastifyReply) {
+    const loja = lojaGerentes(request.currentUser, request.query.loja, env.ADMIN_EMAIL, env.GERENTES_PROGRAMADOR_EMAIL);
+    if (loja !== 'TNP') throw new AppError('Planta indisponível para esta loja.', 404, 'MAP_NOT_FOUND');
+    const arquivo = new URL('../../../assets/mapas/tnp-unidade-catedral.png', import.meta.url);
+    const imagem = await readFile(arquivo);
+    return reply.header('Cache-Control', 'private, max-age=3600').type('image/png').send(imagem);
   }
 }
 

@@ -19,6 +19,7 @@ const diaDigitado = ref('');
 const semana = ref(1);
 const TODOS_PDV = '__todos_os_pdvs__';
 const pdv = ref(TODOS_PDV);
+const aba = ref<'pdvs' | 'areas'>('pdvs');
 
 const MESES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -199,7 +200,7 @@ const metaBatida = computed(() => metaSemanalPontos.value !== null && entregueNa
         <v-text-field v-else :model-value="lojasPermitidas[0] || '—'" label="Loja" prepend-inner-icon="storefront" variant="outlined" density="comfortable" hide-details readonly />
         <v-text-field v-model.number="ano" type="number" min="2000" max="2100" label="Ano" prepend-inner-icon="event" variant="outlined" density="comfortable" hide-details />
         <v-select v-model="mesNumero" :items="MESES" label="Mês" prepend-inner-icon="calendar_month" variant="outlined" density="comfortable" hide-details />
-        <v-select v-model="pdv" :items="opcoesPdv" label="PDV" prepend-inner-icon="point_of_sale" variant="outlined" density="comfortable" hide-details :menu-props="{ maxHeight: 320 }" />
+        <v-select v-if="aba === 'pdvs'" v-model="pdv" :items="opcoesPdv" label="PDV" prepend-inner-icon="point_of_sale" variant="outlined" density="comfortable" hide-details :menu-props="{ maxHeight: 320 }" />
       </div>
       <div class="gm-periodo">
         <span class="gm-periodo-label">Período</span>
@@ -222,6 +223,12 @@ const metaBatida = computed(() => metaSemanalPontos.value !== null && entregueNa
     <v-alert v-else-if="!carregandoAcesso && !lojasPermitidas.length" type="warning" variant="tonal" class="mb-4">Esta conta não tem loja vinculada ao Relatório Gerentes.</v-alert>
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
 
+    <v-tabs v-model="aba" class="gm-abas mb-4" color="primary" aria-label="Abas do Relatório Gerentes">
+      <v-tab value="pdvs" prepend-icon="show_chart">PDVs</v-tab>
+      <v-tab value="areas" prepend-icon="map">Áreas da loja</v-tab>
+    </v-tabs>
+
+    <template v-if="aba === 'pdvs'">
     <div class="resumo-gerentes mb-4">
       <v-card flat class="gm-card gm-indicador gm-indicador--pontos">
         <div class="gm-indicador-topo"><span class="gm-icone gm-icone--pontos"><v-icon icon="monitoring" size="22" /></span><span class="gm-indicador-fonte">FECHAMENTO</span></div>
@@ -272,11 +279,14 @@ const metaBatida = computed(() => metaSemanalPontos.value !== null && entregueNa
           A quantidade vem somente dos itens vinculados ao dispositivo pelo ERP e pode ter cobertura parcial.</span>
       </div>
     </v-card>
+    </template>
+    <GerentesMapaAreas v-else-if="lojasPermitidas.includes(loja)" :loja="loja" :modo="modo" :inicio="periodo?.inicio ?? ''" :fim="periodo?.fim ?? ''" />
   </div>
 </template>
 
 <style scoped>
 .relatorio-gerentes { max-width: 1440px; margin: 0 auto; color: var(--cx-ink); }
+.gm-abas { border-bottom: 1px solid var(--cx-line); }
 .gm-card { border: 1px solid var(--cx-line); border-radius: 22px; background: var(--cx-surface); box-shadow: 0 8px 28px rgba(30, 23, 55, .035); }
 .gm-filtros { padding: 26px 28px 24px; }
 .gm-cabecalho { display: flex; align-items: center; gap: 17px; }

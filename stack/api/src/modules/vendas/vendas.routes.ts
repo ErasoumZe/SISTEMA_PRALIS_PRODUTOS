@@ -93,6 +93,19 @@ export async function vendasRoutes(app: FastifyInstance) {
     gerentesController.relatorio.bind(gerentesController),
   );
 
+  typed.get<{ Querystring: { loja: 'TNP' } }>(
+    '/vendas/gerentes/planta',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: z.object({ loja: z.literal('TNP') }),
+        summary: 'Planta protegida da Unidade Catedral para contas autorizadas da TNP',
+        tags: ['VENDAS'],
+      },
+    },
+    gerentesController.planta.bind(gerentesController),
+  );
+
   typed.get(
     '/vendas/gerentes/acesso',
     {
