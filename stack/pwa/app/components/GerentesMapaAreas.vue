@@ -171,8 +171,10 @@ const opcoesGrafico = computed<ApexOptions>(() => ({
         <span><strong>{{ pontos(dados.totalPontos) }} pts</strong> em {{ dados.origem === 'venda_produto_dia' ? 'vendas por produto' : 'itens de cupons' }}</span>
         <span><strong>{{ pontos(dados.pontosSemArea) }} pts</strong> fora das barras por falta de vínculo/área</span>
         <span v-if="dados.pontosForaHorario"><strong>{{ pontos(dados.pontosForaHorario) }} pts</strong> fora de 06h–22h</span>
+        <span v-if="dados.produtosAreaSugerida"><strong>{{ pontos(dados.pontosAreaSugerida) }} pts</strong> em {{ dados.produtosAreaSugerida }} produto(s) com área sugerida pelo grupo</span>
         <span v-if="dados.produtosSemVinculo || dados.produtosSemArea">{{ dados.produtosSemVinculo }} produto(s) sem vínculo; {{ dados.produtosSemArea }} sem área.</span>
       </div>
+      <p v-if="dados?.produtosAreaSugerida" class="ga-nota">Áreas sugeridas pelo grupo são provisórias e não alteram o cadastro. A área escolhida manualmente no produto sempre prevalece. Grupos genéricos ou que cabem em mais de um local continuam pendentes.</p>
       <p class="ga-nota" v-if="dados?.origem === 'venda_produto_dia'">Fonte: vendas diárias por produto. Essa fonte não informa hora, número de cupons ou ticket por área; esses indicadores aparecem como indisponíveis. O total do fechamento do caixa é uma fonte distinta e pode divergir.</p>
       <p class="ga-nota" v-else>Fonte: itens de cupons confirmados no ERP, não o fechamento do caixa. A cobertura pode ser parcial. O mesmo cupom pode contar em mais de uma área se tiver produtos de áreas diferentes.</p>
     </section>
@@ -180,7 +182,7 @@ const opcoesGrafico = computed<ApexOptions>(() => ({
 </template>
 
 <style scoped>
-.ga-layout { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 18px; }
+.ga-layout { display: flex; flex-direction: column; gap: 18px; }
 .ga-card { min-width: 0; padding: 23px; border: 1px solid var(--cx-line); border-radius: 22px; background: var(--cx-surface); box-shadow: 0 8px 28px rgba(30, 23, 55, .035); }
 .ga-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .ga-heading h2 { margin: 0; font-size: 1.15rem; letter-spacing: -.02em; }
@@ -189,12 +191,12 @@ const opcoesGrafico = computed<ApexOptions>(() => ({
 .ga-controles { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: var(--cx-ink-soft); font-size: .78rem; }
 .ga-todas { color: var(--cx-brand-strong); font-weight: 700; cursor: pointer; }
 .ga-todas:focus-visible, .ga-area:focus-within { outline: 2px solid var(--cx-brand); outline-offset: 2px; }
-.ga-planta { position: relative; width: 100%; aspect-ratio: 1181 / 930; overflow: hidden; border: 1px solid var(--cx-line); border-radius: 15px; background: #fff; }
+.ga-planta { position: relative; width: min(100%, 1050px); aspect-ratio: 1181 / 930; margin-inline: auto; overflow: hidden; border: 1px solid var(--cx-line); border-radius: 15px; background: #fff; }
 .ga-planta img { position: absolute; width: 151.3%; max-width: none; height: 135.8%; left: -29.04%; top: -11.18%; }
 .ga-local { position: absolute; z-index: 1; border: 2px solid transparent; border-radius: 8px; pointer-events: none; transition: background .2s, box-shadow .2s; }
 .ga-local:not(.ga-local--inativo) { box-shadow: inset 0 0 22px color-mix(in srgb, var(--area-cor) 44%, transparent); }
 .ga-local--inativo { background: rgba(255, 255, 255, .76); border-color: #d1d5db; }
-.ga-legenda { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 13px; }
+.ga-legenda { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-top: 14px; }
 .ga-mapa-aviso { margin: 9px 0 0; color: var(--cx-ink-soft); font-size: .72rem; line-height: 1.4; }
 .ga-area { display: flex; align-items: center; gap: 8px; min-height: 37px; padding: 6px 8px; border: 1px solid var(--cx-line-soft); border-radius: 10px; cursor: pointer; font-size: .76rem; line-height: 1.25; }
 .ga-area input { accent-color: var(--cx-brand); }
@@ -208,7 +210,7 @@ const opcoesGrafico = computed<ApexOptions>(() => ({
 .ga-cobertura { display: flex; flex-wrap: wrap; gap: 7px 15px; padding-top: 14px; color: var(--cx-ink-soft); font-size: .75rem; }
 .ga-cobertura strong { color: var(--cx-ink); }
 .ga-nota { margin: 18px 0 0; color: var(--cx-ink-soft); font-size: .76rem; line-height: 1.5; }
-@media (max-width: 1080px) { .ga-layout { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .ga-legenda { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .ga-card { padding: 17px; } .ga-legenda { grid-template-columns: 1fr; } }
 </style>
 

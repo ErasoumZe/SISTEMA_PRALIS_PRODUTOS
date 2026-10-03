@@ -22,22 +22,22 @@ beforeAll(async () => {
 
 afterAll(async () => { await db?.$client.end(); await container?.stop(); });
 
-async function produto(id: string, codigoInterno: string, area: string | null) {
-  await db.execute(sqlTag`INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, codigo_interno, area_venda)
-    VALUES (${id}, 'TNP', ${id}, ${id}, 'UN', 'revenda', ${codigoInterno}, ${area})`);
+async function produto(id: string, codigoInterno: string, area: string | null, grupo: string | null = null) {
+  await db.execute(sqlTag`INSERT INTO products (id, loja, codigo, nome, medida_base, tipo, codigo_interno, area_venda, grupo)
+    VALUES (${id}, 'TNP', ${id}, ${id}, 'UN', 'revenda', ${codigoInterno}, ${area}, ${grupo})`);
 }
-async function item(id: string, venda: string, codigo: string, total: number, hora: string, loja = 'TNP') {
+async function item(id: string, venda: string, codigo: string, total: number, hora: string, loja = 'TNP', data = '2026-10-02') {
   await db.execute(sqlTag`INSERT INTO venda_item_pdv (id, loja, venda_id_erp, item_id_erp, dispositivo_id_erp, pdv,
     vendido_em, produto_codigo, produto, quantidade, valor_unitario, total,
     item_cancelado, venda_status, venda_confirmada, origem_atualizada_em)
-    VALUES (${id}, ${loja}, ${venda}, ${id}, '1', 'PDV 1', ${`2026-10-02T${hora}:00`}::timestamp,
-      ${codigo}, ${id}, 1, ${total}, ${total}, false, 'CONFIRMADA', true, '2026-10-02T23:00:00'::timestamp)`);
+    VALUES (${id}, ${loja}, ${venda}, ${id}, '1', 'PDV 1', ${`${data}T${hora}:00`}::timestamp,
+      ${codigo}, ${id}, 1, ${total}, ${total}, false, 'CONFIRMADA', true, ${`${data}T23:00:00`}::timestamp)`);
 }
-async function vendaDia(id: string, codigo: string, total: number, loja = 'TNP') {
+async function vendaDia(id: string, codigo: string, total: number, loja = 'TNP', data = '2026-10-02') {
   await db.execute(sqlTag`INSERT INTO venda_produto_dia (id, loja, data, produto_codigo, produto,
     quantidade, valor_unitario, total, hash, origem_atualizada_em)
-    VALUES (${id}, ${loja}, '2026-10-02'::date, ${codigo}, ${id}, 1, ${total}, ${total},
-      ${id + '-hash'}, '2026-10-02T23:00:00'::timestamp)`);
+    VALUES (${id}, ${loja}, ${data}::date, ${codigo}, ${id}, 1, ${total}, ${total},
+      ${id + '-hash'}, ${`${data}T23:00:00`}::timestamp)`);
 }
 
 describe('pontuação gerencial por área', () => {
@@ -75,5 +75,29 @@ describe('pontuação gerencial por área', () => {
     expect(diario.pontosSemArea).toBe(5);
     expect(diario.series[0]?.pontos[0]).toMatchObject({ chave: '2026-10-02', pontos: 20, numeroVendas: null, ticketMedio: null, faturamento: null });
     expect(JSON.stringify(diario)).not.toContain('900');
+  });
+
+  it('usa grupo claro como base provisória sem sobrepor a escolha manual', async () => {
+    await produto('produto-grupo-biscoito', '125', null, 'MER BISCOITOS - DOCES');
+    await produto('produto-manual', '126', 'caixa', 'MER BISCOITOS - DOCES');
+    await produto('produto-ambiguo', '127', null, 'MER PÃES - DOCES');
+    await item('item-d', 'venda-4', '00000000000125', 40, '11:05', 'TNP', '2026-10-03');
+    await item('item-e', 'venda-5', '00000000000126', 20, '11:05', 'TNP', '2026-10-03');
+    await item('item-f', 'venda-6', '00000000000127', 10, '11:05', 'TNP', '2026-10-03');
+    const pedido = { loja: 'TNP' as const, inicio: '2026-10-03', fim: '2026-10-03', granularidade: 'hora' as const };
+    const horario = await servico.relatorio(pedido, false);
+    expect(horario.totalPontos).toBe(17.5);
+    expect(horario.pontosAreaSugerida).toBe(10);
+    expect(horario.produtosAreaSugerida).toBe(1);
+    expect(horario.pontosSemArea).toBe(2.5);
+    expect(horario.series.map((s) => s.area)).toEqual(['caixa', 'biscoitos']);
+
+    await vendaDia('produto-grupo-biscoito', '00000000000125', 40, 'TNP', '2026-10-03');
+    await vendaDia('produto-manual', '00000000000126', 20, 'TNP', '2026-10-03');
+    await vendaDia('produto-ambiguo', '00000000000127', 10, 'TNP', '2026-10-03');
+    const diario = await servico.relatorio({ ...pedido, granularidade: 'dia' }, false);
+    expect(diario.pontosAreaSugerida).toBe(10);
+    expect(diario.produtosAreaSugerida).toBe(1);
+    expect(diario.pontosSemArea).toBe(2.5);
   });
 });

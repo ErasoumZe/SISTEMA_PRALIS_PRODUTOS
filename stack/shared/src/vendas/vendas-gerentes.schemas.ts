@@ -42,6 +42,7 @@ export const gerentesAreasSchema = z.object({
   categorias: z.array(z.string()),
   totalPontos: z.number(), pontosSemArea: z.number(), pontosForaHorario: z.number(),
   produtosSemVinculo: z.number(), produtosSemArea: z.number(),
+  produtosAreaSugerida: z.number(), pontosAreaSugerida: z.number(),
   series: z.array(z.object({ area: areaTnpSchema, pontosTotal: z.number(), pontos: z.array(pontoAreaSchema) })),
 });
 export type GerentesAreasQuery = z.infer<typeof gerentesAreasQuerySchema>;

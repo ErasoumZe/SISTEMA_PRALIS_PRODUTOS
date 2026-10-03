@@ -108,7 +108,7 @@ export class VendasGerentesController {
   async planta(request: FastifyRequest<{ Querystring: { loja: 'TNP' } }>, reply: FastifyReply) {
     const loja = lojaGerentes(request.currentUser, request.query.loja, env.ADMIN_EMAIL, env.GERENTES_PROGRAMADOR_EMAIL);
     if (loja !== 'TNP') throw new AppError('Planta indisponível para esta loja.', 404, 'MAP_NOT_FOUND');
-    const arquivo = new URL('../../../assets/mapas/tnp-unidade-catedral.png', import.meta.url);
+    const arquivo = new URL('../../../assets/mapas/tnp-unidade-catedral-sem-riscos.png', import.meta.url);
     const imagem = await readFile(arquivo);
     return reply.header('Cache-Control', 'private, max-age=3600').type('image/png').send(imagem);
   }
