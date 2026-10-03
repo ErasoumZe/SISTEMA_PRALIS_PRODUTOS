@@ -76,17 +76,30 @@ onMounted(carregarDados);
 watch(() => [props.loja, props.inicio, props.fim, props.modo], carregarDados);
 
 const seriesVisiveis = computed(() => (dados.value?.series ?? []).filter((serie) => ativas.value.includes(serie.area)));
+// Como no gráfico por PDV, dias sem movimento não ocupam posições vazias no eixo.
+// As horas do modo Dia permanecem completas (06h–22h), mesmo sem venda.
+const categoriasGrafico = computed(() => {
+  if (!dados.value) return [];
+  if (dados.value.granularidade === 'hora') return dados.value.categorias;
+  return dados.value.categorias.filter((chave) =>
+    seriesVisiveis.value.some((serie) => serie.pontos.some((ponto) => ponto.chave === chave)));
+});
 const cores = computed(() => seriesVisiveis.value.map((serie) => areas.find((area) => area.id === serie.area)?.cor ?? '#64748B'));
 const seriesGrafico = computed(() => seriesVisiveis.value.map((serie) => ({
   name: areas.find((area) => area.id === serie.area)?.nome ?? serie.area,
-  data: (dados.value?.categorias ?? []).map((chave) => serie.pontos.find((p) => p.chave === chave)?.pontos ?? null),
+  data: categoriasGrafico.value.map((chave) => serie.pontos.find((p) => p.chave === chave)?.pontos ?? null),
 })));
 const pontos = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 const moeda = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const nomeCategoria = (chave: string) => chave.endsWith('h') ? chave : `${chave.slice(8, 10)}/${chave.slice(5, 7)}`;
+const rotulosCategorias = computed(() => {
+  const passo = Math.ceil(categoriasGrafico.value.length / 12);
+  return categoriasGrafico.value.map((chave, indice) =>
+    indice % passo === 0 ? nomeCategoria(chave) : '');
+});
 function tooltipArea(serieIndex: number, pontoIndex: number): string {
   const serie = seriesVisiveis.value[serieIndex];
-  const chave = dados.value?.categorias[pontoIndex];
+  const chave = categoriasGrafico.value[pontoIndex];
   const ponto = serie?.pontos.find((p) => p.chave === chave);
   if (!serie || !chave || !ponto) return '';
   const area = areas.find((a) => a.id === serie.area);
@@ -106,7 +119,11 @@ const opcoesGrafico = computed<ApexOptions>(() => ({
   plotOptions: { bar: { borderRadius: 4, columnWidth: '72%' } },
   dataLabels: { enabled: false },
   grid: { borderColor: '#E5E7EB', padding: { left: 8, right: 12 } },
-  xaxis: { categories: (dados.value?.categorias ?? []).map(nomeCategoria), labels: { rotate: 0, hideOverlappingLabels: true } },
+  xaxis: {
+    categories: rotulosCategorias.value,
+    tickAmount: Math.min(12, categoriasGrafico.value.length),
+    labels: { rotate: 0, hideOverlappingLabels: true, style: { colors: '#667085', fontSize: '12px' } },
+  },
   yaxis: { min: 0, labels: { formatter: (v) => `${pontos(v)} pts` } },
   legend: { show: false },
   tooltip: { shared: false, intersect: true, custom: ({ seriesIndex, dataPointIndex }) => tooltipArea(seriesIndex, dataPointIndex) },
