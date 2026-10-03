@@ -5,6 +5,7 @@ import { AppError } from '@/config/api.replies';
 import { VendasGerentes, VendasRanking } from '@pralis/shared';
 import { VendasReportRepository } from './vendas-report.repository';
 import { indexarPorCodigo, resolverProduto } from './vendas-margem';
+import { areaEfetiva } from './vendas-gerentes-area-grupo';
 
 const arredondar = (n: number) => Math.round(n * 100) / 100;
 const pontos = (n: number) => arredondar(n * VendasRanking.PONTOS_POR_REAL);
@@ -41,8 +42,8 @@ export class VendasGerentesAreasService {
       AND NOT i.item_cancelado AND i.venda_confirmada`;
 
     // Resolve uma vez por SKU, pela mesma regra de código/de-para do ranking.
-    // Sem produto casado ou sem área preenchida, a venda fica na cobertura,
-    // nunca é adivinhada a partir do PDV, nome ou local de estoque.
+    // Sem produto casado ou sem área manual/sugestão explícita, a venda fica
+    // na cobertura. Nunca se deduz a área pelo PDV ou nome do produto.
     const [sku, cadastro, dePara, totais] = await Promise.all([
       db.execute(sql`SELECT DISTINCT i.produto_codigo, i.produto FROM venda_item_pdv i WHERE ${onde} ${horario}`),
       this.repository.produtosDaLoja('TNP'),
@@ -52,17 +53,19 @@ export class VendasGerentesAreasService {
         FROM venda_item_pdv i WHERE ${onde}`),
     ]);
     const indice = indexarPorCodigo(cadastro);
-    const mapa: Array<{ codigo: string; nome: string; area: VendasGerentes.AreaTnp }> = [];
+    const mapa: Array<{ codigo: string; nome: string; area: VendasGerentes.AreaTnp; inferida: boolean }> = [];
     let produtosSemVinculo = 0;
     let produtosSemArea = 0;
+    const sugeridos = new Set<string>();
     for (const row of sku.rows) {
       const codigo = String(row.produto_codigo ?? '');
       const nome = String(row.produto ?? '');
       const produto = resolverProduto(codigo, nome, indice, dePara);
       if (!produto) { produtosSemVinculo++; continue; }
-      const area = VendasGerentes.areaTnpSchema.safeParse(produto.areaVenda);
-      if (!area.success) { produtosSemArea++; continue; }
-      mapa.push({ codigo, nome, area: area.data });
+      const atribuicao = areaEfetiva(produto);
+      if (!atribuicao) { produtosSemArea++; continue; }
+      if (atribuicao.inferida) sugeridos.add(produto.id);
+      mapa.push({ codigo, nome, ...atribuicao });
     }
 
     const totalItens = Number(totais.rows[0]?.total ?? 0);
@@ -71,17 +74,18 @@ export class VendasGerentesAreasService {
     if (!mapa.length) return {
       loja: 'TNP', periodo: { inicio, fim }, granularidade, origem: 'venda_item_pdv', categorias: eixo,
       totalPontos: pontos(totalNaJanela), pontosSemArea: pontos(totalNaJanela), pontosForaHorario: pontos(foraHorario),
-      produtosSemVinculo, produtosSemArea, series: [],
+      produtosSemVinculo, produtosSemArea, produtosAreaSugerida: 0, pontosAreaSugerida: 0, series: [],
     };
 
-    const valores = sql.join(mapa.map(({ codigo, nome, area }) => sql`(${codigo}, ${nome}, ${area})`), sql`, `);
+    const valores = sql.join(mapa.map(({ codigo, nome, area, inferida }) => sql`(${codigo}, ${nome}, ${area}, ${inferida}::boolean)`), sql`, `);
     const chave = granularidade === 'hora'
       ? sql`(to_char(i.vendido_em, 'HH24') || 'h')`
       : sql`i.vendido_em::date::text`;
     const r = await db.execute(sql`
-      WITH mapa(produto_codigo, produto, area) AS (VALUES ${valores})
+      WITH mapa(produto_codigo, produto, area, inferida) AS (VALUES ${valores})
       SELECT ${chave} AS chave, mapa.area,
         SUM(i.total)::float8 AS total, SUM(i.quantidade)::float8 AS quantidade,
+        COALESCE(SUM(i.total) FILTER (WHERE mapa.inferida), 0)::float8 AS total_inferido,
         COUNT(DISTINCT i.venda_id_erp)::int AS numero_vendas
       FROM venda_item_pdv i
       JOIN mapa ON mapa.produto_codigo = i.produto_codigo AND mapa.produto = i.produto
@@ -92,11 +96,13 @@ export class VendasGerentesAreasService {
       quantidade: number; numeroVendas: number; ticketMedio: number | null;
     }>>();
     let classificado = 0;
+    let totalInferido = 0;
     for (const row of r.rows) {
       const area = row.area as VendasGerentes.AreaTnp;
       const total = Number(row.total ?? 0);
       const vendas = Number(row.numero_vendas ?? 0);
       classificado += total;
+      totalInferido += Number(row.total_inferido ?? 0);
       const pontosArea = porArea.get(area) ?? [];
       pontosArea.push({
         chave: String(row.chave), pontos: pontos(total),
@@ -110,6 +116,7 @@ export class VendasGerentesAreasService {
       loja: 'TNP', periodo: { inicio, fim }, granularidade, origem: 'venda_item_pdv', categorias: eixo,
       totalPontos: pontos(totalNaJanela), pontosSemArea: pontos(Math.max(0, totalNaJanela - classificado)),
       pontosForaHorario: pontos(foraHorario), produtosSemVinculo, produtosSemArea,
+      produtosAreaSugerida: sugeridos.size, pontosAreaSugerida: pontos(totalInferido),
       series: VendasGerentes.AREAS_TNP.filter((area) => porArea.has(area)).map((area) => ({
         area, pontosTotal: arredondar((porArea.get(area) ?? []).reduce((soma, ponto) => soma + ponto.pontos, 0)),
         pontos: porArea.get(area) ?? [],
@@ -133,8 +140,10 @@ export class VendasGerentesAreasService {
     const porArea = new Map<VendasGerentes.AreaTnp, Map<string, { total: number; quantidade: number }>>();
     const semVinculo = new Set<string>();
     const semArea = new Set<string>();
+    const sugeridos = new Set<string>();
     let total = 0;
     let classificado = 0;
+    let totalInferido = 0;
     for (const row of vendas.rows) {
       const codigo = String(row.produto_codigo ?? '');
       const nome = String(row.produto ?? '');
@@ -142,21 +151,23 @@ export class VendasGerentesAreasService {
       total += valor;
       const produto = resolverProduto(codigo, nome, indice, dePara);
       if (!produto) { semVinculo.add(`${codigo}|${nome}`); continue; }
-      const area = VendasGerentes.areaTnpSchema.safeParse(produto.areaVenda);
-      if (!area.success) { semArea.add(produto.id); continue; }
+      const atribuicao = areaEfetiva(produto);
+      if (!atribuicao) { semArea.add(produto.id); continue; }
       classificado += valor;
-      const porDia = porArea.get(area.data) ?? new Map<string, { total: number; quantidade: number }>();
+      if (atribuicao.inferida) { sugeridos.add(produto.id); totalInferido += valor; }
+      const porDia = porArea.get(atribuicao.area) ?? new Map<string, { total: number; quantidade: number }>();
       const chave = String(row.chave);
       const atual = porDia.get(chave) ?? { total: 0, quantidade: 0 };
       atual.total += valor;
       atual.quantidade += Number(row.quantidade ?? 0);
       porDia.set(chave, atual);
-      porArea.set(area.data, porDia);
+      porArea.set(atribuicao.area, porDia);
     }
     return {
       loja: 'TNP', periodo: { inicio, fim }, granularidade: 'dia', origem: 'venda_produto_dia', categorias: eixo,
       totalPontos: pontos(total), pontosSemArea: pontos(Math.max(0, total - classificado)),
       pontosForaHorario: 0, produtosSemVinculo: semVinculo.size, produtosSemArea: semArea.size,
+      produtosAreaSugerida: sugeridos.size, pontosAreaSugerida: pontos(totalInferido),
       series: VendasGerentes.AREAS_TNP.filter((area) => porArea.has(area)).map((area) => {
         const pontosArea = [...porArea.get(area)!].sort(([a], [b]) => a.localeCompare(b)).map(([chave, valor]) => ({
           chave, pontos: pontos(valor.total), faturamento: podeVerDinheiro ? arredondar(valor.total) : null,

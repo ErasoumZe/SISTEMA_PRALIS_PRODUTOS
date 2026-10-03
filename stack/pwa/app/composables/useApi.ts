@@ -506,7 +506,7 @@ export function useApi() {
     acessoGerentes: () =>
       unwrap($fetch<{ data: { lojas: Array<'TNP' | 'LI'> } }>('/vendas/gerentes/acesso', { ...base })),
     plantaGerentes: () =>
-      $fetch<Blob>('/vendas/gerentes/planta', { ...base, query: { loja: 'TNP' }, responseType: 'blob' }),
+      $fetch<Blob>('/vendas/gerentes/planta', { ...base, query: { loja: 'TNP' }, responseType: 'blob', cache: 'no-store' }),
     relatorioGerentesAreas: (query: RelatorioGerentesAreasQuery) =>
       unwrap($fetch<{ data: RelatorioGerentesAreas }>('/vendas/gerentes/areas', { ...base, query })),
     relatorioGerentesHoras: (query: VendasGerentes.GerentesHorasQuery) =>

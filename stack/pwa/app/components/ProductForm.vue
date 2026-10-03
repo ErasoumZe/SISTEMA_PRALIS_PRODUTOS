@@ -1005,7 +1005,7 @@ onMounted(async () => {
           </v-col>
           <v-col v-if="produtoSalvo?.loja === 'TNP'" cols="12" sm="6">
             <v-select v-model="form.areaVenda" :items="AREAS_VENDA_TNP" label="Área da loja (Relatório Gerentes)" variant="outlined" density="comfortable" clearable
-              hint="Cada venda deste produto pontua nesta área, independentemente do PDV." persistent-hint />
+              hint="A escolha manual prevalece. Se ficar vazio, o relatório poderá sugerir uma área pelo grupo; revise o resultado." persistent-hint />
           </v-col>
           <v-col cols="6" sm="3">
             <MoneyField v-model="form.custo" label="Custo" :hint="ajuda('custo')" />
