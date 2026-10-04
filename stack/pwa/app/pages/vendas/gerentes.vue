@@ -2,6 +2,7 @@
 import type { ApexOptions } from 'apexcharts';
 import { VendasGerentesPeriodo } from '@pralis/shared';
 import type { RelatorioGerentes } from '~/composables/useApi';
+import { corPdv } from '~/utils/gerentesCores';
 
 definePageMeta({ layout: 'default' });
 
@@ -123,12 +124,7 @@ function escaparHtml(valor: string) {
   const entidades: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   return valor.replace(/[&<>"']/g, (c) => entidades[c] ?? c);
 }
-// Cores categóricas vivas e estáveis ao alternar entre Todos e um PDV.
-const PALETA_PDV = ['#F9AB00', '#1A73E8', '#34A853', '#EA4335', '#A142F4', '#00ACC1', '#FF6D00', '#D81B60'];
-const coresGrafico = computed(() => (dados.value?.series ?? []).map((serie) => {
-  const indice = dados.value?.pdvs.indexOf(serie.pdv) ?? 0;
-  return PALETA_PDV[Math.max(0, indice) % PALETA_PDV.length];
-}));
+const coresGrafico = computed(() => (dados.value?.series ?? []).map((serie) => corPdv(serie.pdv)));
 const seriesGrafico = computed(() => (dados.value?.series ?? []).map((s) => ({
   name: s.pdv,
   data: diasComFechamento.value.map((data) => s.dias.find((dia) => dia.data === data)?.pontos ?? null),
