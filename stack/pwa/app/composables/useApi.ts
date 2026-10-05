@@ -140,6 +140,16 @@ export interface ResumoDePara {
   confirmacao: string;
 }
 
+export interface PreviaPesaveisSia {
+  loja: 'TNP'; arquivo: string; totalFonte: number; pesaveisFonte: number;
+  validadeZero: number; atualizarProdutos: number; atualizarEspelhos: number;
+  jaCorretos: number; semProduto: string[]; codigoAmbiguo: string[];
+  espelhoAmbiguo: string[]; semEspelho: string[];
+  hashArquivo: string; hashPlano: string; confirmacao: string;
+  /** Alguns itens com validade em dias, para conferir antes de confirmar. */
+  amostra: Array<{ codigoInterno: string; nome: string; validadeDias: number }>;
+}
+
 /** Por que um produto não recebeu custo da base de discriminação. */
 export type MotivoSemCusto = 'sem-lancamento' | 'nome-ambiguo-no-cadastro' | 'custo-ilegivel' | 'ja-esta-certo';
 
@@ -708,6 +718,26 @@ export function useApi() {
       return unwrap($fetch<{ data: { loja: string; gravadas: number; substituidas: number; semBarras: number; entrega: number } }>(
         '/admin/creare/depara', { ...base, method: 'POST', body: fd },
       ));
+    },
+
+    pesaveisSiaPrevia: (arquivo: File) => {
+      const fd = new FormData();
+      fd.append('file', arquivo);
+      return unwrap($fetch<{ data: PreviaPesaveisSia }>('/admin/creare/pesaveis/previa',
+        { ...base, method: 'POST', body: fd, timeout: 120_000 }));
+    },
+
+    pesaveisSiaAplicar: (arquivo: File, previa: PreviaPesaveisSia, confirmacao: string) => {
+      const fd = new FormData();
+      fd.append('confirmacao', confirmacao);
+      fd.append('hashArquivo', previa.hashArquivo);
+      fd.append('hashPlano', previa.hashPlano);
+      fd.append('file', arquivo);
+      return unwrap($fetch<{ data: {
+        loja: string; produtosAtualizados: number; espelhosAtualizados: number;
+        jaCorretos: number; semProduto: string[]; semEspelho: string[];
+      } }>('/admin/creare/pesaveis/aplicar',
+        { ...base, method: 'POST', body: fd, timeout: 120_000 }));
     },
 
     // ---- custo, da base de discriminação ----

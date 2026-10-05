@@ -22,6 +22,39 @@ const executando = ref(false);
 const erro = ref('');
 const resultado = ref('');
 
+// A exportação de pesáveis é uma manutenção incremental: nunca troca o de-para inteiro.
+const arquivoPesaveis = ref<File | null>(null);
+const previaPesaveis = ref<import('~/composables/useApi').PreviaPesaveisSia | null>(null);
+const confirmacaoPesaveis = ref('');
+const lendoPesaveis = ref(false);
+const aplicandoPesaveis = ref(false);
+const resultadoPesaveis = ref('');
+
+async function conferirPesaveis() {
+  previaPesaveis.value = null;
+  resultadoPesaveis.value = '';
+  if (!arquivoPesaveis.value) return;
+  lendoPesaveis.value = true;
+  erro.value = '';
+  try { previaPesaveis.value = await api.pesaveisSiaPrevia(arquivoPesaveis.value); }
+  catch (e) { erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui ler a exportação.'; }
+  finally { lendoPesaveis.value = false; }
+}
+
+async function aplicarPesaveis() {
+  if (!arquivoPesaveis.value || !previaPesaveis.value) return;
+  aplicandoPesaveis.value = true;
+  erro.value = '';
+  try {
+    const r = await api.pesaveisSiaAplicar(arquivoPesaveis.value, previaPesaveis.value, confirmacaoPesaveis.value);
+    resultadoPesaveis.value = `${r.produtosAtualizados} produto(s) e ${r.espelhosAtualizados} vínculo(s) atualizados. Confira o diagnóstico e o próximo TXT antes de importar no SIA.`;
+    confirmacaoPesaveis.value = '';
+    previaPesaveis.value = null;
+  } catch (e) {
+    erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui aplicar. Nada foi gravado.';
+  } finally { aplicandoPesaveis.value = false; }
+}
+
 async function carregarPrevia() {
   carregando.value = true;
   erro.value = '';
@@ -177,6 +210,35 @@ onMounted(() => {
     <template v-else>
       <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
       <v-alert v-if="resultado" type="success" variant="tonal" class="mb-4">{{ resultado }}</v-alert>
+
+      <v-card variant="outlined" class="mb-4">
+        <v-card-title class="text-subtitle-1">Pesáveis da TNP · exportação do SIA</v-card-title>
+        <v-card-text>
+          <p class="mb-3">Atualiza somente os itens marcados <strong>S</strong> no SIA, pelo código interno: Pesável = Sim, Tecla = 000 e Validade em dias (inclusive 0). Não transforma os demais em Não nem substitui o de-para inteiro.</p>
+          <v-alert type="warning" variant="tonal" density="compact" class="mb-3">Antes de aplicar, pause a tarefa Download TXT SIA TNP no PC da padaria. Após aplicar, confira o diagnóstico e o TXT novo antes da importação manual no SIA.</v-alert>
+          <v-file-input v-model="arquivoPesaveis" label="Exportação .xls/.xlsx do SIA" accept=".xls,.xlsx" variant="outlined" density="comfortable" prepend-icon="upload_file" @update:model-value="previaPesaveis = null" />
+          <v-btn :disabled="!arquivoPesaveis" :loading="lendoPesaveis" variant="tonal" prepend-icon="fact_check" @click="conferirPesaveis">Conferir sem gravar</v-btn>
+          <v-alert v-if="resultadoPesaveis" type="success" variant="tonal" class="mt-3">{{ resultadoPesaveis }}</v-alert>
+          <template v-if="previaPesaveis">
+            <v-divider class="my-4" />
+            <p><strong>{{ previaPesaveis.pesaveisFonte }}</strong> pesáveis em {{ previaPesaveis.totalFonte }} produtos; {{ previaPesaveis.validadeZero }} com validade 0.</p>
+            <p>{{ previaPesaveis.atualizarProdutos }} produtos e {{ previaPesaveis.atualizarEspelhos }} vínculos seriam atualizados; {{ previaPesaveis.jaCorretos }} já corretos.</p>
+            <p v-if="previaPesaveis.semProduto.length" class="text-warning">{{ previaPesaveis.semProduto.length }} códigos sem produto TNP: {{ previaPesaveis.semProduto.slice(0, 15).join(', ') }}. Esses não serão alterados.</p>
+            <p v-if="previaPesaveis.semEspelho.length" class="text-medium-emphasis">{{ previaPesaveis.semEspelho.length }} sem de-para: o cadastro do produto pode ser atualizado, mas o vínculo ausente não será criado.</p>
+            <v-alert v-if="previaPesaveis.codigoAmbiguo.length || previaPesaveis.espelhoAmbiguo.length" type="error" variant="tonal" class="my-3">Há códigos ambíguos. A aplicação fica bloqueada até corrigir os vínculos.</v-alert>
+            <template v-if="previaPesaveis.amostra.length">
+              <p class="mt-3 mb-1 text-medium-emphasis">Amostra do que será gravado:</p>
+              <ul class="ps-5">
+                <li v-for="item in previaPesaveis.amostra" :key="item.codigoInterno">
+                  {{ item.codigoInterno }} · {{ item.nome }} · validade {{ item.validadeDias }} dia(s)
+                </li>
+              </ul>
+            </template>
+            <v-text-field v-model="confirmacaoPesaveis" :label="`Digite ${previaPesaveis.confirmacao}`" variant="outlined" class="mt-3" />
+            <v-btn color="primary" prepend-icon="save" :loading="aplicandoPesaveis" :disabled="confirmacaoPesaveis.trim().toUpperCase() !== previaPesaveis.confirmacao || !!previaPesaveis.codigoAmbiguo.length || !!previaPesaveis.espelhoAmbiguo.length" @click="aplicarPesaveis">Aplicar somente os pesáveis</v-btn>
+          </template>
+        </v-card-text>
+      </v-card>
 
       <!--
         "Conferir planilha" morava no menu principal e não era aberta no dia a
