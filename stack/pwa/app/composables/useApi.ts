@@ -516,11 +516,11 @@ export function useApi() {
     relatorioGerentesHoras: (query: VendasGerentes.GerentesHorasQuery) =>
       unwrap($fetch<{ data: RelatorioGerentesHoras }>('/vendas/gerentes/horas', { ...base, query })),
 
-    /** Metas por turno: objetivo, projeção, atingido e diferença. Resposta só para admin. */
+    /** Metas por turno do Relatório Gerentes, em pontos. Gerar a matriz é só admin. */
     metasTurno: (query: MetasTurnoQuery) =>
-      unwrap($fetch<{ data: MetasTurno }>('/vendas/metas', { ...base, query })),
+      unwrap($fetch<{ data: MetasTurno }>('/vendas/gerentes/metas', { ...base, query })),
     gerarMatrizMetas: (body: GerarMatrizBody) =>
-      unwrap($fetch<{ data: GerarMatrizResult }>('/vendas/metas/matriz', { ...base, method: 'POST', body })),
+      unwrap($fetch<{ data: GerarMatrizResult }>('/vendas/gerentes/metas/matriz', { ...base, method: 'POST', body })),
 
     vendasPdvDetalhe: (query: DetalhePdvQuery) =>
       unwrap($fetch<{ data: DetalhePdv }>('/vendas/pdv/detalhe', { ...base, query })),

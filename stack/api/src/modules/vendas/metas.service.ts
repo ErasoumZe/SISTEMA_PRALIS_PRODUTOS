@@ -1,5 +1,5 @@
 import { inject, injectable } from 'tsyringe';
-import { Metas, MetasSchemas } from '@pralis/shared';
+import { Metas, MetasSchemas, VendasRanking } from '@pralis/shared';
 import { AppError } from '@/config/api.replies';
 import { MetasRepository, type DiaPorTurno, type LinhaMatriz } from './metas.repository';
 
@@ -9,6 +9,16 @@ type Loja = 'TNP' | 'LI';
 const DIAS_MAXIMO = 400;
 
 const centavos = (valor: number) => Math.round(valor * 100) / 100;
+
+/**
+ * Reais para pontos, na mesma régua do Relatório Gerentes.
+ *
+ * `PONTOS_POR_REAL` vem de `vendas-ranking.schemas` de propósito: o fator já
+ * mora lá e espalhá-lo num segundo lugar viraria duas verdades no dia em que
+ * alguém mudasse um só.
+ */
+const emPontos = (reais: number) => centavos(reais * VendasRanking.PONTOS_POR_REAL);
+const emPontosOuNulo = (reais: number | null) => (reais === null ? null : emPontos(reais));
 
 function validarPeriodo(inicio: string, fim: string) {
   const i = Date.parse(`${inicio}T00:00:00Z`);
@@ -40,29 +50,47 @@ const comoMetaDia = (linha: LinhaMatriz): Metas.MetaDia => ({
   metaTarde: linha.metaTarde,
 });
 
+/** A matriz vai para a tela em PONTOS; em reais ela só existe no banco. */
 const comoLinhaResposta = (linha: LinhaMatriz): MetasSchemas.MetaDiaSemana => ({
   diaSemana: linha.diaSemana,
   sigla: Metas.SIGLA_DIA[linha.diaSemana as Metas.DiaSemana],
   nome: Metas.NOME_DIA[linha.diaSemana as Metas.DiaSemana],
   ocorrencias: linha.ocorrencias,
-  referenciaMedia: linha.referenciaMedia,
+  referenciaMedia: emPontos(linha.referenciaMedia),
   pctManha: linha.pctManha,
-  meta: linha.meta,
-  metaManha: linha.metaManha,
-  metaTarde: linha.metaTarde,
+  meta: emPontos(linha.meta),
+  metaManha: emPontos(linha.metaManha),
+  metaTarde: emPontos(linha.metaTarde),
 });
 
-/** Um cartão: meta do período, meta até a última apuração, realizado, diferença, ritmo e projeção. */
+/**
+ * Um cartão, EM PONTOS: meta do período, meta até a última apuração,
+ * realizado, diferença, ritmo e projeção.
+ *
+ * As contas são feitas em reais e convertidas no fim — arredondar a meta a
+ * R$ 100 só faz sentido em reais, e converter antes jogaria o arredondamento
+ * para um número quebrado de pontos.
+ *
+ * `ritmo` é o mesmo nos dois mundos: é uma razão, e o fator se cancela.
+ */
 export function montarTurno(
-  metaPeriodo: number, metaAteAgora: number, realizado: number,
+  metaPeriodo: number, metaAteAgora: number, realizado: number, comDinheiro: boolean,
 ): MetasSchemas.MetaTurno {
+  const projecao = Metas.projecaoFechamento(metaPeriodo, realizado, metaAteAgora);
   return {
-    metaPeriodo: centavos(metaPeriodo),
-    metaAteAgora: centavos(metaAteAgora),
-    realizado: centavos(realizado),
-    diferenca: centavos(realizado - metaAteAgora),
+    metaPeriodo: emPontos(metaPeriodo),
+    metaAteAgora: emPontos(metaAteAgora),
+    realizado: emPontos(realizado),
+    diferenca: emPontos(realizado - metaAteAgora),
     ritmo: Metas.ritmo(realizado, metaAteAgora),
-    projecao: Metas.projecaoFechamento(metaPeriodo, realizado, metaAteAgora),
+    projecao: emPontosOuNulo(projecao),
+    reais: comDinheiro ? {
+      metaPeriodo: centavos(metaPeriodo),
+      metaAteAgora: centavos(metaAteAgora),
+      realizado: centavos(realizado),
+      diferenca: centavos(realizado - metaAteAgora),
+      projecao,
+    } : null,
   };
 }
 
@@ -81,6 +109,7 @@ export function montarMetas(
   versao: MetasSchemas.Metas['versao'],
   matriz: LinhaMatriz[],
   apurados: DiaPorTurno[],
+  comDinheiro = false,
 ): MetasSchemas.Metas {
   const linhasMeta = matriz.map(comoMetaDia);
   const datas = Metas.datasDe(periodo.inicio, periodo.fim);
@@ -102,12 +131,12 @@ export function montarMetas(
       data,
       sigla: Metas.SIGLA_DIA[Metas.diaSemanaDe(data)],
       aberto: Boolean(meta),
-      meta: meta?.meta ?? 0,
-      metaManha: meta?.metaManha ?? 0,
-      metaTarde: meta?.metaTarde ?? 0,
-      realizado: centavos((feito?.manha ?? 0) + (feito?.tarde ?? 0)),
-      manha: centavos(feito?.manha ?? 0),
-      tarde: centavos(feito?.tarde ?? 0),
+      meta: emPontos(meta?.meta ?? 0),
+      metaManha: emPontos(meta?.metaManha ?? 0),
+      metaTarde: emPontos(meta?.metaTarde ?? 0),
+      realizado: emPontos((feito?.manha ?? 0) + (feito?.tarde ?? 0)),
+      manha: emPontos(feito?.manha ?? 0),
+      tarde: emPontos(feito?.tarde ?? 0),
     };
   });
 
@@ -117,9 +146,9 @@ export function montarMetas(
     versao,
     matriz: matriz.map(comoLinhaResposta),
     turnos: {
-      manha: montarTurno(doPeriodo.manha, ateAgora.manha, realizadoManha),
-      tarde: montarTurno(doPeriodo.tarde, ateAgora.tarde, realizadoTarde),
-      total: montarTurno(doPeriodo.total, ateAgora.total, realizadoManha + realizadoTarde),
+      manha: montarTurno(doPeriodo.manha, ateAgora.manha, realizadoManha, comDinheiro),
+      tarde: montarTurno(doPeriodo.tarde, ateAgora.tarde, realizadoTarde, comDinheiro),
+      total: montarTurno(doPeriodo.total, ateAgora.total, realizadoManha + realizadoTarde, comDinheiro),
     },
     dias,
     fonte: {
@@ -138,7 +167,7 @@ export function montarMetas(
 export class MetasService {
   constructor(@inject(MetasRepository) private repository: MetasRepository) {}
 
-  async consultar(loja: Loja, query: MetasSchemas.MetasQuery): Promise<MetasSchemas.Metas> {
+  async consultar(loja: Loja, query: MetasSchemas.MetasQuery, comDinheiro = false): Promise<MetasSchemas.Metas> {
     const corrente = mesCorrente();
     const periodo = { inicio: query.inicio ?? corrente.inicio, fim: query.fim ?? corrente.fim };
     validarPeriodo(periodo.inicio, periodo.fim);
@@ -147,7 +176,7 @@ export class MetasService {
     // por duas matrizes diferentes, e a do início é a que a loja conhecia.
     const vigente = await this.repository.versaoVigente(loja, periodo.inicio);
     const apurados = await this.repository.vendaPorTurno(loja, periodo.inicio, periodo.fim);
-    return montarMetas(loja, periodo, vigente?.versao ?? null, vigente?.matriz ?? [], apurados);
+    return montarMetas(loja, periodo, vigente?.versao ?? null, vigente?.matriz ?? [], apurados, comDinheiro);
   }
 
   /**
@@ -206,7 +235,7 @@ export class MetasService {
       referencia: { inicio: body.referenciaInicio, fim: body.referenciaFim, diasConsiderados: comVenda.length },
       matriz: linhas.map(comoLinhaResposta),
       semanaCompleta: {
-        total: centavos(semana.total), manha: centavos(semana.manha), tarde: centavos(semana.tarde), dias: semana.dias,
+        total: emPontos(semana.total), manha: emPontos(semana.manha), tarde: emPontos(semana.tarde), dias: semana.dias,
       },
     };
   }

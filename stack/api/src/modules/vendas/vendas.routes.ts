@@ -295,15 +295,21 @@ export async function vendasRoutes(app: FastifyInstance) {
     unicosController.csv.bind(unicosController),
   );
 
-  // Metas por turno. Resposta inteira em reais, então a guarda é a do dinheiro.
+  /*
+   * Metas por turno, dentro do Relatório Gerentes e em PONTOS.
+   *
+   * Consultar segue a guarda do resto do relatório (`lojaGerentes` no
+   * controller): é informação de quem responde pela meta. Gerar exige
+   * administrador — definir alvo é decisão de dono.
+   */
   typed.get<{ Querystring: MetasSchemas.MetasQuery }>(
-    '/vendas/metas',
+    '/vendas/gerentes/metas',
     {
-      preHandler: [vendasDinheiroAuth],
+      preHandler: [authMiddleware],
       schema: {
         querystring: MetasSchemas.metasQuerySchema,
         response: { 200: apiResponseSchema(MetasSchemas.metasSchema) },
-        summary: 'Metas por turno: objetivo, projeção, atingido e diferença',
+        summary: 'Metas por turno em pontos: objetivo, projeção, atingido e diferença',
         tags: ['VENDAS'],
       },
     },
@@ -311,7 +317,7 @@ export async function vendasRoutes(app: FastifyInstance) {
   );
 
   typed.post<{ Body: MetasSchemas.GerarMatrizBody }>(
-    '/vendas/metas/matriz',
+    '/vendas/gerentes/metas/matriz',
     {
       preHandler: [vendasDinheiroAuth],
       schema: {
