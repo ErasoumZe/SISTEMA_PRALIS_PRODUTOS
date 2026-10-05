@@ -150,6 +150,17 @@ export interface PreviaPesaveisSia {
   amostra: Array<{ codigoInterno: string; nome: string; validadeDias: number }>;
 }
 
+/** Prévia do backfill de pesável: quem receberia valor, de onde, e o que bloqueia. */
+export interface PreviaPesavelBackfill {
+  loja: 'TNP' | 'LI'; totalProdutos: number; gravar: number;
+  porOrigem: { espelho: number; padrao: number };
+  completarBalanca: number; jaDefinidos: number;
+  conflitos: Array<{ codigoInterno: string; nome: string; cadastro: string; espelho: string }>;
+  espelhoAmbiguo: string[]; espelhoIncompleto: string[];
+  amostraPesaveis: Array<{ codigoInterno: string; nome: string; validadeDias: number }>;
+  hashPlano: string; confirmacao: string;
+}
+
 /** Por que um produto não recebeu custo da base de discriminação. */
 export type MotivoSemCusto = 'sem-lancamento' | 'nome-ambiguo-no-cadastro' | 'custo-ilegivel' | 'ja-esta-certo';
 
@@ -739,6 +750,15 @@ export function useApi() {
       } }>('/admin/creare/pesaveis/aplicar',
         { ...base, method: 'POST', body: fd, timeout: 120_000 }));
     },
+
+    /** Backfill de pesável no catálogo da loja. Prévia não grava. */
+    pesavelBackfillPrevia: (loja: 'TNP' | 'LI') =>
+      unwrap($fetch<{ data: PreviaPesavelBackfill }>('/admin/creare/pesavel-backfill/previa', { ...base, query: { loja } })),
+    pesavelBackfillAplicar: (loja: 'TNP' | 'LI', confirmacao: string, hashPlano: string) =>
+      unwrap($fetch<{ data: {
+        loja: string; gravados: number; porOrigem: { espelho: number; padrao: number };
+        completados: number; jaDefinidos: number; espelhoIncompleto: number;
+      } }>('/admin/creare/pesavel-backfill/aplicar', { ...base, method: 'POST', body: { loja, confirmacao, hashPlano } })),
 
     // ---- custo, da base de discriminação ----
     /** Prévia da carga de custo. NÃO grava. */

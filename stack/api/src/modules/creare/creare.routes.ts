@@ -7,6 +7,7 @@ import { CreareController } from './creare.controller';
 import { creareExportAuth } from './creare.auth';
 import { DeParaUploadController } from './depara-upload.controller';
 import { PesaveisMaintenanceController } from './pesaveis-maintenance.controller';
+import { PesavelBackfillController } from './pesavel-backfill.controller';
 
 const exportQuerySchema = z.object({
   loja: z.enum(['TNP', 'LI', 'HORA']).optional(),
@@ -21,6 +22,7 @@ export async function creareRoutes(app: FastifyInstance) {
   const controller = container.resolve(CreareController);
   const deParaController = container.resolve(DeParaUploadController);
   const pesaveisController = container.resolve(PesaveisMaintenanceController);
+  const backfillController = container.resolve(PesavelBackfillController);
   const typed = app.withTypeProvider<ZodTypeProvider>();
 
   typed.get<{ Querystring: z.infer<typeof exportQuerySchema> }>(
@@ -150,4 +152,25 @@ export async function creareRoutes(app: FastifyInstance) {
     preHandler: [authMiddleware],
     schema: { consumes: ['multipart/form-data'], summary: 'Alinhar pesáveis TNP por código interno após prévia', tags: ['ADMIN', 'CREARE'] },
   }, pesaveisController.aplicar.bind(pesaveisController));
+
+  /*
+   * Backfill de pesável: classifica quem ainda não tem valor, copiando o
+   * espelho SIA quando ele diz, e aplicando o default N quando ninguém diz.
+   * Em 05/10/2026 isso era 95% da TNP travada no TXT.
+   */
+  typed.get<{ Querystring: { loja: 'TNP' | 'LI' } }>('/admin/creare/pesavel-backfill/previa', {
+    preHandler: [authMiddleware],
+    schema: {
+      querystring: z.object({ loja: z.enum(['TNP', 'LI']) }),
+      summary: 'Conferir, sem gravar, quem receberia pesável no catálogo da loja', tags: ['ADMIN', 'CREARE'],
+    },
+  }, backfillController.previa.bind(backfillController));
+
+  typed.post<{ Body: { loja: 'TNP' | 'LI'; confirmacao: string; hashPlano: string } }>('/admin/creare/pesavel-backfill/aplicar', {
+    preHandler: [authMiddleware],
+    schema: {
+      body: z.object({ loja: z.enum(['TNP', 'LI']), confirmacao: z.string().min(1), hashPlano: z.string().regex(/^[a-f0-9]{64}$/) }),
+      summary: 'Classificar pesável no catálogo da loja após prévia', tags: ['ADMIN', 'CREARE'],
+    },
+  }, backfillController.aplicar.bind(backfillController));
 }
