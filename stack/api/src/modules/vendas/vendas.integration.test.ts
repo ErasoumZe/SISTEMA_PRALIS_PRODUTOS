@@ -124,6 +124,24 @@ describe('ingestão de vendas e fechamentos (Postgres real)', () => {
     expect(rows.rows).toEqual([{ loja: 'TNP', venda_id_erp: '101', item_id_erp: '501', dispositivo_id_erp: '7', total: '9.50' }]);
   });
 
+  it('reconhece cancelamento posterior mesmo sem timestamp novo no Creare', async () => {
+    const item = {
+      ID_VENDA_BALCAO: '991', ID_ITEM_VENDA_BALCAO: '992', ID_DISPOSITIVO: '7', PDV: 'PDV 07',
+      DATA_HORA_VENDA: '2026-09-24 16:00:00', PRODUTO_CODIGO: '10824', PRODUTO: 'BISCOITO',
+      QUANTIDADE: '1', VALOR_UNITARIO: '10', TOTAL: '10', ITEM_CANCELADO: false,
+      VENDA_STATUS: 'F', VENDA_CONFIRMADA: true, EMPRESA: 'TNP CENTRAL',
+      ATUALIZADO_EM: '2026-09-24 16:00:00',
+    };
+    const tipo = 'venda_item_pdv' as const;
+    expect(await service.importar({ tipo, linhas: [item] })).toMatchObject({ inseridas: 1 });
+    expect(await service.importar({ tipo, linhas: [{ ...item, ITEM_CANCELADO: true }] }))
+      .toMatchObject({ atualizadas: 1 });
+    expect(await service.importar({ tipo, linhas: [{ ...item, ITEM_CANCELADO: true }] }))
+      .toMatchObject({ ignoradas: 1 });
+    const rows = await db.execute(sqlTag`SELECT item_cancelado FROM venda_item_pdv WHERE item_id_erp = '992'`);
+    expect(rows.rows[0]?.item_cancelado).toBe(true);
+  });
+
   it('mostra somente itens não cancelados do dispositivo comprovado', async () => {
     await service.importar({ tipo: 'venda_item_pdv', linhas: [{
       ID_VENDA_BALCAO: '102', ID_ITEM_VENDA_BALCAO: '502', ID_DISPOSITIVO: '7', PDV: 'PDV 07',
