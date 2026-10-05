@@ -10,7 +10,7 @@ export const metasQuerySchema = z.object({
   fim: data.optional(),
 });
 
-/** Uma linha da matriz: o dia da semana e a meta que ele carrega. */
+/** Uma linha da matriz: o dia da semana e a meta que ele carrega, em pontos. */
 export const metaDiaSemanaSchema = z.object({
   diaSemana: z.number().int().min(0).max(6),
   sigla: z.string(),
@@ -23,7 +23,17 @@ export const metaDiaSemanaSchema = z.object({
   metaTarde: z.number(),
 });
 
-/** O que cada cartão mostra. `null` em ritmo e projeção = ainda não há dia apurado. */
+/**
+ * O que cada cartão mostra, **em pontos** — a unidade do Relatório Gerentes.
+ *
+ * `null` em ritmo e projeção = ainda não há dia apurado, que é diferente de zero.
+ *
+ * `reais` só vem preenchido para quem pode ver dinheiro; para os demais é
+ * `null`. Vale lembrar o que `vendas-ranking-sigilo.ts` já documenta: ponto é
+ * `faturamento × 0,25`, então quem conhece a regra chega ao valor dividindo.
+ * Omitir os reais tira o número da resposta, não torna o faturamento
+ * indedutível.
+ */
 export const metaTurnoSchema = z.object({
   metaPeriodo: z.number(),
   metaAteAgora: z.number(),
@@ -31,8 +41,16 @@ export const metaTurnoSchema = z.object({
   diferenca: z.number(),
   ritmo: z.number().nullable(),
   projecao: z.number().nullable(),
+  reais: z.object({
+    metaPeriodo: z.number(),
+    metaAteAgora: z.number(),
+    realizado: z.number(),
+    diferenca: z.number(),
+    projecao: z.number().nullable(),
+  }).nullable(),
 });
 
+/** Um dia do período, em pontos. */
 export const metaDiaSchema = z.object({
   data: data,
   sigla: z.string(),

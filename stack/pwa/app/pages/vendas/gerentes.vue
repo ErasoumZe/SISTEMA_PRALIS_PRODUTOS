@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ApexOptions } from 'apexcharts';
 import { VendasGerentesPeriodo } from '@pralis/shared';
-import type { RelatorioGerentes } from '~/composables/useApi';
+import type { MetasTurno, RelatorioGerentes } from '~/composables/useApi';
 import { corPdv } from '~/utils/gerentesCores';
 
 definePageMeta({ layout: 'default' });
@@ -21,7 +21,8 @@ const semana = ref(1);
 const TODOS_PDV = '__todos_os_pdvs__';
 const pdv = ref(TODOS_PDV);
 const pdvsHora = ref<string[]>([]);
-const aba = ref<'pdvs' | 'areas'>('pdvs');
+const aba = ref<'pdvs' | 'areas' | 'metas'>('pdvs');
+const ehAdmin = computed(() => user.value?.role === 'admin');
 
 const MESES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -52,6 +53,37 @@ const dados = ref<RelatorioGerentes | null>(null);
 const carregando = ref(false);
 const erro = ref('');
 let requisicao = 0;
+
+/**
+ * As metas do mesmo recorte. Buscadas AQUI, e não dentro da aba, porque o
+ * indicador "Meta semanal" vive fora dela: duas buscas da mesma coisa na mesma
+ * tela seriam duas verdades esperando divergir.
+ */
+const metas = ref<MetasTurno | null>(null);
+const carregandoMetas = ref(false);
+const erroMetas = ref('');
+let requisicaoMetas = 0;
+
+async function carregarMetas() {
+  const atual = ++requisicaoMetas;
+  const recorte = periodo.value;
+  if (!recorte || !lojasPermitidas.value.includes(loja.value)) {
+    metas.value = null;
+    return;
+  }
+  carregandoMetas.value = true;
+  erroMetas.value = '';
+  try {
+    const resposta = await api.metasTurno({ loja: loja.value, ...recorte });
+    if (atual === requisicaoMetas) metas.value = resposta;
+  } catch (e: unknown) {
+    if (atual !== requisicaoMetas) return;
+    metas.value = null;
+    erroMetas.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não foi possível carregar as metas.';
+  } finally {
+    if (atual === requisicaoMetas) carregandoMetas.value = false;
+  }
+}
 
 async function carregar() {
   const atual = ++requisicao;
@@ -92,7 +124,7 @@ async function carregarAcesso() {
     const acesso = await api.acessoGerentes();
     lojasPermitidas.value = acesso.lojas;
     if (acesso.lojas.length && !acesso.lojas.includes(loja.value)) loja.value = acesso.lojas[0]!;
-    await carregar();
+    await Promise.all([carregar(), carregarMetas()]);
   } catch (e: unknown) {
     lojasPermitidas.value = [];
     dados.value = null;
@@ -103,6 +135,8 @@ async function carregarAcesso() {
 onMounted(carregarAcesso);
 watch(() => user.value?.id, carregarAcesso);
 watch([loja, mes, modo, diaDigitado, semana, pdv], carregar);
+// As metas não dependem do PDV escolhido: a meta é da loja, não de um caixa.
+watch([loja, mes, modo, diaDigitado, semana], carregarMetas);
 watch([ano, mesNumero], () => { semana.value = 1; diaDigitado.value = ''; });
 watch([loja, mes, modo, diaDigitado, semana], () => { pdv.value = TODOS_PDV; pdvsHora.value = []; });
 
@@ -168,8 +202,16 @@ const opcoesGrafico = computed<ApexOptions>(() => ({
   noData: { text: 'Sem fechamento no período' },
 }));
 
-// A fonte da meta ainda não existe. Não criar número fictício nem mostrar troféu.
-const metaSemanalPontos = ref<number | null>(null);
+/**
+ * A meta agora TEM fonte: a matriz por dia da semana (aba Metas por turno).
+ *
+ * `metaSemanalPontos` só vale quando se está olhando uma semana — a matriz
+ * conta quantas segundas, terças... o recorte tem, então em "mês inteiro" o
+ * número seria a meta do mês com rótulo de semana.
+ */
+const metaSemanalPontos = computed(() => (
+  modo.value === 'semana' && metas.value?.versao ? metas.value.turnos.total.metaPeriodo : null
+));
 const entregueNaSemana = computed(() => modo.value === 'semana' ? dados.value?.totalPontos ?? null : null);
 const restante = computed(() => metaSemanalPontos.value === null || entregueNaSemana.value === null
   ? null : Math.max(0, metaSemanalPontos.value - entregueNaSemana.value));
@@ -223,6 +265,7 @@ const metaBatida = computed(() => metaSemanalPontos.value !== null && entregueNa
     <v-tabs v-model="aba" class="gm-abas mb-4" color="primary" aria-label="Abas do Relatório Gerentes">
       <v-tab value="pdvs" prepend-icon="show_chart">PDVs</v-tab>
       <v-tab value="areas" prepend-icon="map">Áreas da loja</v-tab>
+      <v-tab value="metas" prepend-icon="flag">Metas por turno</v-tab>
     </v-tabs>
 
     <template v-if="aba === 'pdvs'">
@@ -279,6 +322,12 @@ const metaBatida = computed(() => metaSemanalPontos.value !== null && entregueNa
       </div>
     </v-card>
     </template>
+    <GerentesMetasTurno
+      v-else-if="aba === 'metas' && lojasPermitidas.includes(loja)"
+      :loja="loja" :inicio="periodo?.inicio ?? ''" :dados="metas"
+      :carregando="carregandoMetas" :falha="erroMetas" :pode-gerar="ehAdmin"
+      @recarregar="carregarMetas"
+    />
     <GerentesMapaAreas v-else-if="lojasPermitidas.includes(loja)" :loja="loja" :modo="modo" :inicio="periodo?.inicio ?? ''" :fim="periodo?.fim ?? ''" />
   </div>
 </template>
