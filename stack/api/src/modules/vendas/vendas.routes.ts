@@ -8,13 +8,14 @@ import {
   importarVendasResultSchema,
   type ImportarVendasBody,
 } from './vendas.schemas';
-import { vendasImportAuth } from './vendas.auth';
+import { vendasDinheiroAuth, vendasImportAuth } from './vendas.auth';
 import { authMiddleware } from '@/middlewares/auth-handler';
 import { VendasReportController, VendasRankingController, VendasGerentesController, VendasPdvController, VendasAbcController, VendasPulsoController, VendasListaController } from './vendas-report.controller';
 import { VendasDeParaController } from './vendas-depara.controller';
 import { VendasUnicosController } from './vendas-unicos.controller';
+import { MetasController } from './metas.controller';
 import { z } from 'zod/v4';
-import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasGerentes, VendasPdv, VendasAbc, VendasPulso, VendasLista } from '@pralis/shared';
+import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasGerentes, VendasPdv, VendasAbc, VendasPulso, VendasLista, MetasSchemas } from '@pralis/shared';
 
 export async function vendasRoutes(app: FastifyInstance) {
   const controller = container.resolve(VendasController);
@@ -27,6 +28,7 @@ export async function vendasRoutes(app: FastifyInstance) {
   const listaController = container.resolve(VendasListaController);
   const deParaController = container.resolve(VendasDeParaController);
   const unicosController = container.resolve(VendasUnicosController);
+  const metasController = container.resolve(MetasController);
   const typed = app.withTypeProvider<ZodTypeProvider>();
 
   typed.post<{ Body: ImportarVendasBody }>(
@@ -291,5 +293,34 @@ export async function vendasRoutes(app: FastifyInstance) {
       },
     },
     unicosController.csv.bind(unicosController),
+  );
+
+  // Metas por turno. Resposta inteira em reais, então a guarda é a do dinheiro.
+  typed.get<{ Querystring: MetasSchemas.MetasQuery }>(
+    '/vendas/metas',
+    {
+      preHandler: [vendasDinheiroAuth],
+      schema: {
+        querystring: MetasSchemas.metasQuerySchema,
+        response: { 200: apiResponseSchema(MetasSchemas.metasSchema) },
+        summary: 'Metas por turno: objetivo, projeção, atingido e diferença',
+        tags: ['VENDAS'],
+      },
+    },
+    metasController.consultar.bind(metasController),
+  );
+
+  typed.post<{ Body: MetasSchemas.GerarMatrizBody }>(
+    '/vendas/metas/matriz',
+    {
+      preHandler: [vendasDinheiroAuth],
+      schema: {
+        body: MetasSchemas.gerarMatrizBodySchema,
+        response: { 200: apiResponseSchema(MetasSchemas.gerarMatrizResultSchema) },
+        summary: 'Gerar a matriz de metas (prévia ou gravada em versão)',
+        tags: ['VENDAS'],
+      },
+    },
+    metasController.gerar.bind(metasController),
   );
 }

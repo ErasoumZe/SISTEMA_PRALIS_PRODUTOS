@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { env } from '@/config/env';
 import { authMiddleware } from '@/middlewares/auth-handler';
+import { podeVerDinheiro } from './vendas-ranking-sigilo';
 
 const deny = (reply: FastifyReply, status: number, message: string) =>
   reply.status(status).send({ message, data: null, details: null });
@@ -27,5 +28,20 @@ export async function vendasImportAuth(request: FastifyRequest, reply: FastifyRe
   await authMiddleware(request, reply);
   if (reply.sent) return;
   if (request.currentUser?.role !== 'admin') return deny(reply, 403, 'Acesso restrito a administradores.');
+}
+
+/**
+ * Exige sessão que pode ver DINHEIRO.
+ *
+ * Para rotas cuja resposta é inteira em reais — metas, por exemplo. Nelas não
+ * existe versão "sem valores" como no ranking (`vendas-ranking-sigilo.ts`): se
+ * tirar o dinheiro, não sobra resposta. Então o corte é na porta.
+ */
+export async function vendasDinheiroAuth(request: FastifyRequest, reply: FastifyReply) {
+  await authMiddleware(request, reply);
+  if (reply.sent) return;
+  if (!podeVerDinheiro(request.currentUser)) {
+    return deny(reply, 403, 'Esta tela mostra valores em reais e está restrita a administradores.');
+  }
 }
 

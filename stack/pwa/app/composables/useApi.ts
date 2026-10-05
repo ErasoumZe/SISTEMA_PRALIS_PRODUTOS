@@ -1,5 +1,5 @@
 import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasGerentes, VendasPdv, VendasAbc, VendasPulso } from '@pralis/shared';
-import type { VendasLista } from '@pralis/shared';
+import type { VendasLista, MetasSchemas } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
@@ -15,6 +15,10 @@ export type RelatorioGerentesQuery = VendasGerentes.GerentesQuery;
 export type RelatorioGerentesAreas = VendasGerentes.GerentesAreas;
 export type RelatorioGerentesAreasQuery = VendasGerentes.GerentesAreasQuery;
 export type RelatorioGerentesHoras = VendasGerentes.GerentesHoras;
+export type MetasTurno = MetasSchemas.Metas;
+export type MetasTurnoQuery = MetasSchemas.MetasQuery;
+export type GerarMatrizBody = MetasSchemas.GerarMatrizBody;
+export type GerarMatrizResult = MetasSchemas.GerarMatrizResult;
 export type ItemRanking = VendasRanking.ItemRanking;
 export type AbcProdutos = VendasAbc.AbcProdutos;
 export type AbcProdutosQuery = VendasAbc.AbcProdutosQuery;
@@ -511,6 +515,12 @@ export function useApi() {
       unwrap($fetch<{ data: RelatorioGerentesAreas }>('/vendas/gerentes/areas', { ...base, query })),
     relatorioGerentesHoras: (query: VendasGerentes.GerentesHorasQuery) =>
       unwrap($fetch<{ data: RelatorioGerentesHoras }>('/vendas/gerentes/horas', { ...base, query })),
+
+    /** Metas por turno: objetivo, projeção, atingido e diferença. Resposta só para admin. */
+    metasTurno: (query: MetasTurnoQuery) =>
+      unwrap($fetch<{ data: MetasTurno }>('/vendas/metas', { ...base, query })),
+    gerarMatrizMetas: (body: GerarMatrizBody) =>
+      unwrap($fetch<{ data: GerarMatrizResult }>('/vendas/metas/matriz', { ...base, method: 'POST', body })),
 
     vendasPdvDetalhe: (query: DetalhePdvQuery) =>
       unwrap($fetch<{ data: DetalhePdv }>('/vendas/pdv/detalhe', { ...base, query })),
