@@ -106,8 +106,17 @@ const dados = ref<VendasReport | null>(null);
 const carregando = ref(false);
 const erro = ref('');
 
-/** Aba visível. As três dividem o MESMO período — o filtro fica acima delas. */
-const aba = ref<'visao' | 'ranking' | 'vendas' | 'abc' | 'graficos'>((q('aba') as 'visao' | 'ranking' | 'vendas' | 'abc' | 'graficos') || 'visao');
+/** Aba visível. Todas dividem o MESMO período — o filtro fica acima delas. */
+type Aba = 'visao' | 'ranking' | 'vendas' | 'abc' | 'graficos' | 'metas';
+/**
+ * Metas é inteira em reais e a API só responde para administrador
+ * (`vendasDinheiroAuth`). Para quem não pode ver dinheiro a aba não aparece —
+ * mas quem esconde de verdade é o servidor, não este `computed`.
+ */
+const abas = computed<Aba[]>(() => (isAdmin.value
+  ? ['visao', 'ranking', 'vendas', 'abc', 'graficos', 'metas']
+  : ['visao', 'ranking', 'vendas', 'abc', 'graficos']));
+const aba = ref<Aba>(abas.value.includes(q('aba') as Aba) ? (q('aba') as Aba) : 'visao');
 
 /**
  * Atalhos de período.
@@ -971,13 +980,18 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
         <v-tab value="vendas" prepend-icon="receipt_long">Vendas</v-tab>
         <v-tab value="abc" prepend-icon="donut_large">Curva ABC</v-tab>
         <v-tab value="graficos" prepend-icon="bar_chart">Gráficos</v-tab>
+        <v-tab v-if="abas.includes('metas')" value="metas" prepend-icon="flag">Metas</v-tab>
       </v-tabs>
 
-      <v-alert v-if="semMovimento" type="info" variant="tonal" class="mb-4">
+      <!--
+        Período sem venda esconde as outras abas, mas NÃO a de metas: período sem
+        venda é exatamente quando saber o tamanho do buraco importa.
+      -->
+      <v-alert v-if="semMovimento && aba !== 'metas'" type="info" variant="tonal" class="mb-4">
         Nenhuma venda registrada nesse período para esta loja.
       </v-alert>
 
-      <v-window v-else v-model="aba">
+      <v-window v-if="!semMovimento || aba === 'metas'" v-model="aba">
         <!-- ─────────────────────────────────────────────── VISÃO GERAL ── -->
         <v-window-item value="visao">
           <!--
@@ -1487,6 +1501,11 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
               </div>
             </template>
           </v-card>
+        </v-window-item>
+
+        <!-- ──────────────────────────────────────────────────────── METAS ── -->
+        <v-window-item value="metas">
+          <VendasMetas :loja="loja" :inicio="inicio" :fim="fim" />
         </v-window-item>
       </v-window>
     </template>

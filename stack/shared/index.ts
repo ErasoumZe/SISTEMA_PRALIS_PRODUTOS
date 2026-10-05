@@ -22,3 +22,5 @@ export * as VendasPulso from './src/vendas/vendas-pulso.schemas';
 export * as VendasPdv from './src/vendas/vendas-pdv.schemas';
 export * as Telas from './src/permissoes/telas';
 export * as VendasLista from './src/vendas/vendas-lista.schemas';
+export * as Metas from './src/vendas/metas';
+export * as MetasSchemas from './src/vendas/metas.schemas';
