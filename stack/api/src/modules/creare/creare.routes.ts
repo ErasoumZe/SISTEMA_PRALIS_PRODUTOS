@@ -6,6 +6,7 @@ import { authMiddleware } from '@/middlewares/auth-handler';
 import { CreareController } from './creare.controller';
 import { creareExportAuth } from './creare.auth';
 import { DeParaUploadController } from './depara-upload.controller';
+import { PesaveisMaintenanceController } from './pesaveis-maintenance.controller';
 
 const exportQuerySchema = z.object({
   loja: z.enum(['TNP', 'LI', 'HORA']).optional(),
@@ -19,6 +20,7 @@ const confirmBodySchema = z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/) 
 export async function creareRoutes(app: FastifyInstance) {
   const controller = container.resolve(CreareController);
   const deParaController = container.resolve(DeParaUploadController);
+  const pesaveisController = container.resolve(PesaveisMaintenanceController);
   const typed = app.withTypeProvider<ZodTypeProvider>();
 
   typed.get<{ Querystring: z.infer<typeof exportQuerySchema> }>(
@@ -138,4 +140,14 @@ export async function creareRoutes(app: FastifyInstance) {
     },
     deParaController.aplicar.bind(deParaController),
   );
+
+  typed.post('/admin/creare/pesaveis/previa', {
+    preHandler: [authMiddleware],
+    schema: { consumes: ['multipart/form-data'], summary: 'Conferir pesáveis da exportação TNP sem gravar', tags: ['ADMIN', 'CREARE'] },
+  }, pesaveisController.previa.bind(pesaveisController));
+
+  typed.post('/admin/creare/pesaveis/aplicar', {
+    preHandler: [authMiddleware],
+    schema: { consumes: ['multipart/form-data'], summary: 'Alinhar pesáveis TNP por código interno após prévia', tags: ['ADMIN', 'CREARE'] },
+  }, pesaveisController.aplicar.bind(pesaveisController));
 }
