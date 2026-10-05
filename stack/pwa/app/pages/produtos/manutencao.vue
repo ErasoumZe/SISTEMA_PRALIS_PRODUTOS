@@ -55,6 +55,43 @@ async function aplicarPesaveis() {
   } finally { aplicandoPesaveis.value = false; }
 }
 
+// Backfill de pesável: classifica quem ainda não tem valor. Lê o cadastro e o
+// espelho SIA já gravados — não precisa de arquivo.
+const lojaBackfill = ref<'TNP' | 'LI'>('TNP');
+const previaBackfill = ref<import('~/composables/useApi').PreviaPesavelBackfill | null>(null);
+const confirmacaoBackfill = ref('');
+const lendoBackfill = ref(false);
+const aplicandoBackfill = ref(false);
+const resultadoBackfill = ref('');
+const bloqueiaBackfill = computed(() => !!previaBackfill.value
+  && (previaBackfill.value.conflitos.length > 0 || previaBackfill.value.espelhoAmbiguo.length > 0));
+
+async function conferirBackfill() {
+  previaBackfill.value = null;
+  resultadoBackfill.value = '';
+  lendoBackfill.value = true;
+  erro.value = '';
+  try { previaBackfill.value = await api.pesavelBackfillPrevia(lojaBackfill.value); }
+  catch (e) { erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui montar a prévia.'; }
+  finally { lendoBackfill.value = false; }
+}
+
+async function aplicarBackfill() {
+  if (!previaBackfill.value) return;
+  aplicandoBackfill.value = true;
+  erro.value = '';
+  try {
+    const r = await api.pesavelBackfillAplicar(lojaBackfill.value, confirmacaoBackfill.value, previaBackfill.value.hashPlano);
+    resultadoBackfill.value = `${r.gravados} produto(s) classificados (${r.porOrigem.espelho} pelo espelho SIA, ${r.porOrigem.padrao} pelo padrão N)`
+      + (r.completados ? ` e ${r.completados} completados com tecla/validade` : '')
+      + '. Confira o diagnóstico Creare e o próximo TXT antes de importar no SIA.';
+    confirmacaoBackfill.value = '';
+    previaBackfill.value = null;
+  } catch (e) {
+    erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui aplicar. Nada foi gravado.';
+  } finally { aplicandoBackfill.value = false; }
+}
+
 async function carregarPrevia() {
   carregando.value = true;
   erro.value = '';
@@ -236,6 +273,61 @@ onMounted(() => {
             </template>
             <v-text-field v-model="confirmacaoPesaveis" :label="`Digite ${previaPesaveis.confirmacao}`" variant="outlined" class="mt-3" />
             <v-btn color="primary" prepend-icon="save" :loading="aplicandoPesaveis" :disabled="confirmacaoPesaveis.trim().toUpperCase() !== previaPesaveis.confirmacao || !!previaPesaveis.codigoAmbiguo.length || !!previaPesaveis.espelhoAmbiguo.length" @click="aplicarPesaveis">Aplicar somente os pesáveis</v-btn>
+          </template>
+        </v-card-text>
+      </v-card>
+
+      <v-card variant="outlined" class="mb-4">
+        <v-card-title class="text-subtitle-1">Classificar pesável · quem ainda não tem valor</v-card-title>
+        <v-card-text>
+          <p class="mb-3">
+            Produto sem <strong>Pesável</strong> no cadastro <strong>e</strong> no espelho SIA não sai no TXT
+            (em 05/10/2026 eram 6.823 de 7.177 na TNP). Esta ação classifica quem está em branco: copia o
+            espelho SIA quando ele diz; quando ninguém diz, aplica <strong>N</strong> — o mesmo padrão de produto novo.
+            Quem já tem valor fica como está.
+          </p>
+          <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+            Faça isto <strong>depois</strong> de reimportar o de-para do SIA: quanto mais o espelho souber, menos produto
+            cai no padrão. Conflito entre cadastro e espelho bloqueia tudo até ser resolvido.
+          </v-alert>
+          <div class="d-flex flex-wrap ga-3 align-center">
+            <v-select v-model="lojaBackfill" :items="['TNP', 'LI']" label="Loja" variant="outlined" density="comfortable" hide-details style="max-width: 160px" @update:model-value="previaBackfill = null" />
+            <v-btn :loading="lendoBackfill" variant="tonal" prepend-icon="fact_check" @click="conferirBackfill">Conferir sem gravar</v-btn>
+          </div>
+          <v-alert v-if="resultadoBackfill" type="success" variant="tonal" class="mt-3">{{ resultadoBackfill }}</v-alert>
+          <template v-if="previaBackfill">
+            <v-divider class="my-4" />
+            <p><strong>{{ previaBackfill.gravar }}</strong> de {{ previaBackfill.totalProdutos }} produtos receberiam pesável:
+              {{ previaBackfill.porOrigem.espelho }} pelo espelho SIA, {{ previaBackfill.porOrigem.padrao }} pelo padrão N.</p>
+            <p v-if="previaBackfill.completarBalanca">{{ previaBackfill.completarBalanca }} já eram S e ganham tecla/validade do espelho.</p>
+            <p class="text-medium-emphasis">{{ previaBackfill.jaDefinidos }} já definidos, intocados.</p>
+            <p v-if="previaBackfill.espelhoIncompleto.length" class="text-medium-emphasis">
+              {{ previaBackfill.espelhoIncompleto.length }} com espelho S sem tecla/validade ficam de fora — o de-para completo resolve.
+            </p>
+            <v-alert v-if="bloqueiaBackfill" type="error" variant="tonal" class="my-3">
+              <div v-if="previaBackfill.conflitos.length">
+                <strong>{{ previaBackfill.conflitos.length }} conflito(s)</strong> entre cadastro e espelho:
+                <ul class="ps-5 mt-1">
+                  <li v-for="c in previaBackfill.conflitos.slice(0, 10)" :key="c.codigoInterno">
+                    {{ c.codigoInterno }} · {{ c.nome }} — cadastro {{ c.cadastro }}, espelho {{ c.espelho }}
+                  </li>
+                </ul>
+              </div>
+              <div v-if="previaBackfill.espelhoAmbiguo.length">Espelho ambíguo: {{ previaBackfill.espelhoAmbiguo.slice(0, 10).join(', ') }}</div>
+              A aplicação fica bloqueada até resolver.
+            </v-alert>
+            <template v-if="previaBackfill.amostraPesaveis.length">
+              <p class="mt-3 mb-1 text-medium-emphasis">Amostra dos que viram S pelo espelho:</p>
+              <ul class="ps-5">
+                <li v-for="item in previaBackfill.amostraPesaveis" :key="item.codigoInterno">
+                  {{ item.codigoInterno }} · {{ item.nome }} · validade {{ item.validadeDias }} dia(s)
+                </li>
+              </ul>
+            </template>
+            <v-text-field v-model="confirmacaoBackfill" :label="`Digite ${previaBackfill.confirmacao}`" variant="outlined" class="mt-3" />
+            <v-btn color="primary" prepend-icon="save" :loading="aplicandoBackfill"
+              :disabled="confirmacaoBackfill.trim().toUpperCase() !== previaBackfill.confirmacao || bloqueiaBackfill || previaBackfill.gravar + previaBackfill.completarBalanca === 0"
+              @click="aplicarBackfill">Classificar</v-btn>
           </template>
         </v-card-text>
       </v-card>
