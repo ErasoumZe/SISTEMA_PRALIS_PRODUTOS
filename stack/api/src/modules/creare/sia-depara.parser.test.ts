@@ -92,6 +92,53 @@ describe('leitura do de-para', () => {
     expect(r.linhas[0]).toMatchObject({ coditem: '13535', pesavel: 'S', teclaBalanca: '35', validadeBalanca: '3' });
   });
 
+  /*
+   * A exportação real do SIA Supervisor traz a coluna Tecla EM BRANCO em todas
+   * as 2.547 linhas (medido em 05/10/2026). Exigir dela um número recusava o
+   * arquivo inteiro por um campo que já tem resposta: a tecla 000 confirmada
+   * com o consultor, a mesma que a manutenção de pesáveis grava.
+   */
+  it('pesavel sem tecla recebe 000 e conta como tecla assumida, nao como falta', () => {
+    const r = lerDePara([
+      [...cabecalho, 'Pesável', 'Tecla', 'Validade'],
+      [...linha('13535', '2123456789012'), 'S', '', '3'],
+      [...linha('13536', '2123456789029'), 'S', '', '0'],
+    ]);
+    expect(r.semDadosBalanca).toBe(0);
+    expect(r.teclaAssumida).toEqual(['13535', '13536']);
+    expect(r.linhas[0]).toMatchObject({ pesavel: 'S', teclaBalanca: '000', validadeBalanca: '3' });
+    expect(r.linhas[1]).toMatchObject({ pesavel: 'S', teclaBalanca: '000', validadeBalanca: '0' });
+  });
+
+  it('pesavel sem VALIDADE continua sendo falta: validade e dado, nao tem padrao', () => {
+    const r = lerDePara([
+      [...cabecalho, 'Pesável', 'Tecla', 'Validade'],
+      [...linha('13535', '2123456789012'), 'S', '', ''],
+    ]);
+    expect(r.semDadosBalanca).toBe(1);
+    expect(r.teclaAssumida).toEqual([]);
+    expect(r.linhas[0]?.teclaBalanca).toBeNull();
+  });
+
+  it('tecla que veio preenchida e respeitada, nao substituida pelo padrao', () => {
+    const r = lerDePara([
+      [...cabecalho, 'Pesável', 'Tecla', 'Validade'],
+      [...linha('13535', '2123456789012'), 'S', '35', '3'],
+    ]);
+    expect(r.teclaAssumida).toEqual([]);
+    expect(r.linhas[0]?.teclaBalanca).toBe('35');
+  });
+
+  it('nao pesavel sem tecla nao e problema nem recebe padrao', () => {
+    const r = lerDePara([
+      [...cabecalho, 'Pesável', 'Tecla', 'Validade'],
+      [...linha('13535', '2123456789012'), 'N', '', ''],
+    ]);
+    expect(r.semDadosBalanca).toBe(0);
+    expect(r.teclaAssumida).toEqual([]);
+    expect(r.linhas[0]).toMatchObject({ pesavel: 'N', teclaBalanca: null, validadeBalanca: null });
+  });
+
   it('nao infere Pesavel pela unidade nem transforma campo ausente em N', () => {
     const r = lerDePara([cabecalho, linha('13535', '2123456789012')]);
     expect(r.linhas[0]?.pesavel).toBeNull();

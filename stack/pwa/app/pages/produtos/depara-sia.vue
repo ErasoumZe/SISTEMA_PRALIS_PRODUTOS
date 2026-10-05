@@ -184,6 +184,10 @@ async function gravar() {
         <v-alert v-else type="warning" variant="tonal" class="mb-4">
           Gravar <strong>substitui o de-para de {{ resumo.loja }} inteiro</strong> — não mescla.
           A exportação é a verdade daquele momento: o que não está nela sai daqui.
+          <div v-if="resumo.teclaAssumida" class="text-body-2 mt-2">
+            <strong>{{ resumo.teclaAssumida }} pesável(is)</strong> vieram sem tecla no arquivo e recebem
+            <code>000</code>, a tecla confirmada com o consultor. A validade de cada um vem do próprio arquivo.
+          </div>
         </v-alert>
 
         <v-card v-if="!problemas" flat border rounded="lg" class="pa-3">
