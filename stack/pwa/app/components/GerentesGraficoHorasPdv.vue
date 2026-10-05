@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ApexOptions } from 'apexcharts';
 import type { RelatorioGerentesHoras } from '~/composables/useApi';
+import { corPdv } from '~/utils/gerentesCores';
 
 const props = defineProps<{ loja: 'TNP' | 'LI'; data: string; pdv: string | null }>();
 const emit = defineEmits<{ pdvs: [nomes: string[]] }>();
@@ -27,8 +28,7 @@ async function carregar() {
 onMounted(carregar);
 watch(() => [props.loja, props.data, props.pdv], carregar);
 
-const PALETA = ['#F9AB00', '#1A73E8', '#34A853', '#EA4335', '#A142F4', '#00ACC1', '#FF6D00', '#D81B60'];
-const cores = computed(() => (dados.value?.series ?? []).map((s) => PALETA[Math.max(0, dados.value?.pdvs.indexOf(s.pdv) ?? 0) % PALETA.length]));
+const cores = computed(() => (dados.value?.series ?? []).map((serie) => corPdv(serie.pdv)));
 const series = computed(() => (dados.value?.series ?? []).map((s) => ({
   name: s.pdv,
   data: (dados.value?.horas ?? []).map((hora) => s.horas.find((p) => p.hora === hora)?.pontos ?? null),
