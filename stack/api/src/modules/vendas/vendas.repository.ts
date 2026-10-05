@@ -1,5 +1,5 @@
 import { injectable } from 'tsyringe';
-import { and, eq, lt } from 'drizzle-orm';
+import { and, eq, lt, or, sql } from 'drizzle-orm';
 import { db, type Tx } from '@/db/databases';
 import { fechamentoCaixaDia, vendaItemPdv, vendaProdutoDia } from './vendas.table';
 import type { FechamentoCaixaInput, ImportarVendasResult, VendaItemPdvInput, VendaProdutoInput } from './vendas.schemas';
@@ -74,7 +74,28 @@ export class VendasRepository {
       .where(and(
         eq(vendaItemPdv.loja, store),
         eq(vendaItemPdv.itemIdErp, row.ID_ITEM_VENDA_BALCAO),
-        lt(vendaItemPdv.origemAtualizadaEm, row.ATUALIZADO_EM),
+        or(
+          lt(vendaItemPdv.origemAtualizadaEm, row.ATUALIZADO_EM),
+          and(
+            eq(vendaItemPdv.origemAtualizadaEm, row.ATUALIZADO_EM),
+            // O Creare não fornece horário de alteração/cancelamento do cupom.
+            // Ele pode mudar STATUS ou ITEM_CANCELADO sem mudar a data original.
+            // Nesse empate, atualizar somente se o conteúdo realmente mudou.
+            sql`(${vendaItemPdv.itemCancelado} IS DISTINCT FROM ${row.ITEM_CANCELADO}
+              OR ${vendaItemPdv.vendaStatus} IS DISTINCT FROM ${row.VENDA_STATUS}
+              OR ${vendaItemPdv.vendaConfirmada} IS DISTINCT FROM ${row.VENDA_CONFIRMADA}
+              OR ${vendaItemPdv.vendaIdErp} IS DISTINCT FROM ${row.ID_VENDA_BALCAO}
+              OR ${vendaItemPdv.dispositivoIdErp} IS DISTINCT FROM ${row.ID_DISPOSITIVO}
+              OR ${vendaItemPdv.pdv} IS DISTINCT FROM ${row.PDV}
+              OR ${vendaItemPdv.vendidoEm} IS DISTINCT FROM ${row.DATA_HORA_VENDA}
+              OR ${vendaItemPdv.produtoIdErp} IS DISTINCT FROM ${row.PRODUTO_ID_ERP}
+              OR ${vendaItemPdv.produtoCodigo} IS DISTINCT FROM ${row.PRODUTO_CODIGO}
+              OR ${vendaItemPdv.produto} IS DISTINCT FROM ${row.PRODUTO}
+              OR ${vendaItemPdv.quantidade} IS DISTINCT FROM ${row.QUANTIDADE}
+              OR ${vendaItemPdv.valorUnitario} IS DISTINCT FROM ${row.VALOR_UNITARIO}
+              OR ${vendaItemPdv.total} IS DISTINCT FROM ${row.TOTAL})`,
+          ),
+        ),
       )).returning({ id: vendaItemPdv.id });
     return updated.length ? 'updated' : 'ignored';
   }

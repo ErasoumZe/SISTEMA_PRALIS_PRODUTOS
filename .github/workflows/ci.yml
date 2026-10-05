@@ -66,3 +66,21 @@ jobs:
       # que a validação do Compose é um portão próprio.
       - name: Compose é YAML válido
         run: docker compose -f docker-compose.coolify.yaml config --quiet
+
+  integracoes_vendas:
+    name: agente de vendas (sem acesso ao Creare)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: automacao/integracoes-vendas
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: automacao/integracoes-vendas/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test

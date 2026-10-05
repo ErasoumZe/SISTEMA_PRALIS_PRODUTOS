@@ -1,0 +1,19 @@
+SELECT
+  ivb.ID_ITEM_VENDA_BALCAO AS idItemVendaBalcao,
+  ivb.ID_VENDA_BALCAO AS idVendaBalcao,
+  ivb.ID_PRODUTO AS idProduto,
+  COALESCE(cp_item.CODIGO, cp_padrao.CODIGO, CAST(ivb.ID_PRODUTO AS CHAR), CAST(ivb.ID_CODIGO_PRODUTO AS CHAR), CAST(ivb.ID_ITEM_VENDA_BALCAO AS CHAR)) AS codigoProduto,
+  COALESCE(NULLIF(ivb.DESCRICAO_PRODUTO, ''), p.DESCRICAO, CONCAT('Produto ', ivb.ID_PRODUTO)) AS descricaoProduto,
+  DATE_FORMAT(ivb.DTHR_ITEM_VENDABALCAO, '%Y-%m-%d %H:%i:%s') AS dataHoraItem,
+  ivb.QUANTIDADE AS quantidade,
+  ivb.UNITARIO AS valorUnitario,
+  COALESCE(ivb.DESCONTO_RATEIO, ivb.DESCONTO_ITEM, ivb.VALOR_DESCONTO, 0) AS desconto,
+  COALESCE(ivb.ACRESCIMO_RATEIO, ivb.ACRESCIMO_ITEM, 0) AS acrescimo,
+  COALESCE(ivb.TOTAL_ITEM_LIQUIDO_RATEIO, ivb.TOTAL_ITEM_LIQUIDO, ivb.TOTAL_ITEM, 0) AS total,
+  ivb.ITEM_CANCELADO AS itemCancelado
+FROM item_venda_balcao ivb
+LEFT JOIN produto p ON p.ID_PRODUTO = ivb.ID_PRODUTO
+LEFT JOIN codigo_produto cp_item ON cp_item.ID_CODIGO_PRODUTO = ivb.ID_CODIGO_PRODUTO
+LEFT JOIN codigo_produto cp_padrao ON cp_padrao.ID_CODIGO_PRODUTO = p.ID_CODIGO_PRODUTO_PADRAO
+WHERE ivb.ID_VENDA_BALCAO IN (/*IDS*/)
+ORDER BY ivb.ID_VENDA_BALCAO, ivb.ID_ITEM_VENDA_BALCAO;

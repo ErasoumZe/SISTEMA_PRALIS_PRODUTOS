@@ -1,0 +1,7 @@
+node_modules/
+.env*
+!.env.producao.example
+.estado/
+logs/
+*.log
+creare-*.txt
