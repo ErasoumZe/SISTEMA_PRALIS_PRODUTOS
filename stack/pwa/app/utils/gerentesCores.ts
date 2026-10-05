@@ -1,6 +1,3 @@
-export const COR_VENDA_TOTAL = '#F9AB00';
-export const COR_META = '#7C3AED';
-
 const CORES_PDV = ['#1A73E8', '#34A853', '#EA4335', '#FF6D00'] as const;
 const CORES_OUTROS = ['#00ACC1', '#D81B60', '#5E35B1', '#6D4C41'] as const;
 
