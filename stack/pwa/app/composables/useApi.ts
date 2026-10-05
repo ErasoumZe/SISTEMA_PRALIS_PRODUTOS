@@ -129,6 +129,8 @@ export interface ResumoDePara {
   linhas: number;
   semBarras: number;
   semDadosBalanca: number;
+  /** Pesáveis que vieram sem tecla e receberam 000, a tecla confirmada com o consultor. */
+  teclaAssumida: number;
   /** Quantas linhas a loja tem hoje — o que seria substituído. */
   atuais: number;
   barrasAmbiguas: Array<{ chave: string; coditens: string[] }>;

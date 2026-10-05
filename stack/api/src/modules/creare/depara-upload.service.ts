@@ -29,6 +29,8 @@ export interface ResumoDePara {
   linhas: number;
   semBarras: number;
   semDadosBalanca: number;
+  /** Pesáveis que vieram sem tecla e receberam `000`, a tecla confirmada com o consultor. */
+  teclaAssumida: number;
   /** Quantas linhas a loja tem hoje — o que seria substituído. */
   atuais: number;
   barrasAmbiguas: Array<{ chave: string; coditens: string[] }>;
@@ -125,6 +127,8 @@ export class DeParaUploadService {
       entrega: bruto.linhas.length - catalogo.length,
       semBarras: bruto.semBarras,
       semDadosBalanca: catalogo.filter((l) => !l.pesavel || (l.pesavel === 'S' && (l.teclaBalanca === null || l.validadeBalanca === null))).length,
+      // só os do catálogo: tecla assumida numa linha de entrega não vai ser gravada
+      teclaAssumida: bruto.teclaAssumida.filter((coditem) => !ehEntrega(coditem)).length,
       barrasAmbiguas: [...porChave.entries()]
         .filter(([, coditens]) => coditens.length > 1)
         .map(([chave, coditens]) => ({ chave, coditens })),
@@ -142,6 +146,7 @@ export class DeParaUploadService {
       linhas: r.linhas.length,
       semBarras: r.semBarras,
       semDadosBalanca: r.semDadosBalanca,
+      teclaAssumida: r.teclaAssumida,
       atuais: await this.atuais(loja),
       barrasAmbiguas: r.barrasAmbiguas.slice(0, 20),
       coditensRepetidos: r.coditensRepetidos.slice(0, 20),

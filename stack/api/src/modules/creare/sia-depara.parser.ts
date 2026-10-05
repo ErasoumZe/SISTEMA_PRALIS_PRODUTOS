@@ -75,10 +75,23 @@ export interface LinhaDePara {
   validadeBalanca: string | null;
 }
 
+/**
+ * Tecla de balança quando a exportação não traz uma.
+ *
+ * É a decisão operacional confirmada com o consultor do Creare em 28/09/2026
+ * (`000`), a mesma que a manutenção de pesáveis grava. A exportação do SIA
+ * Supervisor tem a coluna `Tecla`, mas ela vem **em branco em todas as linhas**
+ * — medido em 05/10/2026: 2.547 de 2.547. Exigir dela um número que ela nunca
+ * traz recusava o arquivo inteiro por um campo que já tem resposta.
+ */
+export const TECLA_BALANCA_PADRAO = '000';
+
 export interface ResultadoLeitura {
   linhas: LinhaDePara[];
   semBarras: number;
   semDadosBalanca: number;
+  /** Coditens pesáveis que vieram sem tecla e receberam `TECLA_BALANCA_PADRAO`. */
+  teclaAssumida: string[];
   barrasAmbiguas: Array<{ chave: string; coditens: string[] }>;
   coditensRepetidos: string[];
 }
@@ -103,6 +116,7 @@ export function lerDePara(tabela: unknown[][]): ResultadoLeitura {
   const linhas: LinhaDePara[] = [];
   let semBarras = 0;
   let semDadosBalanca = 0;
+  const teclaAssumida: string[] = [];
 
   for (const linha of tabela.slice(cabecalho + 1)) {
     const coditem = texto(linha, 'coditem');
@@ -121,7 +135,7 @@ export function lerDePara(tabela: unknown[][]): ResultadoLeitura {
     const reducao = texto(linha, 'reducao').replace(',', '.');
     const aliquotaInterna = texto(linha, 'aliquotaInterna').replace(',', '.');
     const pesavel = textoBalanca(linha, 'pesavel')?.toUpperCase() ?? null;
-    const teclaBalanca = textoBalanca(linha, 'teclaBalanca');
+    let teclaBalanca = textoBalanca(linha, 'teclaBalanca');
     const validadeBalanca = textoBalanca(linha, 'validadeBalanca');
     if (pesavel !== null && pesavel !== 'S' && pesavel !== 'N') {
       throw new Error(`Coditem ${coditem}: Pesavel deve ser S ou N; recebido ${pesavel}.`);
@@ -130,6 +144,15 @@ export function lerDePara(tabela: unknown[][]): ResultadoLeitura {
       if (valor !== null && !/^\d{1,3}$/.test(valor)) {
         throw new Error(`Coditem ${coditem}: ${nome} de balanca deve ter ate tres digitos.`);
       }
+    }
+    /*
+     * Pesável sem tecla recebe a tecla padrão. A VALIDADE continua obrigatória:
+     * ela é dado de verdade (dias até vencer) e não tem resposta pronta — um
+     * pesável sem validade segue como "sem dados de balança" e trava a gravação.
+     */
+    if (pesavel === 'S' && teclaBalanca === null && validadeBalanca !== null) {
+      teclaBalanca = TECLA_BALANCA_PADRAO;
+      teclaAssumida.push(coditem);
     }
     if (!pesavel || (pesavel === 'S' && (teclaBalanca === null || validadeBalanca === null))) {
       semDadosBalanca += 1;
@@ -158,6 +181,7 @@ export function lerDePara(tabela: unknown[][]): ResultadoLeitura {
     linhas,
     semBarras,
     semDadosBalanca,
+    teclaAssumida,
     barrasAmbiguas: [...porChave.entries()]
       .filter(([, coditens]) => coditens.length > 1)
       .map(([chave, coditens]) => ({ chave, coditens })),

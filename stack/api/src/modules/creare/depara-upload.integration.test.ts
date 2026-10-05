@@ -158,6 +158,43 @@ describe('aplicar', () => {
     expect((await linhasDe('LI')).map((l) => l.coditem)).toEqual(['10000']);
   });
 
+  /*
+   * A exportação real do SIA traz a coluna TECLA em branco em todas as linhas.
+   * Isso recusava o arquivo inteiro (365 "problemas" em 05/10/2026) por um campo
+   * que já tem resposta: 000, a tecla confirmada com o consultor.
+   */
+  it('aceita pesavel sem tecla, grava 000 e conta na previa', async () => {
+    const semTecla = Buffer.from(
+      ['CODITEM;COD_BARRAS;NOME;ATIVO;ALIQ_ECF;CST;CSOSN;NCM;REDUCAO;ALIQ_INTERNA;GRUPO;PESAVEL;TECLA;VALIDADE',
+        '10001;7891000249246;ACAFRAO KG;A;3;"040";102;08043000;0;18;MAT. PRIMA;S;;0',
+        '10002;7891000249253;PAO DE QUEIJO KG;A;3;"040";102;08043000;0;18;MAT. PRIMA;S;;3',
+        '10003;7891000249260;REFRIGERANTE;A;3;"040";102;08043000;0;18;MAT. PRIMA;N;;'].join('\n'),
+      'utf8',
+    );
+    const previa = await servico.previa('LI', semTecla, 'sem-tecla.csv');
+    expect(previa.semDadosBalanca).toBe(0);
+    expect(previa.teclaAssumida).toBe(2);
+
+    await servico.aplicar('LI', semTecla, 'sem-tecla.csv', FRASE);
+    const balanca = (await db.execute(sqlTag`
+      SELECT coditem, pesavel, tecla_balanca, validade_balanca FROM sia_produto_depara
+      WHERE loja = 'LI' ORDER BY coditem
+    `)).rows as Array<{ coditem: string; pesavel: string | null; tecla_balanca: string | null; validade_balanca: string | null }>;
+    expect(balanca.find((l) => l.coditem === '10001')).toMatchObject({ pesavel: 'S', tecla_balanca: '000', validade_balanca: '0' });
+    expect(balanca.find((l) => l.coditem === '10002')).toMatchObject({ pesavel: 'S', tecla_balanca: '000', validade_balanca: '3' });
+    expect(balanca.find((l) => l.coditem === '10003')).toMatchObject({ pesavel: 'N', tecla_balanca: null });
+  });
+
+  it('pesavel sem VALIDADE continua recusado: validade nao tem padrao', async () => {
+    const semValidade = Buffer.from(
+      ['CODITEM;COD_BARRAS;NOME;ATIVO;ALIQ_ECF;CST;CSOSN;NCM;REDUCAO;ALIQ_INTERNA;GRUPO;PESAVEL;TECLA;VALIDADE',
+        '10001;7891000249246;ACAFRAO KG;A;3;"040";102;08043000;0;18;MAT. PRIMA;S;;'].join('\n'),
+      'utf8',
+    );
+    await expect(servico.aplicar('LI', semValidade, 'sem-validade.csv', FRASE))
+      .rejects.toMatchObject({ code: 'CREARE_BALANCA_INCOMPLETA' });
+  });
+
   it('grava as linhas da loja', async () => {
     const r = await servico.aplicar('LI', csv([
       ['10000', '7891000249239', 'ABACAXI UNID'],
