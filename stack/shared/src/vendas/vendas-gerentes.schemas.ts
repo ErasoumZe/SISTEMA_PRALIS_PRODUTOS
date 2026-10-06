@@ -75,6 +75,8 @@ export const gerentesSchema = z.object({
   pdvs: z.array(z.string()),
   filtroPdv: z.string().nullable(),
   totalPontos: z.number(),
+  /** O dia que entrou ao vivo (sem fechamento ainda), ou null. */
+  diaAoVivo: z.iso.date().nullable(),
   series: z.array(z.object({
     pdv: z.string(),
     pontosTotal: z.number(),
@@ -88,6 +90,11 @@ export const gerentesSchema = z.object({
       /** Apenas itens ligados ao dispositivo pela chave do ERP; null = sem cobertura. */
       quantidade: z.number().nullable(),
       vendasComItens: z.number().nullable(),
+      /**
+       * O dia ainda está acontecendo: veio das vendas ao vivo, não do
+       * fechamento. O número sobe até o caixa fechar.
+       */
+      parcial: z.boolean(),
     })),
   })),
 });

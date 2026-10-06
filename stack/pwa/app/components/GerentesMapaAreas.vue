@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VendasFormato } from '@pralis/shared';
 import type { ApexOptions } from 'apexcharts';
 import type { RelatorioGerentesAreas } from '~/composables/useApi';
 type Loja = 'TNP' | 'LI';
@@ -89,7 +90,8 @@ const seriesGrafico = computed(() => seriesVisiveis.value.map((serie) => ({
   name: areas.find((area) => area.id === serie.area)?.nome ?? serie.area,
   data: categoriasGrafico.value.map((chave) => serie.pontos.find((p) => p.chave === chave)?.pontos ?? null),
 })));
-const pontos = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+const pontos = (n: number) => VendasFormato.formatarPontos(n);
+const quantidade = (n: number) => VendasFormato.formatarQuantidade(n);
 const moeda = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const nomeCategoria = (chave: string) => chave.endsWith('h') ? chave : `${chave.slice(8, 10)}/${chave.slice(5, 7)}`;
 const rotulosCategorias = computed(() => {
@@ -108,7 +110,7 @@ function tooltipArea(serieIndex: number, pontoIndex: number): string {
     <div class="ga-hover-topo"><i style="background:${area?.cor ?? '#64748B'}"></i><strong>${area?.nome ?? ''}</strong><span>${nomeCategoria(chave)}</span></div>
     ${linha('Pontuação', `${pontos(ponto.pontos)} pts`)}
     ${linha(dados.value?.origem === 'venda_produto_dia' ? 'Faturamento dos produtos' : 'Faturamento dos itens', ponto.faturamento === null ? 'Restrito' : moeda(ponto.faturamento))}
-    ${linha('Quantidade vendida', pontos(ponto.quantidade))}
+    ${linha('Quantidade vendida', quantidade(ponto.quantidade))}
     ${linha('Número de vendas', ponto.numeroVendas === null ? 'Não disponível' : String(ponto.numeroVendas))}
     ${linha('Ticket médio', ponto.ticketMedio === null ? (dados.value?.origem === 'venda_produto_dia' ? 'Não disponível' : 'Restrito') : moeda(ponto.ticketMedio))}
   </div>`;

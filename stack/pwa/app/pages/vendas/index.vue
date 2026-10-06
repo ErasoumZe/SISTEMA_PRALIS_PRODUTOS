@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ApexOptions } from 'apexcharts';
-import { VendasDatas } from '@pralis/shared';
+import { VendasDatas, VendasFormato, VendasPagamentos } from '@pralis/shared';
 import type { VendasReport, VendasRankingResposta, DetalhePdv, AbcProdutos, Pulso, ListaVendas, VendaResumo, VendaDetalhe } from '~/composables/useApi';
 
 const api = useApi();
@@ -199,7 +199,9 @@ const diaCurto = (d: string) => {
   const [, m, x] = d.split('-');
   return `${x}/${m}`;
 };
-const pct = (v: number) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
+const pct = (v: number) => VendasFormato.formatarPercentual(v);
+/* Ponto é placar, não dinheiro: inteiro. Ver `VendasFormato`. */
+const pts = (v: number) => VendasFormato.pontosComUnidade(v);
 
 const resumoCards = computed(() => {
   const r = dados.value?.resumo;
@@ -240,6 +242,19 @@ const COLUNAS_PAGAMENTO = [
   { chave: 'sobraPerda', label: 'Sobra/perda' },
   { chave: 'outros', label: 'Outros' },
 ] as const;
+
+/**
+ * Quanto cada forma pesou no período inteiro.
+ *
+ * A tabela abaixo responde "quanto entrou em pix no dia 3"; esta responde
+ * "do que entrou no mês, quanto foi pix" — que é a pergunta de quem negocia
+ * taxa de cartão e planeja sangria. A base é a soma das formas, não o
+ * faturamento dos produtos: ver `VendasPagamentos`.
+ */
+const resumoPagamentos = computed(() => VendasPagamentos.resumirPagamentos(
+  (dados.value?.pagamentos ?? []) as unknown as Array<Record<string, unknown>>,
+  COLUNAS_PAGAMENTO as unknown as Array<{ chave: string; label: string }>,
+));
 
 /** Só mostra a coluna que teve movimento — 13 colunas zeradas é ruído. */
 const colunasComMovimento = computed(() => {
@@ -287,6 +302,16 @@ const CORES_PAGAMENTO = {
 } as const;
 
 const FORMAS_PRINCIPAIS = ['dinheiro', 'pix', 'debito', 'credito', 'voucher'] as const;
+
+/** A cor da forma; as que o gráfico junta em "Outros" ganham tons de cinza. */
+const CINZAS_PAGAMENTO = ['#667085', '#8A94A6', '#A7AFBD', '#C3C9D4'];
+function corPagamento(chave: string): string {
+  const fixa = (CORES_PAGAMENTO as Record<string, string | undefined>)[chave];
+  if (fixa) return fixa;
+  const resto = COLUNAS_PAGAMENTO.filter((c) => !(c.chave in CORES_PAGAMENTO)).map((c) => c.chave as string);
+  const i = resto.indexOf(chave);
+  return CINZAS_PAGAMENTO[(i < 0 ? 0 : i) % CINZAS_PAGAMENTO.length]!;
+}
 
 /** Cinza recessivo da grade — um passo fora da superfície, nunca tracejado. */
 const GRADE = '#E7EAF0';
@@ -705,8 +730,6 @@ const ORDENS = [
 ] as const;
 const ordem = ref<'faturamento' | 'giro' | 'risco'>('faturamento');
 // filtroSetor / filtroGrupo / filtroProduto: declarados no topo, valem para a área inteira
-const paginaAbc = ref(1);
-const TAMANHO_PAGINA_ABC = 25;
 /**
  * As OPÇÕES de setor e grupo saem de uma leitura SEM filtro, própria.
  *
@@ -730,8 +753,6 @@ onMounted(carregarOpcoesCadastro);
 watch([loja, inicio, fim], carregarOpcoesCadastro);
 const setoresAbc = computed(() => [...new Set((baseOpcoes.value?.itens ?? []).map((i) => i.setor).filter((v): v is string => !!v))].sort());
 const gruposAbc = computed(() => [...new Set((baseOpcoes.value?.itens ?? []).map((i) => i.grupo).filter((v): v is string => !!v))].sort());
-watch([classeAberta, loja, inicio, fim, filtroSetor, filtroGrupo, filtroProduto, ordem], () => { paginaAbc.value = 1; });
-
 const itensAbcOrdenados = computed(() => {
   const termo = (filtroProduto.value ?? '').trim().toLocaleLowerCase('pt-BR');
   const itens = (listaAbc.value?.itens ?? []).filter((i) =>
@@ -749,8 +770,15 @@ const itensAbcOrdenados = computed(() => {
   }
   return itens; // já vem ordenado por faturamento
 });
-const paginasAbc = computed(() => Math.ceil(itensAbcOrdenados.value.length / TAMANHO_PAGINA_ABC));
-const itensAbcPagina = computed(() => itensAbcOrdenados.value.slice((paginaAbc.value - 1) * TAMANHO_PAGINA_ABC, paginaAbc.value * TAMANHO_PAGINA_ABC));
+/*
+ * A lista ABC não pagina mais (decisão do José em 06/10/2026). Paginar de 25
+ * em 25 quebrava justamente a leitura que a curva pede: correr o olho do
+ * primeiro ao último e ver onde o acumulado passa de 80%. O servidor já
+ * devolvia tudo; a fatia era só da tela.
+ *
+ * Em troca, a tabela ganha altura máxima com rolagem própria e cabeçalho
+ * fixo — milhares de linhas soltas na página empurrariam o rodapé para longe.
+ */
 
 const abcFatias = computed(() => (dados.value?.curvaAbc ?? []).map((c) => ({
   classe: c.classe,
@@ -1173,7 +1201,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                   </div>
                   <div class="text-right flex-shrink-0">
                     <div v-if="i.faturamento !== null" class="text-body-2 font-weight-bold sales-revenue">{{ brl(i.faturamento) }}</div>
-                    <div class="text-caption text-medium-emphasis">{{ num(i.pontos) }} pts</div>
+                    <div class="text-caption text-medium-emphasis">{{ pts(i.pontos) }}</div>
                   </div>
                 </div>
                 <!-- barra proporcional ao LÍDER: compara dentro da própria lista -->
@@ -1188,7 +1216,7 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
 
               <div v-if="ranking.itens.length" class="text-caption text-medium-emphasis mt-4">
                 Pontuação = faturamento × 25%. Total do período:
-                <strong class="text-high-emphasis">{{ num(ranking.pontosTotal) }} pts</strong>.
+                <strong class="text-high-emphasis">{{ pts(ranking.pontosTotal) }}</strong>.
                 <template v-if="ranking.campo"> Classificado pelo campo <code>{{ ranking.campo }}</code> do cadastro.</template>
               </div>
             </template>
@@ -1299,8 +1327,8 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 Nenhum produto nesta classe no período.
               </div>
 
-              <div v-else style="overflow-x: auto">
-                <v-table density="compact">
+              <div v-else class="sales-abc-lista">
+                <v-table density="compact" fixed-header height="100%">
                   <thead>
                     <tr>
                       <th class="text-left">Posição</th>
@@ -1309,11 +1337,12 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                       <th class="text-right">Vendeu</th>
                       <th class="text-right">Por dia</th>
                       <th class="text-right">Faturou</th>
+                      <th class="text-right">% do fat.</th>
                       <th class="text-right">% acum.</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="i in itensAbcPagina" :key="`${i.produtoCodigo}-${i.produto}`" :class="{ 'sales-abc-a': i.classe === 'A' }">
+                    <tr v-for="i in itensAbcOrdenados" :key="`${i.produtoCodigo}-${i.produto}`" :class="{ 'sales-abc-a': i.classe === 'A' }">
                       <!--
                         1/n: n é quantos produtos DIFERENTES venderam no recorte.
                         A porcentagem é a posição dentro desse universo — "1/100,
@@ -1334,17 +1363,18 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                       <td class="text-right">{{ num(i.quantidade) }}</td>
                       <td class="text-right">{{ num(i.porDia) }}</td>
                       <td class="text-right font-weight-bold">{{ brl(i.faturamento) }}</td>
+                      <td class="text-right">{{ pct(i.participacao) }}</td>
                       <td class="text-right text-medium-emphasis">{{ pct(i.acumulado) }}</td>
                     </tr>
                   </tbody>
                 </v-table>
               </div>
 
-              <v-pagination v-if="paginasAbc > 1" v-model="paginaAbc" :length="paginasAbc" :total-visible="5" aria-label="Páginas da lista ABC" class="mt-4" />
-
               <div class="text-caption text-medium-emphasis mt-3">
                 Período de {{ num(listaAbc.periodo.dias) }} dia(s).
                 <strong>Por dia</strong> é a venda média no período — é o ritmo que consome a prateleira.
+                A lista mostra os {{ num(itensAbcOrdenados.length) }} produtos da classe, sem paginar;
+                <strong>% do fat.</strong> é o peso do produto e <strong>% acum.</strong> é a soma até ele.
               </div>
             </template>
           </v-card>
@@ -1462,6 +1492,35 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 não distingue cor precisa de um caminho que não dependa dela. É
                 esta tabela. Tirá-la deixaria o gráfico sem leitura alternativa.
               -->
+              <!-- o peso de cada forma no período, antes do dia a dia -->
+              <div v-if="resumoPagamentos.itens.length" class="sales-pag-resumo mt-4">
+                <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-2">
+                  <div class="text-subtitle-2 font-weight-bold">Peso de cada forma no período</div>
+                  <div class="text-caption text-medium-emphasis">Base: {{ brl(resumoPagamentos.total) }} somando as formas</div>
+                </div>
+                <div class="sales-pag-barra" role="img" aria-label="Participação de cada forma de pagamento">
+                  <span
+                    v-for="f in resumoPagamentos.itens"
+                    :key="f.chave"
+                    :style="{ width: `${Math.max(0, f.percentual)}%`, background: corPagamento(f.chave) }"
+                    :title="`${f.label}: ${pct(f.percentual)}`"
+                  />
+                </div>
+                <div class="sales-pag-grade mt-3">
+                  <div v-for="f in resumoPagamentos.itens" :key="f.chave" class="sales-pag-item">
+                    <span class="sales-pag-ponto" :style="{ background: corPagamento(f.chave) }" />
+                    <div class="flex-grow-1">
+                      <div class="text-body-2 font-weight-medium">{{ f.label }}</div>
+                      <div class="text-caption text-medium-emphasis">{{ brl(f.total) }}</div>
+                    </div>
+                    <div class="text-body-2 font-weight-bold tabular">{{ pct(f.percentual) }}</div>
+                  </div>
+                </div>
+                <div v-if="resumoPagamentos.itens.some((f) => f.percentual < 0)" class="text-caption text-medium-emphasis mt-2">
+                  Há ajuste negativo no período (roubo/furto ou sobra/perda), então as fatias passam de 100%.
+                </div>
+              </div>
+
               <div class="text-caption text-medium-emphasis mt-4 mb-2">
                 Os mesmos números, forma por forma — é por aqui que se lê sem depender da cor.
               </div>
@@ -1629,5 +1688,12 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
 .sales-pdv-link { text-transform: none; padding-inline: 0; max-width: 100%; }
 .sales-pdv-products { max-height: 360px; overflow-y: auto; }
 .sales-abc-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+/* Lista ABC inteira: rolagem própria e cabeçalho fixo, para a página não crescer sem fim. */
+.sales-abc-lista { max-height: min(70vh, 620px); overflow: auto; border: 1px solid var(--cx-line-soft); border-radius: 8px; }
+.sales-pag-barra { display: flex; width: 100%; height: 14px; border-radius: 999px; overflow: hidden; background: var(--cx-surface-sunken); }
+.sales-pag-barra span { display: block; height: 100%; min-width: 2px; }
+.sales-pag-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 20px; }
+.sales-pag-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--cx-line-soft); }
+.sales-pag-ponto { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 @media (max-width: 700px) { .sales-abc-filters { grid-template-columns: 1fr; } }
 </style>
