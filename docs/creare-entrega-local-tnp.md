@@ -75,6 +75,12 @@ atual e a API do Agendador; nao pede nem armazena senha.
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\importação-sia\OCULTAR-TAREFA-TXT-TNP.ps1'
    ```
 
+   O Agendador pode mostrar apenas `Servidor` como UserId, mesmo quando
+   `whoami` mostra `servidor\servidor`. A versao corrigida do utilitario
+   qualifica esse nome local antes de comparar os SIDs; a verificacao da
+   mesma conta continua obrigatoria. Se aparecer erro de identificacao,
+   nao use `-Aplicar`: envie a saida do diagnostico.
+
 4. Se o diagnostico mostrar login `3`, aplique:
 
    ```powershell

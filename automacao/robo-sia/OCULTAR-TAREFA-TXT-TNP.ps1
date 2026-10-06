@@ -19,9 +19,19 @@ $scriptRobo = Join-Path $raiz 'SINCRONIZAR-TXT-TNP.ps1'
 $nomeTarefa = 'Download TXT SIA TNP'
 
 function ObterSid([string]$conta) {
-    if ($conta -match '^S-\d-') { return $conta }
-    return (New-Object System.Security.Principal.NTAccount -ArgumentList $conta).Translate(
-        [System.Security.Principal.SecurityIdentifier]).Value
+    $nome = $conta.Trim()
+    if ($nome -match '^S-\d-') { return $nome }
+    if (-not $nome) { throw 'A tarefa nao informa a conta que a executa. Nada foi alterado.' }
+    # O Agendador pode devolver somente "Servidor" para a conta local
+    # SERVIDOR\Servidor. NTAccount nao resolve o nome curto sozinho em toda
+    # instalacao; qualificar com o computador evita aceitar outra conta por engano.
+    if ($nome -notmatch '[\\@]') { $nome = $env:COMPUTERNAME + '\' + $nome }
+    try {
+        return (New-Object System.Security.Principal.NTAccount -ArgumentList $nome).Translate(
+            [System.Security.Principal.SecurityIdentifier]).Value
+    } catch {
+        throw "Nao consegui identificar a conta '$conta' (testada como '$nome'). Nada foi alterado."
+    }
 }
 
 try {
