@@ -1,11 +1,21 @@
 import { inject, injectable } from 'tsyringe';
 import { sql } from 'drizzle-orm';
-import { VendasGerentes, VendasRanking } from '@pralis/shared';
+import { VendasGerentes, VendasGerentesPeriodo, VendasRanking } from '@pralis/shared';
 import { AppError } from '@/config/api.replies';
 import { db } from '@/db/databases';
 
 type Loja = 'TNP' | 'LI';
-type Linha = { data: string; pdv: string; dispositivoIdErp: string; total: number; numeroVendas: number };
+/**
+ * Uma linha de movimento de um PDV num dia.
+ *
+ * `aoVivo` marca o que veio das vendas em curso (`venda_item_pdv`) em vez do
+ * fechamento de caixa. O dia de hoje só tem fechamento depois que o caixa
+ * fecha — e esperar o fim do expediente para ver o dia era a reclamação.
+ */
+type Linha = {
+  data: string; pdv: string; dispositivoIdErp: string; total: number; numeroVendas: number;
+  aoVivo?: boolean;
+};
 type ItemLinha = { data: string; dispositivoIdErp: string; quantidade: number; vendas: number };
 const pontos = (valor: number) => Math.round(valor * VendasRanking.PONTOS_POR_REAL * 100) / 100;
 const dinheiro = (valor: number) => Math.round(valor * 100) / 100;
@@ -31,7 +41,7 @@ export function montarRelatorioGerentes(
   if (filtroPdv && !pdvs.includes(filtroPdv)) throw new AppError('PDV não encontrado nesta loja.', 422, 'PDV_NOT_FOUND');
   const visiveis = filtroPdv ? [filtroPdv] : pdvs;
   const somas = new Map<string, number>();
-  const porDia = new Map<string, { total: number; numeroVendas: number; ids: Map<string, number>; semId: boolean }>();
+  const porDia = new Map<string, { total: number; numeroVendas: number; ids: Map<string, number>; semId: boolean; aoVivo: boolean }>();
   const donos = new Map<string, Set<string>>();
   for (const linha of linhas) {
     if (linha.dispositivoIdErp) {
@@ -43,9 +53,10 @@ export function montarRelatorioGerentes(
     if (!visiveis.includes(linha.pdv)) continue;
     const chave = `${linha.pdv}\u0000${linha.data}`;
     somas.set(linha.pdv, (somas.get(linha.pdv) ?? 0) + linha.total);
-    const dia = porDia.get(chave) ?? { total: 0, numeroVendas: 0, ids: new Map<string, number>(), semId: false };
+    const dia = porDia.get(chave) ?? { total: 0, numeroVendas: 0, ids: new Map<string, number>(), semId: false, aoVivo: false };
     dia.total += linha.total;
     dia.numeroVendas += linha.numeroVendas;
+    if (linha.aoVivo) dia.aoVivo = true;
     if (linha.dispositivoIdErp) dia.ids.set(linha.dispositivoIdErp, (dia.ids.get(linha.dispositivoIdErp) ?? 0) + linha.numeroVendas);
     else dia.semId = true;
     porDia.set(chave, dia);
@@ -57,7 +68,7 @@ export function montarRelatorioGerentes(
     // Null significa "não chegou fechamento", não venda de zero pontos.
     dias: datas.map((data) => {
       const dia = porDia.get(`${pdv}\u0000${data}`);
-      if (!dia) return { data, pontos: null, faturamento: null, numeroVendas: null, ticketMedio: null, quantidade: null, vendasComItens: null };
+      if (!dia) return { data, pontos: null, faturamento: null, numeroVendas: null, ticketMedio: null, quantidade: null, vendasComItens: null, parcial: false };
       // Detalhes sem chave de dispositivo, ou com chave ambigua entre PDVs,
       // nao autorizam atribuir quantidade ao caixa por nome ou horario.
       const pares = [...dia.ids].map(([id, vendas]) => ({
@@ -73,6 +84,7 @@ export function montarRelatorioGerentes(
         numeroVendas: dia.numeroVendas,
         ticketMedio: podeVerDinheiro && dia.numeroVendas > 0 ? dinheiro(dia.total / dia.numeroVendas) : null,
         quantidade, vendasComItens,
+        parcial: dia.aoVivo,
       };
     }),
   }));
@@ -80,6 +92,7 @@ export function montarRelatorioGerentes(
     loja, periodo: { inicio, fim }, granularidade: 'dia', origem: 'fechamento_caixa_dia',
     pdvs, filtroPdv: filtroPdv ?? null,
     totalPontos: pontos([...somas.values()].reduce((soma, valor) => soma + valor, 0)),
+    diaAoVivo: linhas.find((linha) => linha.aoVivo)?.data ?? null,
     series,
   };
 }
@@ -144,10 +157,49 @@ export class VendasGerentesService {
           AND NULLIF(BTRIM(pdv), '') IS NOT NULL
         GROUP BY data, pdv, dispositivo_id_erp ORDER BY data, pdv, dispositivo_id_erp
       `);
-    const linhas = movimento.rows.map((r) => ({
+    const linhas: Linha[] = movimento.rows.map((r) => ({
       data: String(r.data), pdv: String(r.pdv), dispositivoIdErp: String(r.dispositivo_id_erp ?? ''),
       total: Number(r.total), numeroVendas: Number(r.numero_vendas),
     }));
+    /*
+     * O DIA EM CURSO entra pelas vendas ao vivo.
+     *
+     * `fechamento_caixa_dia` só existe depois que o caixa fecha, então hoje
+     * aparecia como buraco no gráfico até o fim do expediente. Quando o dia já
+     * tem fechamento (caixa fechou e o robô trouxe), o fechamento manda: ele é
+     * a fonte oficial e inclui lançamentos que a venda de produto não tem.
+     */
+    const hoje = VendasGerentesPeriodo.hojeSaoPaulo();
+    const aoVivo: Linha[] = [];
+    const itensAoVivo: ItemLinha[] = [];
+    if (hoje >= pedido.inicio && hoje <= pedido.fim && !linhas.some((linha) => linha.data === hoje)) {
+      const curso = await db.execute(sql`
+        SELECT pdv, COALESCE(NULLIF(BTRIM(dispositivo_id_erp), ''), '') AS dispositivo_id_erp,
+          SUM(total)::float8 AS total,
+          SUM(quantidade)::float8 AS quantidade,
+          COUNT(DISTINCT venda_id_erp)::int AS numero_vendas
+        FROM venda_item_pdv
+        WHERE loja = ${loja}
+          AND vendido_em >= ${hoje}::date AND vendido_em < (${hoje}::date + INTERVAL '1 day')
+          AND NOT item_cancelado AND venda_confirmada
+          AND NULLIF(BTRIM(pdv), '') IS NOT NULL
+        GROUP BY pdv, 2 ORDER BY pdv
+      `);
+      for (const r of curso.rows) {
+        const dispositivoIdErp = String(r.dispositivo_id_erp ?? '');
+        aoVivo.push({
+          data: hoje, pdv: String(r.pdv), dispositivoIdErp,
+          total: Number(r.total), numeroVendas: Number(r.numero_vendas), aoVivo: true,
+        });
+        if (dispositivoIdErp) {
+          itensAoVivo.push({
+            data: hoje, dispositivoIdErp,
+            quantidade: Number(r.quantidade), vendas: Number(r.numero_vendas),
+          });
+        }
+      }
+      linhas.push(...aoVivo);
+    }
     // Só oferecer PDVs com fechamento NESTE período. Um dispositivo cadastrado
     // historicamente, mas sem movimento agora, não é uma série de zero pontos.
     const pdvs = [...new Set(linhas.map((r) => r.pdv))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
@@ -170,10 +222,11 @@ export class VendasGerentesService {
         AND NOT i.item_cancelado AND i.venda_confirmada
       GROUP BY i.vendido_em::date, i.dispositivo_id_erp
     `);
-    const itens = detalhe.rows.map((r) => ({
+    const itens: ItemLinha[] = detalhe.rows.map((r) => ({
       data: String(r.data), dispositivoIdErp: String(r.dispositivo_id_erp),
       quantidade: Number(r.quantidade), vendas: Number(r.vendas),
     }));
+    itens.push(...itensAoVivo);
     return montarRelatorioGerentes(
       loja, pedido.inicio, pedido.fim,
       pdvs, linhas,

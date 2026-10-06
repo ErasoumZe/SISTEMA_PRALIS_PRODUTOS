@@ -42,6 +42,22 @@ export function periodoGerentes(mes: string, modo: ModoGerentes, dia?: string, s
   return { inicio: data, fim: data };
 }
 
+/**
+ * A data de hoje no fuso da padaria.
+ *
+ * O servidor roda em UTC: depois das 21h de Brasília, `new Date()` já é
+ * "amanhã" lá, e o dia em curso sumiria do gráfico justo no fim do expediente.
+ */
+export function hojeSaoPaulo(agora = new Date()): string {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(agora);
+  const ano = partes.find((p) => p.type === 'year')?.value;
+  const mes = partes.find((p) => p.type === 'month')?.value;
+  const dia = partes.find((p) => p.type === 'day')?.value;
+  return `${ano}-${mes}-${dia}`;
+}
+
 export function mesAtualSaoPaulo(agora = new Date()): string {
   const partes = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit',

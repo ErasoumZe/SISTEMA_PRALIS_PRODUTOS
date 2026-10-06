@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { VendasGerentesPeriodo } from '@pralis/shared';
 
 let container: StartedPostgreSqlContainer;
 let servico: import('./vendas-gerentes.service').VendasGerentesService;
@@ -48,6 +49,18 @@ async function item(loja: string, dispositivoIdErp: string, vendaId: string, qua
   `);
 }
 
+/** Item de venda em qualquer data — o helper acima fixa 01/10. */
+async function itemEm(loja: string, data: string, dispositivoIdErp: string, pdv: string, vendaId: string, quantidade: number, total: number) {
+  await db.execute(sqlTag`
+    INSERT INTO venda_item_pdv (id, loja, venda_id_erp, item_id_erp, dispositivo_id_erp, pdv,
+      vendido_em, produto_id_erp, produto_codigo, produto, quantidade, valor_unitario,
+      total, item_cancelado, venda_status, venda_confirmada, origem_atualizada_em)
+    VALUES (gen_random_uuid()::text, ${loja}, ${vendaId}, ${vendaId + '-item'}, ${dispositivoIdErp}, ${pdv},
+      ${`${data}T10:00:00`}::timestamp, 'produto-1', '1', 'PRODUTO', ${quantidade}, 10,
+      ${total}, false, 'CONFIRMADA', true, ${`${data}T10:05:00`}::timestamp)
+  `);
+}
+
 describe('relatório gerentes contra o fechamento real', () => {
   it('agrupa operadores por PDV, mantém dias sem dado e isola a loja', async () => {
     await fechamento('TNP', '2026-10-01', 'PDV 1', 'ANA', 100, '7');
@@ -62,10 +75,12 @@ describe('relatório gerentes contra o fechamento real', () => {
     expect(r.pdvs).toEqual(['PDV 1', 'PDV 2']);
     expect(r.totalPontos).toBe(50);
     expect(r.series[0]?.dias).toEqual([
-      { data: '2026-10-01', pontos: 30, faturamento: null, numeroVendas: 2, ticketMedio: null, quantidade: 3.5, vendasComItens: 1 },
-      { data: '2026-10-02', pontos: null, faturamento: null, numeroVendas: null, ticketMedio: null, quantidade: null, vendasComItens: null },
-      { data: '2026-10-03', pontos: null, faturamento: null, numeroVendas: null, ticketMedio: null, quantidade: null, vendasComItens: null },
+      { data: '2026-10-01', pontos: 30, faturamento: null, numeroVendas: 2, ticketMedio: null, quantidade: 3.5, vendasComItens: 1, parcial: false },
+      { data: '2026-10-02', pontos: null, faturamento: null, numeroVendas: null, ticketMedio: null, quantidade: null, vendasComItens: null, parcial: false },
+      { data: '2026-10-03', pontos: null, faturamento: null, numeroVendas: null, ticketMedio: null, quantidade: null, vendasComItens: null, parcial: false },
     ]);
+    // período no passado: nada ao vivo
+    expect(r.diaAoVivo).toBeNull();
     expect(r.series[1]?.dias[2]?.pontos).toBe(20);
     expect(JSON.stringify(r)).not.toContain('1000');
     expect(JSON.stringify(r)).not.toContain('99');
@@ -89,5 +104,37 @@ describe('relatório gerentes contra o fechamento real', () => {
     expect(JSON.stringify(horas)).not.toContain('990');
     const horasAdmin = await servico.relatorioHoras('TNP', { data: '2026-10-01' }, true);
     expect(horasAdmin.series[0]?.horas[0]).toMatchObject({ faturamento: 35, ticketMedio: 35 });
+  });
+
+  /*
+   * O DIA EM CURSO (decisão do José em 06/10/2026). Sem fechamento, hoje era
+   * um buraco no gráfico até o caixa fechar. Aqui se prova o caminho inteiro:
+   * a venda ao vivo vira ponto, o dia sai marcado como parcial, e o PDV que só
+   * existe hoje aparece na lista.
+   */
+  it('traz o dia em curso das vendas ao vivo, marcado como parcial', async () => {
+    const hoje = VendasGerentesPeriodo.hojeSaoPaulo();
+    await itemEm('TNP', hoje, '11', 'PDV AO VIVO', 'venda-hoje', 2, 200);
+
+    const r = await servico.relatorio('TNP', { inicio: hoje, fim: hoje }, true);
+
+    expect(r.diaAoVivo).toBe(hoje);
+    expect(r.pdvs).toContain('PDV AO VIVO');
+    const serie = r.series.find((s) => s.pdv === 'PDV AO VIVO');
+    expect(serie?.dias[0]).toMatchObject({
+      data: hoje, pontos: 50, faturamento: 200, numeroVendas: 1, parcial: true, quantidade: 2,
+    });
+  });
+
+  it('havendo fechamento do dia, o fechamento manda e o dia deixa de ser parcial', async () => {
+    const hoje = VendasGerentesPeriodo.hojeSaoPaulo();
+    await itemEm('LI', hoje, '12', 'PDV LI', 'venda-li-hoje', 1, 400);
+    await fechamento('LI', hoje, 'PDV LI', 'ANA', 100, '12');
+
+    const r = await servico.relatorio('LI', { inicio: hoje, fim: hoje }, true);
+
+    expect(r.diaAoVivo).toBeNull();
+    // 100 do fechamento, não 400 dos itens
+    expect(r.series[0]?.dias[0]).toMatchObject({ pontos: 25, faturamento: 100, parcial: false });
   });
 });

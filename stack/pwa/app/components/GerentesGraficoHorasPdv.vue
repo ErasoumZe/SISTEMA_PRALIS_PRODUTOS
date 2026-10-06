@@ -1,10 +1,15 @@
 <script setup lang="ts">
+import { VendasFormato } from '@pralis/shared';
 import type { ApexOptions } from 'apexcharts';
 import type { RelatorioGerentesHoras } from '~/composables/useApi';
 import { corPdv } from '~/utils/gerentesCores';
 
 const props = defineProps<{ loja: 'TNP' | 'LI'; data: string; pdv: string | null }>();
-const emit = defineEmits<{ pdvs: [nomes: string[]] }>();
+const emit = defineEmits<{
+  pdvs: [nomes: string[]];
+  /** Ponto clicado: a hora cheia ('14') e o PDV daquela linha. */
+  ponto: [valor: { hora: string; pdv: string }];
+}>();
 const api = useApi();
 const dados = ref<RelatorioGerentesHoras | null>(null);
 const carregando = ref(false);
@@ -33,7 +38,8 @@ const series = computed(() => (dados.value?.series ?? []).map((s) => ({
   name: s.pdv,
   data: (dados.value?.horas ?? []).map((hora) => s.horas.find((p) => p.hora === hora)?.pontos ?? null),
 })));
-const pontos = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+const pontos = (n: number) => VendasFormato.formatarPontos(n);
+const quantidade = (n: number) => VendasFormato.formatarQuantidade(n);
 const moeda = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const escapar = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
 function tooltip(serieIndex: number, pontoIndex: number): string {
@@ -45,13 +51,27 @@ function tooltip(serieIndex: number, pontoIndex: number): string {
   return `<div class="gh-hover"><div class="gh-hover-topo"><strong>${escapar(serie.pdv)}</strong><span>${hora}</span></div>
     ${linha('Pontuação', `${pontos(ponto.pontos)} pts`)}
     ${linha('Faturamento dos itens', ponto.faturamento === null ? 'Restrito' : moeda(ponto.faturamento))}
-    ${linha('Quantidade vendida', pontos(ponto.quantidade))}
+    ${linha('Quantidade vendida', quantidade(ponto.quantidade))}
     ${linha('Número de vendas', String(ponto.numeroVendas))}
     ${linha('Ticket médio dos itens', ponto.ticketMedio === null ? 'Restrito' : moeda(ponto.ticketMedio))}
   </div>`;
 }
+/** Clicar numa hora abre a lista de produtos daquela hora naquele caixa. */
+function abrirPonto(serieIndex: number, pontoIndex: number) {
+  const serie = dados.value?.series[serieIndex];
+  const hora = serie?.horas[pontoIndex]?.hora;
+  if (!serie || !hora) return;
+  emit('ponto', { hora: hora.replace(/\D/g, ''), pdv: serie.pdv });
+}
+
 const opcoes = computed<ApexOptions>(() => ({
-  chart: { type: 'line', toolbar: { show: false }, zoom: { enabled: false }, fontFamily: 'inherit', foreColor: '#667085' },
+  chart: {
+    type: 'line', toolbar: { show: false }, zoom: { enabled: false }, fontFamily: 'inherit', foreColor: '#667085',
+    events: {
+      dataPointSelection: (_e, _c, cfg: { seriesIndex: number; dataPointIndex: number }) => abrirPonto(cfg.seriesIndex, cfg.dataPointIndex),
+      markerClick: (_e, _c, cfg: { seriesIndex: number; dataPointIndex: number }) => abrirPonto(cfg.seriesIndex, cfg.dataPointIndex),
+    },
+  },
   colors: cores.value, stroke: { curve: 'smooth', width: 3 },
   markers: { size: 4, hover: { size: 7 } }, dataLabels: { enabled: false },
   grid: { borderColor: '#E5E7EB', padding: { left: 10, right: 20 } },
@@ -73,7 +93,7 @@ const opcoes = computed<ApexOptions>(() => ({
     <div v-else-if="!carregando && !dados?.series.length" class="gh-vazio">Nenhum item de cupom confirmado chegou para este dia e PDV. O robô de importação precisa enviar o detalhe dos cupons para habilitar o gráfico por hora.</div>
     <apexchart v-else-if="dados" type="line" :height="420" :options="opcoes" :series="series" />
     <p v-if="dados" class="gh-resumo">{{ pontos(dados.totalPontos) }} pts entre 06h e 22h<span v-if="dados.pontosForaHorario"> · {{ pontos(dados.pontosForaHorario) }} pts fora desse horário</span>.</p>
-    <p class="gh-nota"><v-icon icon="info" size="16" /> Neste recorte, a fonte são itens dos cupons com horário registrado pelo ERP, não o fechamento diário. A cobertura pode ser parcial e os totais podem diferir dos pontos do fechamento mostrados acima. Horas sem itens recebidos não são tratadas como zero.</p>
+    <p class="gh-nota"><v-icon icon="info" size="16" /> <strong>Clique num ponto</strong> para ver os produtos daquela hora. Neste recorte, a fonte são itens dos cupons com horário registrado pelo ERP, não o fechamento diário. A cobertura pode ser parcial e os totais podem diferir dos pontos do fechamento mostrados acima. Horas sem itens recebidos não são tratadas como zero.</p>
   </v-card>
 </template>
 

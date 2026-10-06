@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VendasFormato } from '@pralis/shared';
 import type { MetasTurno } from '~/composables/useApi';
 import { COR_META, COR_VENDA } from '~/utils/gerentesCores';
 
@@ -24,7 +25,7 @@ const { gerarMatrizMetas } = useApi();
 const gerando = ref(false);
 const recado = ref<{ texto: string; tipo: 'success' | 'error' } | null>(null);
 
-const pts = (valor: number) => `${valor.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} pts`;
+const pts = (valor: number) => VendasFormato.pontosComUnidade(valor);
 const brl = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const pct = (fracao: number | null) => (fracao === null ? '—' : `${(fracao * 100).toFixed(1)}%`);
 const dia = (iso: string) => iso.split('-').reverse().slice(0, 2).join('/');
@@ -135,17 +136,9 @@ const temMatriz = computed(() => Boolean(props.dados?.versao));
         <v-row class="mb-1">
           <v-col v-for="cartao in cartoes" :key="cartao.chave" cols="12" md="4">
             <v-card flat border rounded="lg" class="pa-4 h-100">
-              <div class="d-flex justify-space-between align-start ga-2">
-                <div>
-                  <div class="text-subtitle-1 font-weight-bold">{{ cartao.titulo }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ cartao.legenda }}</div>
-                </div>
-                <v-chip
-                  size="small" variant="tonal" label
-                  :color="cartao.turno.ritmo === null ? 'default' : cartao.turno.ritmo >= 1 ? 'success' : 'error'"
-                >
-                  {{ pct(cartao.turno.ritmo) }} do ritmo
-                </v-chip>
+              <div>
+                <div class="text-subtitle-1 font-weight-bold">{{ cartao.titulo }}</div>
+                <div class="text-caption text-medium-emphasis">{{ cartao.legenda }}</div>
               </div>
 
               <div class="text-caption text-medium-emphasis mt-4">Meta atingida</div>
@@ -182,6 +175,20 @@ const temMatriz = computed(() => Boolean(props.dados?.versao));
                 <span class="font-weight-bold" :class="cartao.turno.diferenca < 0 ? 'text-error' : 'text-success'">
                   {{ cartao.turno.diferenca >= 0 ? '+ ' : '− ' }}{{ pts(Math.abs(cartao.turno.diferenca)) }}
                 </span>
+              </div>
+              <!--
+                O ritmo fecha o card (pedido do José em 06/10/2026). Ele é a
+                conclusão de tudo que está acima — no topo, era lido antes de
+                se saber de que número ele fala.
+              -->
+              <div class="d-flex justify-space-between align-center py-1 mt-1">
+                <span class="text-body-2 text-medium-emphasis">Ritmo</span>
+                <v-chip
+                  size="small" variant="tonal" label
+                  :color="cartao.turno.ritmo === null ? 'default' : cartao.turno.ritmo >= 1 ? 'success' : 'error'"
+                >
+                  {{ pct(cartao.turno.ritmo) }} do esperado
+                </v-chip>
               </div>
             </v-card>
           </v-col>

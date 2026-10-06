@@ -13,9 +13,9 @@ describe('relatório gerentes em pontos', () => {
     const r = montarRelatorioGerentes('TNP', '2026-10-01', '2026-10-03', ['PDV 1', 'PDV 2'], linhas);
     expect(r.totalPontos).toBe(50);
     expect(r.series[0]?.dias).toEqual([
-      { data: '2026-10-01', pontos: 30, faturamento: null, numeroVendas: 3, ticketMedio: null, quantidade: null, vendasComItens: null },
-      { data: '2026-10-02', pontos: null, faturamento: null, numeroVendas: null, ticketMedio: null, quantidade: null, vendasComItens: null },
-      { data: '2026-10-03', pontos: null, faturamento: null, numeroVendas: null, ticketMedio: null, quantidade: null, vendasComItens: null },
+      { data: '2026-10-01', pontos: 30, faturamento: null, numeroVendas: 3, ticketMedio: null, quantidade: null, vendasComItens: null, parcial: false },
+      { data: '2026-10-02', pontos: null, faturamento: null, numeroVendas: null, ticketMedio: null, quantidade: null, vendasComItens: null, parcial: false },
+      { data: '2026-10-03', pontos: null, faturamento: null, numeroVendas: null, ticketMedio: null, quantidade: null, vendasComItens: null, parcial: false },
     ]);
     expect(r.series[1]?.dias[1]?.pontos).toBe(20);
     expect(JSON.stringify(r)).not.toContain('"total":');
@@ -28,6 +28,38 @@ describe('relatório gerentes em pontos', () => {
     expect(admin.series[1]?.dias[1]).toMatchObject({ faturamento: 80, numeroVendas: 4, ticketMedio: 20, quantidade: null });
     const gerente = montarRelatorioGerentes('TNP', '2026-10-01', '2026-10-03', ['PDV 1', 'PDV 2'], linhas, undefined, itens);
     expect(gerente.series[0]?.dias[0]).toMatchObject({ faturamento: null, ticketMedio: null, quantidade: 5.25 });
+  });
+
+  /*
+   * O dia em curso (decisão do José em 06/10/2026). Ele vem das vendas ao vivo
+   * e precisa chegar à tela MARCADO: um número que ainda vai subir, mostrado
+   * igual a um dia fechado, faz o gerente comparar hoje de manhã com ontem
+   * inteiro e achar que caiu.
+   */
+  it('marca como parcial o dia que veio ao vivo, e só ele', () => {
+    const comHoje = [
+      ...linhas,
+      { data: '2026-10-03', pdv: 'PDV 1', dispositivoIdErp: '7', total: 40, numeroVendas: 2, aoVivo: true },
+    ];
+    const r = montarRelatorioGerentes('TNP', '2026-10-01', '2026-10-03', ['PDV 1', 'PDV 2'], comHoje);
+
+    expect(r.diaAoVivo).toBe('2026-10-03');
+    expect(r.series[0]?.dias[2]).toMatchObject({ data: '2026-10-03', pontos: 10, parcial: true });
+    expect(r.series[0]?.dias[0]?.parcial).toBe(false);
+  });
+
+  it('sem dia ao vivo, o relatório diz que não tem', () => {
+    expect(montarRelatorioGerentes('TNP', '2026-10-01', '2026-10-03', ['PDV 1'], linhas).diaAoVivo).toBeNull();
+  });
+
+  it('o dia ao vivo entra na soma do período como qualquer outro', () => {
+    const comHoje = [
+      ...linhas,
+      { data: '2026-10-03', pdv: 'PDV 1', dispositivoIdErp: '7', total: 40, numeroVendas: 2, aoVivo: true },
+    ];
+    const r = montarRelatorioGerentes('TNP', '2026-10-01', '2026-10-03', ['PDV 1', 'PDV 2'], comHoje);
+
+    expect(r.totalPontos).toBe(60);
   });
 
   it('nao atribui quantidade se o dispositivo do fechamento estiver ausente ou ambiguo', () => {

@@ -18,6 +18,8 @@ export * as VendasRanking from './src/vendas/vendas-ranking.schemas';
 export * as VendasGerentes from './src/vendas/vendas-gerentes.schemas';
 export * as VendasGerentesPeriodo from './src/vendas/vendas-gerentes.periodo';
 export * as VendasAbc from './src/vendas/vendas-abc.schemas';
+export * as VendasFormato from './src/vendas/formato';
+export * as VendasPagamentos from './src/vendas/vendas-pagamentos';
 export * as VendasPulso from './src/vendas/vendas-pulso.schemas';
 export * as VendasPdv from './src/vendas/vendas-pdv.schemas';
 export * as Telas from './src/permissoes/telas';
