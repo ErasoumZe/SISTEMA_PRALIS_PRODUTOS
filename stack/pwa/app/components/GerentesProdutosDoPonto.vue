@@ -22,13 +22,15 @@ import type { AbcProdutos } from '~/composables/useApi';
 
 const props = defineProps<{
   loja: 'TNP' | 'LI';
-  data: string;
-  /** O PDV do ponto clicado, ou null quando o ponto é da linha de soma. */
+  /** Primeiro e último dia do recorte. Iguais quando veio de um ponto. */
+  inicio: string;
+  fim: string;
+  /** O PDV, ou null para todos. O nome do caixa serve: a API aceita os dois. */
   pdv: string | null;
   /** Hora cheia do ponto, quando veio do gráfico por hora (ex.: '14'). */
   hora?: string | null;
 }>();
-const emit = defineEmits<{ fechar: [] }>();
+const emit = defineEmits<{ limpar: [] }>();
 
 const api = useApi();
 const dados = ref<AbcProdutos | null>(null);
@@ -67,16 +69,18 @@ const itens = computed(() => {
 });
 const faturamentoMostrado = computed(() => itens.value.reduce((soma, i) => soma + i.faturamento, 0));
 
+const umDiaSo = computed(() => props.inicio === props.fim);
+
 async function carregar() {
   const atual = ++requisicao;
-  if (!props.data) { dados.value = null; return; }
+  if (!props.inicio || !props.fim) { dados.value = null; return; }
   carregando.value = true;
   erro.value = '';
   try {
     const resposta = await api.vendasCurvaAbc({
       loja: props.loja,
-      inicio: props.data,
-      fim: props.data,
+      inicio: props.inicio,
+      fim: props.fim,
       ...(props.pdv ? { pdv: props.pdv } : {}),
       // a hora vira a janela fechada daquela hora: 14h = 14:00 até 14:59
       ...(props.hora ? { hi: `${props.hora}:00`, hf: `${props.hora}:59` } : {}),
@@ -92,7 +96,7 @@ async function carregar() {
 }
 
 onMounted(carregar);
-watch(() => [props.loja, props.data, props.pdv, props.hora], carregar);
+watch(() => [props.loja, props.inicio, props.fim, props.pdv, props.hora], carregar);
 </script>
 
 <template>
@@ -102,14 +106,23 @@ watch(() => [props.loja, props.data, props.pdv, props.hora], carregar);
         <v-icon icon="inventory_2" size="23" color="primary" />
         <div>
           <div class="text-subtitle-1 font-weight-bold">
-            Produtos vendidos em {{ rotuloData(data) }}<template v-if="hora && !horaIgnorada">, às {{ hora }}h</template>
+            Produtos vendidos
+            <template v-if="umDiaSo">em {{ rotuloData(inicio) }}</template>
+            <template v-else>de {{ rotuloData(inicio) }} a {{ rotuloData(fim) }}</template>
+            <template v-if="hora && !horaIgnorada">, às {{ hora }}h</template>
           </div>
           <div class="text-caption text-medium-emphasis">
-            {{ pdv && !pdvIgnorado ? pdv : 'Loja inteira' }} · ordenado pela curva ABC
+            {{ pdv && !pdvIgnorado ? pdv : 'Todos os PDVs' }} · ordenado pela curva ABC
           </div>
         </div>
       </div>
-      <v-btn variant="text" size="small" prepend-icon="close" @click="emit('fechar')">Fechar</v-btn>
+      <!--
+        Não "fechar": a lista do período é parte da tela. O botão só desfaz o
+        recorte que o clique no ponto criou.
+      -->
+      <v-btn v-if="umDiaSo || pdv || hora" variant="text" size="small" prepend-icon="undo" @click="emit('limpar')">
+        Ver o período inteiro
+      </v-btn>
     </div>
 
     <v-progress-linear v-if="carregando" indeterminate color="primary" class="mb-3" />
@@ -120,7 +133,7 @@ watch(() => [props.loja, props.data, props.pdv, props.hora], carregar);
       <template v-if="pdvIgnorado && horaIgnorada">quebra por caixa nem por hora</template>
       <template v-else-if="pdvIgnorado">quebra por caixa</template>
       <template v-else>horário</template>:
-      a lista mostra <strong>{{ pdvIgnorado ? 'a loja inteira' : 'o dia inteiro' }}</strong>.
+      a lista mostra <strong>{{ pdvIgnorado ? 'todos os PDVs' : 'o dia inteiro' }}</strong>.
     </v-alert>
 
     <template v-if="dados && dados.itens.length">
@@ -131,6 +144,7 @@ watch(() => [props.loja, props.data, props.pdv, props.hora], carregar);
         </v-btn-toggle>
         <div class="text-caption text-medium-emphasis">
           {{ itens.length }} de {{ dados.itens.length }} produto(s) · {{ brl(faturamentoMostrado) }}
+          <template v-if="!umDiaSo"> · {{ dados.periodo.dias }} dia(s)</template>
         </div>
       </div>
 
@@ -178,7 +192,10 @@ watch(() => [props.loja, props.data, props.pdv, props.hora], carregar);
 
     <div v-else-if="!carregando && !erro" class="d-flex flex-column align-center ga-3 py-8 text-medium-emphasis">
       <v-icon icon="inventory_2" size="34" />
-      <span>Nenhum item de venda chegou neste dia.</span>
+      <span>
+        Nenhum item de venda chegou {{ umDiaSo ? 'neste dia' : 'neste período' }}
+        <template v-if="pdv"> para {{ pdv }}</template>.
+      </span>
     </div>
   </v-card>
 </template>

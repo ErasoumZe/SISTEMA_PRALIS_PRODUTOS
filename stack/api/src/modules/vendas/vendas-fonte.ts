@@ -27,6 +27,13 @@ export interface Fonte {
   desde: string | null;
   inicioTs: string;
   fimTs: string;
+  /**
+   * O PDV pedido. Aceita o ID DO DISPOSITIVO no ERP (é o que o filtro do
+   * Relatório de vendas manda) ou o NOME do caixa (é o que o Relatório
+   * Gerentes tem na mão, porque o gráfico dele vem do fechamento, onde a
+   * coluna é o nome). Casar só pelo id deixava a lista de produtos do
+   * Relatório Gerentes vazia, sem dizer por quê — José, 06/10/2026.
+   */
   dispositivo: string | null;
   /** Hora ou PDV pedidos que esta fonte NÃO pôde aplicar. */
   ignorados: Array<'hora' | 'pdv'>;
@@ -88,7 +95,7 @@ function onde(loja: Loja, f: Fonte, chaves: string[] | null): SQL {
   return sql`loja = ${loja}
     AND vendido_em >= ${f.inicioTs}::timestamp AND vendido_em < (${f.fimTs}::timestamp + INTERVAL '1 minute')
     AND NOT item_cancelado AND venda_confirmada
-    ${f.dispositivo ? sql`AND dispositivo_id_erp = ${f.dispositivo}` : sql``}
+    ${f.dispositivo ? sql`AND (dispositivo_id_erp = ${f.dispositivo} OR pdv = ${f.dispositivo})` : sql``}
     ${produtos}`;
 }
 

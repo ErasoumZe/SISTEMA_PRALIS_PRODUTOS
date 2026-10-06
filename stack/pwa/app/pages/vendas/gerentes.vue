@@ -198,7 +198,9 @@ const linhasGrafico = computed<LinhaGrafico[]>(() => {
         const valores = (dados.value?.series ?? [])
           .map((s) => s.dias.find((dia) => dia.data === data)?.pontos)
           .filter((v): v is number => v != null);
-        return valores.length ? valores.reduce((soma, v) => soma + v, 0) : null;
+        // arredondado na origem: ponto é inteiro, e a soma crua traria ruído
+        // de ponto flutuante que o eixo do gráfico herda.
+        return valores.length ? Math.round(valores.reduce((soma, v) => soma + v, 0)) : null;
       }),
       cor: COR_SOMA, tipo: 'soma', largura: 4, traco: 0,
     });
@@ -279,7 +281,14 @@ const opcoesGrafico = computed<ApexOptions>(() => ({
     labels: { rotate: 0, hideOverlappingLabels: true, style: { colors: '#667085', fontSize: '12px' } },
     crosshairs: { show: true, stroke: { color: '#D0D5DD', width: 1 } },
   },
-  yaxis: { min: 0, labels: { style: { colors: '#667085', fontSize: '12px' }, formatter: (v) => `${pontos(v)} pts` } },
+  yaxis: {
+    min: 0,
+    // o eixo é de pontos, e ponto é inteiro: sem casas decimais nem no cálculo
+    // dos tiques nem no rótulo, mesmo que uma série traga fração.
+    decimalsInFloat: 0,
+    forceNiceScale: true,
+    labels: { style: { colors: '#667085', fontSize: '12px' }, formatter: (v) => `${pontos(v)} pts` },
+  },
   legend: { show: linhasGrafico.value.length > 1, position: 'bottom', fontSize: '12px' },
   tooltip: { shared: false, intersect: false, custom: ({ seriesIndex, dataPointIndex }) => tooltipGerentes(seriesIndex, dataPointIndex) },
   noData: { text: 'Sem fechamento no período' },
@@ -340,15 +349,27 @@ const numeroVendasPeriodo = computed(() => (dados.value?.series ?? [])
  * O ponto clicado abre a lista de produtos daquele dia. Clicar na linha de
  * meta não abre nada: meta não tem produto.
  */
-const pontoAberto = ref<{ data: string; pdv: string | null; hora?: string | null } | null>(null);
+/*
+ * A lista de produtos está SEMPRE na tela, mostrando o período escolhido
+ * inteiro e todos os PDVs (ou o PDV do filtro). Clicar num ponto apenas
+ * RECORTA: aquele dia, aquele caixa. Antes ela só existia depois do clique, e
+ * quem queria o mês inteiro não tinha como pedir — José, 06/10/2026.
+ */
+const recorteProdutos = ref<{ inicio: string; fim: string; pdv: string | null; hora?: string | null } | null>(null);
+const produtosDoRecorte = computed(() => {
+  if (recorteProdutos.value) return recorteProdutos.value;
+  const p = periodo.value;
+  if (!p) return null;
+  return { inicio: p.inicio, fim: p.fim, pdv: pdv.value === TODOS_PDV ? null : pdv.value, hora: null };
+});
 function abrirPonto(serieIndex: number, pontoIndex: number) {
   const linha = linhasGrafico.value[serieIndex];
   const data = diasComFechamento.value[pontoIndex];
   if (!linha || !data || linha.tipo === 'meta') return;
-  pontoAberto.value = { data, pdv: linha.tipo === 'pdv' ? linha.name : null };
+  recorteProdutos.value = { inicio: data, fim: data, pdv: linha.tipo === 'pdv' ? linha.name : null };
 }
-// trocar de recorte invalida o ponto aberto: ele era de outro período
-watch([loja, mes, modo, diaDigitado, semana, pdv], () => { pontoAberto.value = null; });
+// trocar de recorte desfaz o clique: ele era de outro período
+watch([loja, mes, modo, diaDigitado, semana, pdv], () => { recorteProdutos.value = null; });
 
 /*
  * AO VIVO. O dia em curso vem das vendas que o robô já capturou, e sobe
@@ -481,7 +502,7 @@ onBeforeUnmount(() => { if (relogioAoVivo) clearInterval(relogioAoVivo); });
     <GerentesGraficoHorasPdv v-if="modo === 'dia' && lojasPermitidas.includes(loja)"
       :loja="loja" :data="periodo?.inicio ?? ''" :pdv="pdv === TODOS_PDV ? null : pdv"
       @pdvs="pdvsHora = $event"
-      @ponto="pontoAberto = { data: periodo?.inicio ?? '', pdv: $event.pdv, hora: $event.hora }" />
+      @ponto="recorteProdutos = { inicio: periodo?.inicio ?? '', fim: periodo?.inicio ?? '', pdv: $event.pdv, hora: $event.hora }" />
     <v-card v-else flat class="gm-card gm-grafico">
       <div class="gm-grafico-cabecalho">
         <div class="gm-grafico-titulo">
@@ -514,9 +535,10 @@ onBeforeUnmount(() => { if (relogioAoVivo) clearInterval(relogioAoVivo); });
     </v-card>
 
     <GerentesProdutosDoPonto
-      v-if="pontoAberto"
-      :loja="loja" :data="pontoAberto.data" :pdv="pontoAberto.pdv" :hora="pontoAberto.hora ?? null"
-      @fechar="pontoAberto = null"
+      v-if="produtosDoRecorte && lojasPermitidas.includes(loja)"
+      :loja="loja" :inicio="produtosDoRecorte.inicio" :fim="produtosDoRecorte.fim"
+      :pdv="produtosDoRecorte.pdv" :hora="produtosDoRecorte.hora ?? null"
+      @limpar="recorteProdutos = null"
     />
     </template>
     <GerentesMetasTurno
