@@ -8,6 +8,7 @@ import { creareExportAuth } from './creare.auth';
 import { DeParaUploadController } from './depara-upload.controller';
 import { PesaveisMaintenanceController } from './pesaveis-maintenance.controller';
 import { PesavelBackfillController } from './pesavel-backfill.controller';
+import { PesavelPadronizarController } from './pesavel-padronizar.controller';
 
 const exportQuerySchema = z.object({
   loja: z.enum(['TNP', 'LI', 'HORA']).optional(),
@@ -23,6 +24,7 @@ export async function creareRoutes(app: FastifyInstance) {
   const deParaController = container.resolve(DeParaUploadController);
   const pesaveisController = container.resolve(PesaveisMaintenanceController);
   const backfillController = container.resolve(PesavelBackfillController);
+  const padronizarController = container.resolve(PesavelPadronizarController);
   const typed = app.withTypeProvider<ZodTypeProvider>();
 
   typed.get<{ Querystring: z.infer<typeof exportQuerySchema> }>(
@@ -177,4 +179,25 @@ export async function creareRoutes(app: FastifyInstance) {
       summary: 'Classificar pesável no catálogo da loja após prévia', tags: ['ADMIN', 'CREARE'],
     },
   }, backfillController.aplicar.bind(backfillController));
+  /*
+   * Padronizar pesável: TODO ativo da loja vira S, tecla 000, validade 5, e o
+   * espelho SIA acompanha. Decisão do José em 06/10/2026, depois de o TXT
+   * entrar no SIA com produto não pesável: "trocar tudo pra sim e depois ir
+   * editando". Diferente do backfill, esta sobrescreve quem já dizia N.
+   */
+  typed.get<{ Querystring: { loja: 'TNP' | 'LI' } }>('/admin/creare/pesavel-padronizar/previa', {
+    preHandler: [authMiddleware],
+    schema: {
+      querystring: z.object({ loja: z.enum(['TNP', 'LI']) }),
+      summary: 'Conferir, sem gravar, quantos ativos da loja ainda não são pesáveis S/000/5', tags: ['ADMIN', 'CREARE'],
+    },
+  }, padronizarController.previa.bind(padronizarController));
+
+  typed.post<{ Body: { loja: 'TNP' | 'LI'; confirmacao: string; hashPlano: string } }>('/admin/creare/pesavel-padronizar/aplicar', {
+    preHandler: [authMiddleware],
+    schema: {
+      body: z.object({ loja: z.enum(['TNP', 'LI']), confirmacao: z.string().min(1), hashPlano: z.string().regex(/^[a-f0-9]{64}$/) }),
+      summary: 'Tornar todos os ativos da loja pesáveis (S, tecla 000, validade 5) após prévia', tags: ['ADMIN', 'CREARE'],
+    },
+  }, padronizarController.aplicar.bind(padronizarController));
 }

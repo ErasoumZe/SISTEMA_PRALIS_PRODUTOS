@@ -168,6 +168,16 @@ export interface PreviaPesavelBackfill {
 /** Nos conflitos entre cadastro e espelho SIA: parar tudo, ou valer o cadastro e corrigir o espelho. */
 export type PoliticaConflitoBackfill = 'bloquear' | 'manterCadastro';
 
+/** Prévia de "todos os ativos pesáveis" (S, tecla 000, validade 5) — decisão de 06/10/2026. */
+export interface PreviaPesavelPadronizar {
+  loja: 'TNP' | 'LI';
+  padrao: { pesavel: 'S' | 'N'; teclaBalanca: number; validadeBalanca: number };
+  totalAtivos: number; gravar: number; jaNoPadrao: number; invertidos: number; semValor: number;
+  espelhoCorrigir: number; espelhoJaNoPadrao: number; semEspelho: number;
+  amostraInvertidos: Array<{ codigoInterno: string; nome: string }>;
+  hashPlano: string; confirmacao: string;
+}
+
 /** Por que um produto não recebeu custo da base de discriminação. */
 export type MotivoSemCusto = 'sem-lancamento' | 'nome-ambiguo-no-cadastro' | 'custo-ilegivel' | 'ja-esta-certo';
 
@@ -766,6 +776,12 @@ export function useApi() {
         loja: string; gravados: number; porOrigem: { espelho: number; padrao: number };
         completados: number; espelhosCorrigidos: number; jaDefinidos: number; espelhoIncompleto: number;
       } }>('/admin/creare/pesavel-backfill/aplicar', { ...base, method: 'POST', body: { loja, confirmacao, hashPlano, conflitos } })),
+    pesavelPadronizarPrevia: (loja: 'TNP' | 'LI') =>
+      unwrap($fetch<{ data: PreviaPesavelPadronizar }>('/admin/creare/pesavel-padronizar/previa', { ...base, query: { loja } })),
+    pesavelPadronizarAplicar: (loja: 'TNP' | 'LI', confirmacao: string, hashPlano: string) =>
+      unwrap($fetch<{ data: {
+        loja: string; gravados: number; invertidos: number; semValor: number; jaNoPadrao: number; espelhosCorrigidos: number; semEspelho: number;
+      } }>('/admin/creare/pesavel-padronizar/aplicar', { ...base, method: 'POST', body: { loja, confirmacao, hashPlano } })),
 
     // ---- custo, da base de discriminação ----
     /** Prévia da carga de custo. NÃO grava. */
