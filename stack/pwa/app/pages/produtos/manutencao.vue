@@ -63,6 +63,11 @@ const confirmacaoBackfill = ref('');
 const lendoBackfill = ref(false);
 const aplicandoBackfill = ref(false);
 const resultadoBackfill = ref('');
+// Nos conflitos entre cadastro e espelho SIA: por padrão o lote para. Quem
+// acabou de corrigir o cadastro (05/10/2026: 9 produtos) manda valer o
+// cadastro, e o espelho é corrigido junto para o gerador não barrar.
+const manterCadastroNosConflitos = ref(false);
+const politicaConflitos = computed(() => (manterCadastroNosConflitos.value ? 'manterCadastro' : 'bloquear') as const);
 const bloqueiaBackfill = computed(() => !!previaBackfill.value
   && (previaBackfill.value.conflitos.length > 0 || previaBackfill.value.espelhoAmbiguo.length > 0));
 
@@ -71,7 +76,7 @@ async function conferirBackfill() {
   resultadoBackfill.value = '';
   lendoBackfill.value = true;
   erro.value = '';
-  try { previaBackfill.value = await api.pesavelBackfillPrevia(lojaBackfill.value); }
+  try { previaBackfill.value = await api.pesavelBackfillPrevia(lojaBackfill.value, politicaConflitos.value); }
   catch (e) { erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui montar a prévia.'; }
   finally { lendoBackfill.value = false; }
 }
@@ -81,9 +86,10 @@ async function aplicarBackfill() {
   aplicandoBackfill.value = true;
   erro.value = '';
   try {
-    const r = await api.pesavelBackfillAplicar(lojaBackfill.value, confirmacaoBackfill.value, previaBackfill.value.hashPlano);
+    const r = await api.pesavelBackfillAplicar(lojaBackfill.value, confirmacaoBackfill.value, previaBackfill.value.hashPlano, politicaConflitos.value);
     resultadoBackfill.value = `${r.gravados} produto(s) classificados (${r.porOrigem.espelho} pelo espelho SIA, ${r.porOrigem.padrao} pelo padrão N)`
       + (r.completados ? ` e ${r.completados} completados com tecla/validade` : '')
+      + (r.espelhosCorrigidos ? `; ${r.espelhosCorrigidos} espelho(s) SIA corrigidos pelo cadastro` : '')
       + '. Confira o diagnóstico Creare e o próximo TXT antes de importar no SIA.';
     confirmacaoBackfill.value = '';
     previaBackfill.value = null;
@@ -294,6 +300,9 @@ onMounted(() => {
             <v-select v-model="lojaBackfill" :items="['TNP', 'LI']" label="Loja" variant="outlined" density="comfortable" hide-details style="max-width: 160px" @update:model-value="previaBackfill = null" />
             <v-btn :loading="lendoBackfill" variant="tonal" prepend-icon="fact_check" @click="conferirBackfill">Conferir sem gravar</v-btn>
           </div>
+          <v-checkbox v-model="manterCadastroNosConflitos" density="compact" hide-details class="mt-2"
+            label="Nos conflitos, vale o cadastro: o espelho SIA é corrigido para concordar (use só se você acabou de acertar esses produtos no Pralis)"
+            @update:model-value="previaBackfill = null" />
           <v-alert v-if="resultadoBackfill" type="success" variant="tonal" class="mt-3">{{ resultadoBackfill }}</v-alert>
           <template v-if="previaBackfill">
             <v-divider class="my-4" />
@@ -316,6 +325,14 @@ onMounted(() => {
               <div v-if="previaBackfill.espelhoAmbiguo.length">Espelho ambíguo: {{ previaBackfill.espelhoAmbiguo.slice(0, 10).join(', ') }}</div>
               A aplicação fica bloqueada até resolver.
             </v-alert>
+            <v-alert v-if="previaBackfill.espelhoCorrigir.length" type="warning" variant="tonal" class="my-3">
+              <strong>{{ previaBackfill.espelhoCorrigir.length }} conflito(s)</strong> resolvidos pelo cadastro — o espelho SIA passa a dizer o mesmo:
+              <ul class="ps-5 mt-1">
+                <li v-for="c in previaBackfill.espelhoCorrigir.slice(0, 10)" :key="c.espelhoId">
+                  {{ c.codigoInterno }} · {{ c.nome }} — fica {{ c.pesavel }}, tecla {{ c.teclaBalanca }}, validade {{ c.validadeBalanca }} dia(s)
+                </li>
+              </ul>
+            </v-alert>
             <template v-if="previaBackfill.amostraPesaveis.length">
               <p class="mt-3 mb-1 text-medium-emphasis">Amostra dos que viram S pelo espelho:</p>
               <ul class="ps-5">
@@ -326,7 +343,7 @@ onMounted(() => {
             </template>
             <v-text-field v-model="confirmacaoBackfill" :label="`Digite ${previaBackfill.confirmacao}`" variant="outlined" class="mt-3" />
             <v-btn color="primary" prepend-icon="save" :loading="aplicandoBackfill"
-              :disabled="confirmacaoBackfill.trim().toUpperCase() !== previaBackfill.confirmacao || bloqueiaBackfill || previaBackfill.gravar + previaBackfill.completarBalanca === 0"
+              :disabled="confirmacaoBackfill.trim().toUpperCase() !== previaBackfill.confirmacao || bloqueiaBackfill || previaBackfill.gravar + previaBackfill.completarBalanca + previaBackfill.espelhoCorrigir.length === 0"
               @click="aplicarBackfill">Classificar</v-btn>
           </template>
         </v-card-text>

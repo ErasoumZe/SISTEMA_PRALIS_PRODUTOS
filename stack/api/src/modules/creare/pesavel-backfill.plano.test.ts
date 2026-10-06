@@ -5,7 +5,7 @@ const produto = (id: string, codigoInterno: string | null, extras: Partial<Produ
   id, codigoInterno, nome: `PRODUTO ${id}`, pesavel: null, teclaBalanca: null, validadeBalanca: null, ...extras,
 });
 const espelho = (coditem: string, pesavel: string | null, tecla: string | null = null, validade: string | null = null): EspelhoParaBackfill => ({
-  coditem, pesavel, teclaBalanca: tecla, validadeBalanca: validade,
+  id: `e-${coditem}`, coditem, pesavel, teclaBalanca: tecla, validadeBalanca: validade,
 });
 
 describe('plano do backfill de pesável', () => {
@@ -80,5 +80,42 @@ describe('plano do backfill de pesável', () => {
   it('espelho com pesável vazio conta como "ninguém diz" e cai no default', () => {
     const plano = planejarBackfill([produto('a', '10001')], [espelho('10001', null)]);
     expect(plano.gravar[0]).toMatchObject({ origem: 'padrao', pesavel: 'N' });
+  });
+
+  describe('política manterCadastro — decisão do José em 05/10/2026', () => {
+    it('cadastro S contra espelho N: vale o cadastro, e o espelho vira S com tecla 000 e a validade do cadastro', () => {
+      const plano = planejarBackfill(
+        [produto('a', '11400', { pesavel: 'S', teclaBalanca: 0, validadeBalanca: 3 })],
+        [espelho('11400', 'N')],
+        { conflitos: 'manterCadastro' },
+      );
+      expect(plano.conflitos).toHaveLength(0);
+      expect(plano.gravar).toHaveLength(0);
+      expect(plano.jaDefinidos).toBe(1);
+      expect(plano.espelhoCorrigir).toEqual([{
+        espelhoId: 'e-11400', codigoInterno: '11400', nome: 'PRODUTO a',
+        pesavel: 'S', teclaBalanca: '000', validadeBalanca: '3',
+      }]);
+    });
+
+    it('cadastro S sem validade: o espelho fica S com validade 0, para o gerador não barrar', () => {
+      const plano = planejarBackfill(
+        [produto('a', '11506', { pesavel: 'S' })], [espelho('11506', 'N')], { conflitos: 'manterCadastro' },
+      );
+      expect(plano.espelhoCorrigir[0]).toMatchObject({ pesavel: 'S', teclaBalanca: '000', validadeBalanca: '0' });
+    });
+
+    it('cadastro N contra espelho S: o espelho vira N, tecla 0, validade 0', () => {
+      const plano = planejarBackfill(
+        [produto('a', '10001', { pesavel: 'N' })], [espelho('10001', 'S', '000', '5')], { conflitos: 'manterCadastro' },
+      );
+      expect(plano.espelhoCorrigir[0]).toMatchObject({ pesavel: 'N', teclaBalanca: '0', validadeBalanca: '0' });
+    });
+
+    it('sem conflito, a política não muda nada', () => {
+      const bloquear = planejarBackfill([produto('a', '13200'), produto('b', '10001')], [espelho('10001', 'S', '000', '3')]);
+      const manter = planejarBackfill([produto('a', '13200'), produto('b', '10001')], [espelho('10001', 'S', '000', '3')], { conflitos: 'manterCadastro' });
+      expect(manter).toEqual(bloquear);
+    });
   });
 });

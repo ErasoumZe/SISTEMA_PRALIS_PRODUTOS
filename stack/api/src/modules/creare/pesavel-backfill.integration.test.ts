@@ -142,6 +142,28 @@ describe('aplicar', () => {
     expect(await ler('inocente')).toMatchObject({ pesavel: null });
   });
 
+  it('com manterCadastro, o conflito não bloqueia: vale o cadastro e o espelho SIA é corrigido', async () => {
+    await produto('conflito', 'TNP', '11400', { pesavel: 'S', tecla: 0, validade: 3 });
+    await produto('inocente', 'TNP', '13200');
+    await espelho('e1', 'TNP', '11400', 'N');
+    const opcoes = { conflitos: 'manterCadastro' as const };
+
+    const previa = await service.previa('TNP', opcoes);
+    expect(previa.conflitos).toHaveLength(0);
+    expect(previa.espelhoCorrigir).toEqual([expect.objectContaining({ espelhoId: 'e1', pesavel: 'S', teclaBalanca: '000', validadeBalanca: '3' })]);
+
+    // o hash da prévia bloqueando não serve para aplicar mantendo
+    const previaBloqueando = await service.previa('TNP');
+    await expect(service.aplicar('TNP', FRASE, previaBloqueando.hashPlano, opcoes)).rejects.toMatchObject({ statusCode: 409 });
+
+    const r = await service.aplicar('TNP', FRASE, previa.hashPlano, opcoes);
+    expect(r).toMatchObject({ gravados: 1, espelhosCorrigidos: 1, jaDefinidos: 1 });
+    expect(await ler('conflito')).toMatchObject({ pesavel: 'S', tecla_balanca: 0, validade_balanca: 3 });
+    expect(await ler('inocente')).toMatchObject({ pesavel: 'N' });
+    const [e] = (await db.execute(sqlTag`SELECT pesavel, tecla_balanca, validade_balanca FROM sia_produto_depara WHERE id = 'e1'`)).rows;
+    expect(e).toEqual({ pesavel: 'S', tecla_balanca: '000', validade_balanca: '3' });
+  });
+
   it('recusa frase errada antes de abrir transação', async () => {
     await produto('a', 'TNP', '13200');
     const previa = await service.previa('TNP');
