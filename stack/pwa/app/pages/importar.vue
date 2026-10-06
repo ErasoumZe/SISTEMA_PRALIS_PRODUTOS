@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ProductListagem } from '@pralis/shared';
 import type { ProductSchemas } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
@@ -15,6 +16,20 @@ const msg = ref('');
 // importou, mas a aba da loja nao recebeu: aviso, nao erro — os produtos entraram
 const espelhoFalhou = ref(false);
 const erro = ref('');
+
+/*
+ * A base guarda o histórico inteiro, inativo incluído. Importar produto morto
+ * para a loja não é o caso de uso de ninguém, então a tela abre em ativos
+ * (mesma regra da lista de produtos — ver `ProductListagem`).
+ */
+const filtroStatus = ref<ProductListagem.FiltroStatus>(ProductListagem.STATUS_INICIAL_DA_LISTA);
+const visiveis = computed(() => ProductListagem.filtrarPorStatus(baseProducts.value, filtroStatus.value));
+const ocultados = computed(() => baseProducts.value.length - visiveis.value.length);
+/** Trocar o filtro limpa a seleção: não se importa o que saiu da tela. */
+function alternarSoAtivos() {
+  filtroStatus.value = filtroStatus.value === 'ativo' ? null : 'ativo';
+  selected.value = [];
+}
 
 const headers = [
   { title: 'Nome', key: 'nome' },
@@ -88,20 +103,35 @@ async function importar() {
     <v-alert v-if="erro" type="error" variant="tonal" class="mb-4">{{ erro }}</v-alert>
 
     <v-card flat border rounded="lg">
-      <v-text-field
-        v-model="search"
-        density="compact"
-        variant="solo-filled"
-        flat
-        hide-details
-        placeholder="Buscar na base..."
-        prepend-inner-icon="search"
-        class="pa-2"
-      />
+      <div class="d-flex align-center flex-wrap ga-3 pa-2">
+        <v-text-field
+          v-model="search"
+          density="compact"
+          variant="solo-filled"
+          flat
+          hide-details
+          placeholder="Buscar na base..."
+          prepend-inner-icon="search"
+          class="flex-grow-1"
+          style="min-width: 200px"
+        />
+        <v-chip
+          :variant="filtroStatus === 'ativo' ? 'flat' : 'outlined'"
+          :color="filtroStatus === 'ativo' ? 'primary' : 'grey-darken-1'"
+          label
+          :aria-pressed="filtroStatus === 'ativo'"
+          style="min-height: 40px"
+          @click="alternarSoAtivos"
+        >
+          <v-icon start size="18">{{ filtroStatus === 'ativo' ? 'check' : 'inventory_2' }}</v-icon>
+          Só ativos
+          <span v-if="filtroStatus === 'ativo' && ocultados" class="ml-1 text-caption">({{ ocultados }} ocultos)</span>
+        </v-chip>
+      </div>
       <v-data-table
         v-model="selected"
         :headers="headers"
-        :items="baseProducts"
+        :items="visiveis"
         :search="search"
         :loading="loading"
         item-value="id"

@@ -4,6 +4,7 @@ export * as ProductEnums from './src/product/product.enums';
 export * as Money from './src/product/money';
 export * as ProductSchemas from './src/product/product.schemas';
 export * as ProductRules from './src/product/product.rules';
+export * as ProductListagem from './src/product/product-listagem';
 export * as ProductRequests from './src/product/product.requests';
 export * as ProductReplies from './src/product/product.replies';
 export * as AdminSchemas from './src/admin/admin.schemas';
