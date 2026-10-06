@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useDisplay } from 'vuetify';
-import { ProductRules } from '@pralis/shared';
+import { ProductListagem, ProductRules } from '@pralis/shared';
 import type { ProductSchemas } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
@@ -79,8 +79,13 @@ watch(modo, (novo) => {
 /** Inicial para o produto sem foto: mantém o alinhamento das linhas da lista. */
 const inicial = (nome: string): string => nome.trim().charAt(0).toUpperCase() || '?';
 
-// filtros (sem "Todos" — nada selecionado = sem filtro; pílulas alternam/limpam)
-const statusFiltro = ref<'ativo' | 'inativo' | null>(null);
+/*
+ * Filtros. Nada selecionado = sem filtro, e as pílulas alternam/limpam — com
+ * UMA exceção: o status abre em "Ativos" (decisão do José em 06/10/2026, ver
+ * `ProductListagem`). Dois terços do catálogo da TNP são histórico; abrir no
+ * catálogo inteiro faz procurar produto que vende no meio de produto morto.
+ */
+const statusFiltro = ref<ProductListagem.FiltroStatus>(ProductListagem.STATUS_INICIAL_DA_LISTA);
 const statusOpcoes = [
   { value: 'ativo', label: 'Ativos' },
   { value: 'inativo', label: 'Inativos' },
@@ -148,8 +153,7 @@ const rota = useRoute();
 {
   const loja = String(rota.query.loja ?? '').toUpperCase();
   if (loja === 'BASE' || loja === 'TNP' || loja === 'LI' || loja === 'HORA') aba.value = loja;
-  const status = String(rota.query.status ?? '');
-  if (status === 'ativo' || status === 'inativo') statusFiltro.value = status;
+  statusFiltro.value = ProductListagem.lerFiltroStatus(rota.query.status);
   const tipo = String(rota.query.tipo ?? '');
   if (tipo === 'revenda' || tipo === 'transformacao') tipoFiltro.value = tipo;
 }
@@ -172,12 +176,14 @@ const ordenarOpcoes = [
 const mostrarFiltros = ref(false);
 const numFiltros = computed(
   () =>
-    [statusFiltro.value, tipoFiltro.value, setorFiltro.value, grupoFiltro.value, cadastradoPorFiltro.value, curvaAbcFiltro.value].filter(Boolean).length +
+    [tipoFiltro.value, setorFiltro.value, grupoFiltro.value, cadastradoPorFiltro.value, curvaAbcFiltro.value].filter(Boolean).length +
+    (ProductListagem.statusFoiAlterado(statusFiltro.value) ? 1 : 0) +
     (ordenar.value !== 'recentes' ? 1 : 0),
 );
 const temFiltro = computed(() => numFiltros.value > 0 || !!search.value);
 function limparFiltros() {
-  statusFiltro.value = null;
+  // "Limpar" devolve a tela ao estado em que ela abre — e ela abre em Ativos.
+  statusFiltro.value = ProductListagem.STATUS_INICIAL_DA_LISTA;
   tipoFiltro.value = null;
   setorFiltro.value = null;
   grupoFiltro.value = null;
@@ -192,7 +198,7 @@ const PER_PAGE = 10;
 
 const filtrados = computed(() =>
   products.value.filter((p) => {
-    if (statusFiltro.value && p.status !== statusFiltro.value) return false;
+    if (!ProductListagem.passaNoFiltroStatus(p.status, statusFiltro.value)) return false;
     if (tipoFiltro.value && p.tipo !== tipoFiltro.value) return false;
     if (setorFiltro.value && p.setorEstoque !== setorFiltro.value) return false;
     if (grupoFiltro.value && p.grupo !== grupoFiltro.value) return false;
@@ -442,6 +448,22 @@ function preco(p: Product): string | null {
         @keyup.enter="load()"
       />
       <!--
+        Fora do painel de filtros de propósito: a lista abre escondendo inativo,
+        e quem olha precisa ver isso sem abrir painel nenhum. Dentro do painel,
+        a pílula "Ativos" mostra o mesmo estado.
+      -->
+      <v-chip
+        :variant="statusFiltro === 'ativo' ? 'flat' : 'outlined'"
+        :color="statusFiltro === 'ativo' ? 'primary' : 'grey-darken-1'"
+        label
+        :aria-pressed="statusFiltro === 'ativo'"
+        class="catalog-toolbar__chip"
+        @click="statusFiltro = statusFiltro === 'ativo' ? null : 'ativo'"
+      >
+        <v-icon start size="18">{{ statusFiltro === 'ativo' ? 'check' : 'inventory_2' }}</v-icon>
+        Só ativos
+      </v-chip>
+      <!--
         Fora do painel de filtros de propósito: não é um filtro a mais, é a
         pergunta que separa o catálogo que a loja opera do histórico inteiro.
       -->
@@ -450,7 +472,7 @@ function preco(p: Product): string | null {
         :color="somenteVendidos ? 'primary' : 'grey-darken-1'"
         label
         :aria-pressed="somenteVendidos"
-        class="catalog-toolbar__sold"
+        class="catalog-toolbar__chip"
         @click="somenteVendidos = !somenteVendidos; load()"
       >
         <v-icon start size="18">{{ somenteVendidos ? 'check' : 'sell' }}</v-icon>
@@ -775,7 +797,7 @@ function preco(p: Product): string | null {
   min-width: 220px;
   max-width: 560px;
 }
-.catalog-toolbar__sold {
+.catalog-toolbar__chip {
   min-height: 40px;
 }
 .catalog-toolbar__actions {
