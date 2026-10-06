@@ -4,8 +4,11 @@ import { sql } from 'drizzle-orm';
 import { AppError } from '@/config/api.replies';
 import { db, type Tx } from '@/db/databases';
 import {
-  planejarBackfill, type DecisaoBackfill, type EspelhoParaBackfill, type PlanoBackfill, type ProdutoParaBackfill,
+  planejarBackfill, type DecisaoBackfill, type EspelhoParaBackfill, type OpcoesBackfill, type PlanoBackfill,
+  type ProdutoParaBackfill,
 } from './pesavel-backfill.plano';
+
+const OPCOES_PADRAO: OpcoesBackfill = { conflitos: 'bloquear' };
 
 export type LojaBackfill = 'TNP' | 'LI';
 export const CONFIRMACAO_BACKFILL = (loja: LojaBackfill) => `CLASSIFICAR PESAVEL ${loja}`;
@@ -20,6 +23,10 @@ export interface PreviaBackfill {
   completarBalanca: number;
   jaDefinidos: number;
   conflitos: PlanoBackfill['conflitos'];
+  /** Política aplicada aos conflitos nesta prévia; o hash a inclui. */
+  politicaConflitos: OpcoesBackfill['conflitos'];
+  /** Conflitos resolvidos pelo cadastro: o espelho SIA será corrigido. */
+  espelhoCorrigir: PlanoBackfill['espelhoCorrigir'];
   espelhoAmbiguo: string[];
   espelhoIncompleto: string[];
   /** Alguns que vão virar `S` pelo espelho, para a conferência não ser só contagem. */
@@ -45,7 +52,7 @@ export class PesavelBackfillService {
       tx.execute(sql`SELECT id, codigo_interno AS "codigoInterno", nome, pesavel,
           tecla_balanca AS "teclaBalanca", validade_balanca AS "validadeBalanca"
         FROM products WHERE loja = ${loja} AND status <> 'unificado' ORDER BY id ${trava}`),
-      tx.execute(sql`SELECT coditem, pesavel, tecla_balanca AS "teclaBalanca",
+      tx.execute(sql`SELECT id, coditem, pesavel, tecla_balanca AS "teclaBalanca",
           validade_balanca AS "validadeBalanca"
         FROM sia_produto_depara WHERE loja = ${loja} ORDER BY coditem`),
     ]);
@@ -55,16 +62,19 @@ export class PesavelBackfillService {
     };
   }
 
-  private async calcular(tx: Tx, loja: LojaBackfill, bloquear: boolean) {
+  private async calcular(tx: Tx, loja: LojaBackfill, bloquear: boolean, opcoes: OpcoesBackfill) {
     const estado = await this.estado(tx, loja, bloquear);
-    const plano = planejarBackfill(estado.produtos, estado.espelhos);
+    const plano = planejarBackfill(estado.produtos, estado.espelhos, opcoes);
     // O hash cobre o que o plano LEU, não o que ele decidiu: é o estado dos
-    // cadastros que não pode ter mudado entre a prévia e o clique.
-    const hashPlano = digest(JSON.stringify(estado));
+    // cadastros que não pode ter mudado entre a prévia e o clique. A política
+    // de conflitos entra também: prévia bloqueando não autoriza aplicar mantendo.
+    const hashPlano = digest(JSON.stringify({ estado, opcoes }));
     return { estado, plano, hashPlano };
   }
 
-  private resumo(loja: LojaBackfill, total: number, plano: PlanoBackfill, hashPlano: string): PreviaBackfill {
+  private resumo(
+    loja: LojaBackfill, total: number, plano: PlanoBackfill, hashPlano: string, opcoes: OpcoesBackfill,
+  ): PreviaBackfill {
     return {
       loja,
       totalProdutos: total,
@@ -73,6 +83,8 @@ export class PesavelBackfillService {
       completarBalanca: plano.completarBalanca.length,
       jaDefinidos: plano.jaDefinidos,
       conflitos: plano.conflitos.slice(0, 50),
+      politicaConflitos: opcoes.conflitos,
+      espelhoCorrigir: plano.espelhoCorrigir.slice(0, 50),
       espelhoAmbiguo: plano.espelhoAmbiguo.slice(0, 50),
       espelhoIncompleto: plano.espelhoIncompleto.slice(0, 50),
       amostraPesaveis: plano.gravar
@@ -84,17 +96,17 @@ export class PesavelBackfillService {
     };
   }
 
-  async previa(loja: LojaBackfill): Promise<PreviaBackfill> {
-    const { estado, plano, hashPlano } = await this.calcular(db, loja, false);
-    return this.resumo(loja, estado.produtos.length, plano, hashPlano);
+  async previa(loja: LojaBackfill, opcoes: OpcoesBackfill = OPCOES_PADRAO): Promise<PreviaBackfill> {
+    const { estado, plano, hashPlano } = await this.calcular(db, loja, false, opcoes);
+    return this.resumo(loja, estado.produtos.length, plano, hashPlano, opcoes);
   }
 
-  async aplicar(loja: LojaBackfill, confirmacao: string, hashPlano: string) {
+  async aplicar(loja: LojaBackfill, confirmacao: string, hashPlano: string, opcoes: OpcoesBackfill = OPCOES_PADRAO) {
     if (confirmacao.trim().toUpperCase() !== CONFIRMACAO_BACKFILL(loja)) {
       throw new AppError(`Digite exatamente ${CONFIRMACAO_BACKFILL(loja)}.`, 400);
     }
     return db.transaction(async (tx) => {
-      const atual = await this.calcular(tx, loja, true);
+      const atual = await this.calcular(tx, loja, true, opcoes);
       if (hashPlano !== atual.hashPlano) {
         throw new AppError('Os cadastros mudaram desde a prévia. Confira novamente; nada foi gravado.', 409);
       }
@@ -114,11 +126,19 @@ export class PesavelBackfillService {
       };
       await gravar(plano.gravar);
       await gravar(plano.completarBalanca);
+      // Conflitos resolvidos pelo cadastro: o espelho passa a dizer o mesmo,
+      // como a manutenção de pesáveis (#136) já faz no sentido inverso.
+      for (const c of plano.espelhoCorrigir) {
+        await tx.execute(sql`UPDATE sia_produto_depara SET pesavel = ${c.pesavel},
+          tecla_balanca = ${c.teclaBalanca}, validade_balanca = ${c.validadeBalanca}
+          WHERE id = ${c.espelhoId}`);
+      }
       return {
         loja,
         gravados: plano.gravar.length,
         porOrigem: plano.porOrigem,
         completados: plano.completarBalanca.length,
+        espelhosCorrigidos: plano.espelhoCorrigir.length,
         jaDefinidos: plano.jaDefinidos,
         espelhoIncompleto: plano.espelhoIncompleto.length,
       };

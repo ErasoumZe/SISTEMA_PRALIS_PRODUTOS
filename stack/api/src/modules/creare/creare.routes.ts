@@ -158,18 +158,22 @@ export async function creareRoutes(app: FastifyInstance) {
    * espelho SIA quando ele diz, e aplicando o default N quando ninguém diz.
    * Em 05/10/2026 isso era 95% da TNP travada no TXT.
    */
-  typed.get<{ Querystring: { loja: 'TNP' | 'LI' } }>('/admin/creare/pesavel-backfill/previa', {
+  const politicaConflito = z.enum(['bloquear', 'manterCadastro']).optional();
+  typed.get<{ Querystring: { loja: 'TNP' | 'LI'; conflitos?: 'bloquear' | 'manterCadastro' } }>('/admin/creare/pesavel-backfill/previa', {
     preHandler: [authMiddleware],
     schema: {
-      querystring: z.object({ loja: z.enum(['TNP', 'LI']) }),
+      querystring: z.object({ loja: z.enum(['TNP', 'LI']), conflitos: politicaConflito }),
       summary: 'Conferir, sem gravar, quem receberia pesável no catálogo da loja', tags: ['ADMIN', 'CREARE'],
     },
   }, backfillController.previa.bind(backfillController));
 
-  typed.post<{ Body: { loja: 'TNP' | 'LI'; confirmacao: string; hashPlano: string } }>('/admin/creare/pesavel-backfill/aplicar', {
+  typed.post<{ Body: { loja: 'TNP' | 'LI'; confirmacao: string; hashPlano: string; conflitos?: 'bloquear' | 'manterCadastro' } }>('/admin/creare/pesavel-backfill/aplicar', {
     preHandler: [authMiddleware],
     schema: {
-      body: z.object({ loja: z.enum(['TNP', 'LI']), confirmacao: z.string().min(1), hashPlano: z.string().regex(/^[a-f0-9]{64}$/) }),
+      body: z.object({
+        loja: z.enum(['TNP', 'LI']), confirmacao: z.string().min(1), hashPlano: z.string().regex(/^[a-f0-9]{64}$/),
+        conflitos: politicaConflito,
+      }),
       summary: 'Classificar pesável no catálogo da loja após prévia', tags: ['ADMIN', 'CREARE'],
     },
   }, backfillController.aplicar.bind(backfillController));

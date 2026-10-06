@@ -31,6 +31,7 @@ export interface ProdutoParaBackfill {
 }
 
 export interface EspelhoParaBackfill {
+  id: string;
   coditem: string;
   pesavel: string | null;
   teclaBalanca: string | null;
@@ -38,6 +39,30 @@ export interface EspelhoParaBackfill {
 }
 
 export type OrigemDecisao = 'espelho' | 'padrao';
+
+/**
+ * O que fazer quando cadastro e espelho discordam.
+ * - `bloquear` (padrão): ninguém decide; o lote inteiro para.
+ * - `manterCadastro`: vale o que está no Pralis, e o espelho SIA é corrigido
+ *   para concordar — senão o gerador recusa o produto por "Pesavel diverge".
+ *   Decisão do José em 05/10/2026: "esses 9 conflitos é pra manter o que está
+ *   no cadastro, eu alterei hoje". A exportação do SIA era de antes da mudança.
+ */
+export type PoliticaConflito = 'bloquear' | 'manterCadastro';
+
+export interface OpcoesBackfill {
+  conflitos: PoliticaConflito;
+}
+
+/** Linha do espelho que passa a dizer o que o cadastro já diz. */
+export interface CorrecaoEspelho {
+  espelhoId: string;
+  codigoInterno: string;
+  nome: string;
+  pesavel: 'S' | 'N';
+  teclaBalanca: string;
+  validadeBalanca: string;
+}
 
 export interface DecisaoBackfill {
   produto: ProdutoParaBackfill;
@@ -56,6 +81,8 @@ export interface PlanoBackfill {
   completarBalanca: DecisaoBackfill[];
   /** Dizem `S` no cadastro e `N` no espelho, ou vice-versa: ninguém decide por eles. */
   conflitos: Array<{ codigoInterno: string; nome: string; cadastro: string; espelho: string }>;
+  /** Conflitos resolvidos pelo cadastro (política `manterCadastro`): o espelho é corrigido. */
+  espelhoCorrigir: CorrecaoEspelho[];
   /** Dois espelhos normalizando para o mesmo código: ambíguo, fica de fora. */
   espelhoAmbiguo: string[];
   /** Espelho diz `S` mas sem tecla/validade: não se grava S pela metade; fica para o de-para completo. */
@@ -71,6 +98,7 @@ const inteiro = (valor: string | null): number | null => {
 
 export function planejarBackfill(
   produtos: ProdutoParaBackfill[], espelhos: EspelhoParaBackfill[],
+  opcoes: OpcoesBackfill = { conflitos: 'bloquear' },
 ): PlanoBackfill {
   const espelhoPorCodigo = new Map<string, EspelhoParaBackfill[]>();
   for (const e of espelhos) {
@@ -79,7 +107,7 @@ export function planejarBackfill(
   }
 
   const plano: PlanoBackfill = {
-    gravar: [], jaDefinidos: 0, completarBalanca: [], conflitos: [], espelhoAmbiguo: [], espelhoIncompleto: [],
+    gravar: [], jaDefinidos: 0, completarBalanca: [], conflitos: [], espelhoCorrigir: [], espelhoAmbiguo: [], espelhoIncompleto: [],
     porOrigem: { espelho: 0, padrao: 0 },
   };
 
@@ -94,6 +122,20 @@ export function planejarBackfill(
       // O cadastro já decidiu. Só se mexe se ele e o espelho se contradizem —
       // e aí não se mexe, avisa — ou se é S sem tecla/validade e o espelho completa.
       if (espelhoDiz && espelhoDiz !== produto.pesavel) {
+        if (opcoes.conflitos === 'manterCadastro') {
+          // Vale o cadastro. O espelho passa a dizer o mesmo, com a tecla fixa
+          // 000 (decisão de 28/09) e a validade do cadastro — ou 0 se ele não
+          // tem, para o gerador não barrar por "validade sem confirmacao".
+          plano.espelhoCorrigir.push({
+            espelhoId: espelho!.id,
+            codigoInterno: codigo ?? produto.codigoInterno ?? '', nome: produto.nome,
+            pesavel: produto.pesavel,
+            teclaBalanca: produto.pesavel === 'S' ? String(produto.teclaBalanca ?? 0).padStart(3, '0') : '0',
+            validadeBalanca: String(produto.pesavel === 'S' ? produto.validadeBalanca ?? 0 : 0),
+          });
+          plano.jaDefinidos += 1;
+          continue;
+        }
         plano.conflitos.push({
           codigoInterno: codigo ?? produto.codigoInterno ?? '', nome: produto.nome,
           cadastro: produto.pesavel, espelho: espelhoDiz,

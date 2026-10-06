@@ -158,10 +158,15 @@ export interface PreviaPesavelBackfill {
   porOrigem: { espelho: number; padrao: number };
   completarBalanca: number; jaDefinidos: number;
   conflitos: Array<{ codigoInterno: string; nome: string; cadastro: string; espelho: string }>;
+  politicaConflitos: PoliticaConflitoBackfill;
+  espelhoCorrigir: Array<{ espelhoId: string; codigoInterno: string; nome: string; pesavel: 'S' | 'N'; teclaBalanca: string; validadeBalanca: string }>;
   espelhoAmbiguo: string[]; espelhoIncompleto: string[];
   amostraPesaveis: Array<{ codigoInterno: string; nome: string; validadeDias: number }>;
   hashPlano: string; confirmacao: string;
 }
+
+/** Nos conflitos entre cadastro e espelho SIA: parar tudo, ou valer o cadastro e corrigir o espelho. */
+export type PoliticaConflitoBackfill = 'bloquear' | 'manterCadastro';
 
 /** Por que um produto não recebeu custo da base de discriminação. */
 export type MotivoSemCusto = 'sem-lancamento' | 'nome-ambiguo-no-cadastro' | 'custo-ilegivel' | 'ja-esta-certo';
@@ -754,13 +759,13 @@ export function useApi() {
     },
 
     /** Backfill de pesável no catálogo da loja. Prévia não grava. */
-    pesavelBackfillPrevia: (loja: 'TNP' | 'LI') =>
-      unwrap($fetch<{ data: PreviaPesavelBackfill }>('/admin/creare/pesavel-backfill/previa', { ...base, query: { loja } })),
-    pesavelBackfillAplicar: (loja: 'TNP' | 'LI', confirmacao: string, hashPlano: string) =>
+    pesavelBackfillPrevia: (loja: 'TNP' | 'LI', conflitos: PoliticaConflitoBackfill = 'bloquear') =>
+      unwrap($fetch<{ data: PreviaPesavelBackfill }>('/admin/creare/pesavel-backfill/previa', { ...base, query: { loja, conflitos } })),
+    pesavelBackfillAplicar: (loja: 'TNP' | 'LI', confirmacao: string, hashPlano: string, conflitos: PoliticaConflitoBackfill = 'bloquear') =>
       unwrap($fetch<{ data: {
         loja: string; gravados: number; porOrigem: { espelho: number; padrao: number };
-        completados: number; jaDefinidos: number; espelhoIncompleto: number;
-      } }>('/admin/creare/pesavel-backfill/aplicar', { ...base, method: 'POST', body: { loja, confirmacao, hashPlano } })),
+        completados: number; espelhosCorrigidos: number; jaDefinidos: number; espelhoIncompleto: number;
+      } }>('/admin/creare/pesavel-backfill/aplicar', { ...base, method: 'POST', body: { loja, confirmacao, hashPlano, conflitos } })),
 
     // ---- custo, da base de discriminação ----
     /** Prévia da carga de custo. NÃO grava. */
