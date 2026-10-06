@@ -202,13 +202,31 @@ function requiredFixedDigits(value: unknown, length: number, label: string): str
   return digits.padStart(length, '0');
 }
 
+/**
+ * O coditem é a chave do produto no SIA e o código do produto na balança.
+ * A balança (Toledo MGV) só aceita 1 a 999999 — em 06/10/2026 um único
+ * "5STAR 40 G" com código 000000 derrubou a importação do ITENSMGV inteiro.
+ * Zero nunca é código válido; e pesável com mais de 6 dígitos não cabe na
+ * balança, mesmo que o SIA aceite até 9.
+ */
+function garantirCodigoNaFaixa(codigo: string, origem: string, weighable: 'S' | 'N') {
+  if (Number(codigo) === 0) {
+    throw new CreareValidationError(`${origem} e zero; o SIA e a balanca exigem codigo entre 1 e 999999.`);
+  }
+  if (weighable === 'S' && codigo.replace(/^0+(?=\d)/, '').length > 6) {
+    throw new CreareValidationError(`${origem} (${codigo}) nao cabe na balanca: pesavel exige codigo entre 1 e 999999.`);
+  }
+}
+
 function productCodes(
   product: ProductEntity,
-  sia?: CreareSiaMatch,
+  sia: CreareSiaMatch | undefined,
+  weighable: 'S' | 'N',
 ): Pick<CreareValues, 'internalCode' | 'extendedInternalCode'> {
   if (sia) {
     const coditem = digitsOnly(sia.coditem, 'Coditem do SIA');
     if (coditem.length > 9) throw new CreareValidationError('Coditem do SIA excede 9 digitos.');
+    garantirCodigoNaFaixa(coditem, 'Coditem do SIA', weighable);
     /*
      * A recusa que o plano pede: se o produto do Pralis já carrega um código
      * interno numérico e ele é OUTRO, o casamento por barras está apontando
@@ -229,6 +247,7 @@ function productCodes(
   }
   const code = digitsOnly(product.codigoInterno, 'Codigo interno');
   if (code.length > 9) throw new CreareValidationError('Codigo interno excede 9 digitos.');
+  garantirCodigoNaFaixa(code, 'Codigo interno', weighable);
   return code.length <= 6
     ? { internalCode: code, extendedInternalCode: 0 }
     : { internalCode: 0, extendedInternalCode: code };
@@ -393,7 +412,7 @@ export function valuesFromProduct(
   }
 
   return {
-    ...productCodes(product, sia),
+    ...productCodes(product, sia, weighable),
     ...barcodeCodes(product.codigoBarras, config.barcodeField),
     groupCode: requiredFixedDigits(groupCode, 4, 'Codigo do grupo'),
     shortDescription: description,
