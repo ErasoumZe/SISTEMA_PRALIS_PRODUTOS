@@ -172,11 +172,17 @@ export type PoliticaConflitoBackfill = 'bloquear' | 'manterCadastro';
 export interface PreviaPesavelPadronizar {
   loja: 'TNP' | 'LI';
   padrao: { pesavel: 'S' | 'N'; teclaBalanca: number; validadeBalanca: number };
+  opcoes: { barrasProprias: RegraBarrasProprias };
   totalAtivos: number; gravar: number; jaNoPadrao: number; invertidos: number; semValor: number;
+  barrasProprias: number; paraS: number; paraN: number;
   espelhoCorrigir: number; espelhoJaNoPadrao: number; semEspelho: number;
   amostraInvertidos: Array<{ codigoInterno: string; nome: string }>;
+  amostraNaoPesaveis: Array<{ codigoInterno: string; codigoBarras: string; nome: string }>;
   hashPlano: string; confirmacao: string;
 }
+
+/** Quem tem código de barras próprio (diferente do código interno): pesável como todos, ou N porque a balança não aceita código acima de 999999. */
+export type RegraBarrasProprias = 'pesavel' | 'naoPesavel';
 
 /** Por que um produto não recebeu custo da base de discriminação. */
 export type MotivoSemCusto = 'sem-lancamento' | 'nome-ambiguo-no-cadastro' | 'custo-ilegivel' | 'ja-esta-certo';
@@ -776,12 +782,13 @@ export function useApi() {
         loja: string; gravados: number; porOrigem: { espelho: number; padrao: number };
         completados: number; espelhosCorrigidos: number; jaDefinidos: number; espelhoIncompleto: number;
       } }>('/admin/creare/pesavel-backfill/aplicar', { ...base, method: 'POST', body: { loja, confirmacao, hashPlano, conflitos } })),
-    pesavelPadronizarPrevia: (loja: 'TNP' | 'LI') =>
-      unwrap($fetch<{ data: PreviaPesavelPadronizar }>('/admin/creare/pesavel-padronizar/previa', { ...base, query: { loja } })),
-    pesavelPadronizarAplicar: (loja: 'TNP' | 'LI', confirmacao: string, hashPlano: string) =>
+    pesavelPadronizarPrevia: (loja: 'TNP' | 'LI', barrasProprias: RegraBarrasProprias = 'pesavel') =>
+      unwrap($fetch<{ data: PreviaPesavelPadronizar }>('/admin/creare/pesavel-padronizar/previa', { ...base, query: { loja, barrasProprias } })),
+    pesavelPadronizarAplicar: (loja: 'TNP' | 'LI', confirmacao: string, hashPlano: string, barrasProprias: RegraBarrasProprias = 'pesavel') =>
       unwrap($fetch<{ data: {
-        loja: string; gravados: number; invertidos: number; semValor: number; jaNoPadrao: number; espelhosCorrigidos: number; semEspelho: number;
-      } }>('/admin/creare/pesavel-padronizar/aplicar', { ...base, method: 'POST', body: { loja, confirmacao, hashPlano } })),
+        loja: string; gravados: number; paraS: number; paraN: number; invertidos: number; semValor: number; jaNoPadrao: number;
+        barrasProprias: number; espelhosCorrigidos: number; semEspelho: number;
+      } }>('/admin/creare/pesavel-padronizar/aplicar', { ...base, method: 'POST', body: { loja, confirmacao, hashPlano, barrasProprias } })),
 
     // ---- custo, da base de discriminação ----
     /** Prévia da carga de custo. NÃO grava. */

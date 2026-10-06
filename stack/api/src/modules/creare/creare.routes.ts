@@ -185,18 +185,22 @@ export async function creareRoutes(app: FastifyInstance) {
    * entrar no SIA com produto não pesável: "trocar tudo pra sim e depois ir
    * editando". Diferente do backfill, esta sobrescreve quem já dizia N.
    */
-  typed.get<{ Querystring: { loja: 'TNP' | 'LI' } }>('/admin/creare/pesavel-padronizar/previa', {
+  const regraBarras = z.enum(['pesavel', 'naoPesavel']).optional();
+  typed.get<{ Querystring: { loja: 'TNP' | 'LI'; barrasProprias?: 'pesavel' | 'naoPesavel' } }>('/admin/creare/pesavel-padronizar/previa', {
     preHandler: [authMiddleware],
     schema: {
-      querystring: z.object({ loja: z.enum(['TNP', 'LI']) }),
+      querystring: z.object({ loja: z.enum(['TNP', 'LI']), barrasProprias: regraBarras }),
       summary: 'Conferir, sem gravar, quantos ativos da loja ainda não são pesáveis S/000/5', tags: ['ADMIN', 'CREARE'],
     },
   }, padronizarController.previa.bind(padronizarController));
 
-  typed.post<{ Body: { loja: 'TNP' | 'LI'; confirmacao: string; hashPlano: string } }>('/admin/creare/pesavel-padronizar/aplicar', {
+  typed.post<{ Body: { loja: 'TNP' | 'LI'; confirmacao: string; hashPlano: string; barrasProprias?: 'pesavel' | 'naoPesavel' } }>('/admin/creare/pesavel-padronizar/aplicar', {
     preHandler: [authMiddleware],
     schema: {
-      body: z.object({ loja: z.enum(['TNP', 'LI']), confirmacao: z.string().min(1), hashPlano: z.string().regex(/^[a-f0-9]{64}$/) }),
+      body: z.object({
+        loja: z.enum(['TNP', 'LI']), confirmacao: z.string().min(1), hashPlano: z.string().regex(/^[a-f0-9]{64}$/),
+        barrasProprias: regraBarras,
+      }),
       summary: 'Tornar todos os ativos da loja pesáveis (S, tecla 000, validade 5) após prévia', tags: ['ADMIN', 'CREARE'],
     },
   }, padronizarController.aplicar.bind(padronizarController));
