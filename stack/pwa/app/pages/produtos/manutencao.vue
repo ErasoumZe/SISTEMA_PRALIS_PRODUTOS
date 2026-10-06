@@ -98,6 +98,42 @@ async function aplicarBackfill() {
   } finally { aplicandoBackfill.value = false; }
 }
 
+// Todos os ativos pesáveis (06/10/2026): S, tecla 000, validade 5, e o espelho
+// SIA acompanha. Diferente do backfill, sobrescreve quem já dizia N — por isso
+// a frase é outra e a prévia destaca quantos deixam de ser N.
+const lojaPadronizar = ref<'TNP' | 'LI'>('TNP');
+const previaPadronizar = ref<import('~/composables/useApi').PreviaPesavelPadronizar | null>(null);
+const confirmacaoPadronizar = ref('');
+const lendoPadronizar = ref(false);
+const aplicandoPadronizar = ref(false);
+const resultadoPadronizar = ref('');
+
+async function conferirPadronizar() {
+  previaPadronizar.value = null;
+  resultadoPadronizar.value = '';
+  lendoPadronizar.value = true;
+  erro.value = '';
+  try { previaPadronizar.value = await api.pesavelPadronizarPrevia(lojaPadronizar.value); }
+  catch (e) { erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui montar a prévia.'; }
+  finally { lendoPadronizar.value = false; }
+}
+
+async function aplicarPadronizar() {
+  if (!previaPadronizar.value) return;
+  aplicandoPadronizar.value = true;
+  erro.value = '';
+  try {
+    const r = await api.pesavelPadronizarAplicar(lojaPadronizar.value, confirmacaoPadronizar.value, previaPadronizar.value.hashPlano);
+    resultadoPadronizar.value = `${r.gravados} ativo(s) agora são pesáveis com tecla 000 e validade 5 (${r.invertidos} deixaram de ser N, ${r.semValor} não tinham valor)`
+      + (r.espelhosCorrigidos ? `; ${r.espelhosCorrigidos} linha(s) do espelho SIA corrigidas` : '')
+      + '. Baixe o TXT completo de novo antes de importar no SIA; depois ajuste as exceções produto a produto.';
+    confirmacaoPadronizar.value = '';
+    previaPadronizar.value = null;
+  } catch (e) {
+    erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui aplicar. Nada foi gravado.';
+  } finally { aplicandoPadronizar.value = false; }
+}
+
 async function carregarPrevia() {
   carregando.value = true;
   erro.value = '';
@@ -345,6 +381,48 @@ onMounted(() => {
             <v-btn color="primary" prepend-icon="save" :loading="aplicandoBackfill"
               :disabled="confirmacaoBackfill.trim().toUpperCase() !== previaBackfill.confirmacao || bloqueiaBackfill || previaBackfill.gravar + previaBackfill.completarBalanca + previaBackfill.espelhoCorrigir.length === 0"
               @click="aplicarBackfill">Classificar</v-btn>
+          </template>
+        </v-card-text>
+      </v-card>
+
+      <v-card variant="outlined" class="mb-4">
+        <v-card-title class="text-subtitle-1">Todos os ativos pesáveis · S, tecla 000, validade 5</v-card-title>
+        <v-card-text>
+          <p class="mb-3">
+            Em 06/10/2026 o TXT entrou no SIA com produto <strong>não pesável</strong>. Decisão: todo produto
+            <strong>ativo</strong> da loja vira <strong>Pesável S</strong>, tecla <strong>000</strong> e validade
+            <strong>5 dias</strong>, e o espelho SIA passa a dizer o mesmo. Depois você ajusta as exceções
+            produto a produto, em Editar. Inativos e unificados não são tocados.
+          </p>
+          <v-alert type="warning" variant="tonal" density="compact" class="mb-3">
+            Isto <strong>sobrescreve</strong> quem já dizia N. É o oposto do cartão acima, que respeita o cadastro.
+            Confira a prévia: o número que importa é quantos deixam de ser N.
+          </v-alert>
+          <div class="d-flex flex-wrap ga-3 align-center">
+            <v-select v-model="lojaPadronizar" :items="['TNP', 'LI']" label="Loja" variant="outlined" density="comfortable" hide-details style="max-width: 160px" @update:model-value="previaPadronizar = null" />
+            <v-btn :loading="lendoPadronizar" variant="tonal" prepend-icon="fact_check" @click="conferirPadronizar">Conferir sem gravar</v-btn>
+          </div>
+          <v-alert v-if="resultadoPadronizar" type="success" variant="tonal" class="mt-3">{{ resultadoPadronizar }}</v-alert>
+          <template v-if="previaPadronizar">
+            <v-divider class="my-4" />
+            <p><strong>{{ previaPadronizar.gravar }}</strong> de {{ previaPadronizar.totalAtivos }} ativos mudam para S, tecla 000, validade 5:
+              <strong>{{ previaPadronizar.invertidos }}</strong> deixam de ser N, {{ previaPadronizar.semValor }} não tinham valor,
+              {{ previaPadronizar.gravar - previaPadronizar.invertidos - previaPadronizar.semValor }} já eram S com outra tecla ou validade.</p>
+            <p class="text-medium-emphasis">{{ previaPadronizar.jaNoPadrao }} já estavam no padrão, intocados.</p>
+            <p>Espelho SIA: <strong>{{ previaPadronizar.espelhoCorrigir }}</strong> linha(s) corrigidas para S/000/5,
+              {{ previaPadronizar.espelhoJaNoPadrao }} já diziam isso, {{ previaPadronizar.semEspelho }} ativos sem espelho.</p>
+            <template v-if="previaPadronizar.amostraInvertidos.length">
+              <p class="mt-3 mb-1 text-medium-emphasis">Amostra dos que deixam de ser N:</p>
+              <ul class="ps-5">
+                <li v-for="item in previaPadronizar.amostraInvertidos" :key="item.codigoInterno + item.nome">
+                  {{ item.codigoInterno }} · {{ item.nome }}
+                </li>
+              </ul>
+            </template>
+            <v-text-field v-model="confirmacaoPadronizar" :label="`Digite ${previaPadronizar.confirmacao}`" variant="outlined" class="mt-3" />
+            <v-btn color="primary" prepend-icon="save" :loading="aplicandoPadronizar"
+              :disabled="confirmacaoPadronizar.trim().toUpperCase() !== previaPadronizar.confirmacao || previaPadronizar.gravar + previaPadronizar.espelhoCorrigir === 0"
+              @click="aplicarPadronizar">Tornar todos pesáveis</v-btn>
           </template>
         </v-card-text>
       </v-card>
