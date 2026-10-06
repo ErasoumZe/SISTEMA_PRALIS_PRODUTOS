@@ -5,6 +5,13 @@ import type { FiscalClassification, GroupTaxRule } from '~/composables/useApi';
 import { aplicarFundoPralisComIa } from '~/composables/useProductPhotoAi';
 
 const props = defineProps<{ productId?: string }>();
+/*
+ * Só na criação: o código interno é gerado ao salvar e, se o campo de barras
+ * estiver vazio, ele entra aqui (decisão do José em 06/10/2026 — ver
+ * `codigo-barras-na-criacao` na API). Dizer isso ANTES de salvar evita que a
+ * pessoa invente um número para não deixar o campo em branco.
+ */
+const AJUDA_BARRAS_NA_CRIACAO = 'Sem EAN? Deixe vazio: ao salvar, o código interno gerado entra aqui.';
 const api = useApi();
 const flash = useFlash();
 const { user } = useAuth();
@@ -833,7 +840,8 @@ onMounted(async () => {
               label="Código de barras"
               variant="outlined"
               density="comfortable"
-              :hint="ajuda('codigoBarras')"
+              :hint="productId ? ajuda('codigoBarras') : AJUDA_BARRAS_NA_CRIACAO"
+              :persistent-hint="!productId"
               append-inner-icon="barcode_scanner"
               @click:append-inner="scanOpen = true"
             />

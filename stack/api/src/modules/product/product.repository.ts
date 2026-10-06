@@ -6,6 +6,7 @@ import { ProductSchemas, ProductRequests } from '@pralis/shared';
 import { products, productTransformacao, productFiscal, promocoes, productNameHistory } from './product.table';
 import { calcularProximoCodigoInterno, PRIMEIRO_CODIGO_FORA_DA_FAIXA } from './codigo-interno';
 import { chaveDeGrupo, GrupoIdPlanilha } from './grupo-id-planilha';
+import { codigoBarrasNaCriacao } from './codigo-barras-na-criacao';
 
 type ProductEntity = ProductSchemas.ProductEntity;
 type Promocao = ProductSchemas.Promocao;
@@ -172,6 +173,11 @@ export class ProductRepository {
     onCreated?: (productId: string, tx: Tx) => Promise<void>,
   ): Promise<ProductEntity> {
     return db.transaction(async (tx) => {
+      // `undefined` pede geração aqui dentro — a trava só vale enquanto a
+      // transação existe, então gerar fora dela não protegeria de nada.
+      const codigoInterno = ctx.codigoInterno === undefined
+        ? await this.proximoCodigoInterno(tx)
+        : ctx.codigoInterno;
       const [created] = await tx
         .insert(products)
         .values({
@@ -181,11 +187,10 @@ export class ProductRepository {
           createdByUserId: ctx.createdByUserId,
           createdByName: ctx.createdByName,
           ...this.productColumns(payload),
-          // `undefined` pede geração aqui dentro — a trava só vale enquanto a
-          // transação existe, então gerar fora dela não protegeria de nada.
-          codigoInterno: ctx.codigoInterno === undefined
-            ? await this.proximoCodigoInterno(tx)
-            : ctx.codigoInterno,
+          codigoInterno,
+          // Depois do spread de propósito: quem nasce sem EAN leva o próprio
+          // código interno no campo de barras (ver `codigo-barras-na-criacao`).
+          codigoBarras: codigoBarrasNaCriacao(payload.codigoBarras, codigoInterno),
         } as typeof products.$inferInsert)
         .returning();
       if (!created) throw new Error('Falha ao criar produto');
