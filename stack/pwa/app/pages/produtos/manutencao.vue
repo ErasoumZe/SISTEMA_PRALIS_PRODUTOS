@@ -107,13 +107,18 @@ const confirmacaoPadronizar = ref('');
 const lendoPadronizar = ref(false);
 const aplicandoPadronizar = ref(false);
 const resultadoPadronizar = ref('');
+// 06/10/2026, segunda decisão: a balança recusou a importação ("código do
+// produto deve ficar entre 1 e 999999"). Produto com código de barras próprio
+// (EAN de indústria, diferente do código interno) fica N. Ligado por padrão.
+const barrasPropriasViramN = ref(true);
+const regraBarrasProprias = computed(() => (barrasPropriasViramN.value ? 'naoPesavel' : 'pesavel') as const);
 
 async function conferirPadronizar() {
   previaPadronizar.value = null;
   resultadoPadronizar.value = '';
   lendoPadronizar.value = true;
   erro.value = '';
-  try { previaPadronizar.value = await api.pesavelPadronizarPrevia(lojaPadronizar.value); }
+  try { previaPadronizar.value = await api.pesavelPadronizarPrevia(lojaPadronizar.value, regraBarrasProprias.value); }
   catch (e) { erro.value = (e as { data?: { message?: string } })?.data?.message ?? 'Não consegui montar a prévia.'; }
   finally { lendoPadronizar.value = false; }
 }
@@ -123,8 +128,10 @@ async function aplicarPadronizar() {
   aplicandoPadronizar.value = true;
   erro.value = '';
   try {
-    const r = await api.pesavelPadronizarAplicar(lojaPadronizar.value, confirmacaoPadronizar.value, previaPadronizar.value.hashPlano);
-    resultadoPadronizar.value = `${r.gravados} ativo(s) agora são pesáveis com tecla 000 e validade 5 (${r.invertidos} deixaram de ser N, ${r.semValor} não tinham valor)`
+    const r = await api.pesavelPadronizarAplicar(lojaPadronizar.value, confirmacaoPadronizar.value, previaPadronizar.value.hashPlano, regraBarrasProprias.value);
+    resultadoPadronizar.value = `${r.paraS} ativo(s) agora são pesáveis com tecla 000 e validade 5`
+      + (r.paraN ? ` e ${r.paraN} ficaram N por terem código de barras próprio` : '')
+      + ` (${r.invertidos} mudaram de lado, ${r.semValor} não tinham valor)`
       + (r.espelhosCorrigidos ? `; ${r.espelhosCorrigidos} linha(s) do espelho SIA corrigidas` : '')
       + '. Baixe o TXT completo de novo antes de importar no SIA; depois ajuste as exceções produto a produto.';
     confirmacaoPadronizar.value = '';
@@ -402,15 +409,28 @@ onMounted(() => {
             <v-select v-model="lojaPadronizar" :items="['TNP', 'LI']" label="Loja" variant="outlined" density="comfortable" hide-details style="max-width: 160px" @update:model-value="previaPadronizar = null" />
             <v-btn :loading="lendoPadronizar" variant="tonal" prepend-icon="fact_check" @click="conferirPadronizar">Conferir sem gravar</v-btn>
           </div>
+          <v-checkbox v-model="barrasPropriasViramN" density="compact" hide-details class="mt-2"
+            label="Quem tem código de barras próprio (diferente do código interno) fica N: a balança não aceita código acima de 999999. Barras de balança (começam com 2) continuam S."
+            @update:model-value="previaPadronizar = null" />
           <v-alert v-if="resultadoPadronizar" type="success" variant="tonal" class="mt-3">{{ resultadoPadronizar }}</v-alert>
           <template v-if="previaPadronizar">
             <v-divider class="my-4" />
-            <p><strong>{{ previaPadronizar.gravar }}</strong> de {{ previaPadronizar.totalAtivos }} ativos mudam para S, tecla 000, validade 5:
-              <strong>{{ previaPadronizar.invertidos }}</strong> deixam de ser N, {{ previaPadronizar.semValor }} não tinham valor,
-              {{ previaPadronizar.gravar - previaPadronizar.invertidos - previaPadronizar.semValor }} já eram S com outra tecla ou validade.</p>
-            <p class="text-medium-emphasis">{{ previaPadronizar.jaNoPadrao }} já estavam no padrão, intocados.</p>
-            <p>Espelho SIA: <strong>{{ previaPadronizar.espelhoCorrigir }}</strong> linha(s) corrigidas para S/000/5,
+            <p><strong>{{ previaPadronizar.gravar }}</strong> de {{ previaPadronizar.totalAtivos }} ativos mudam:
+              <strong>{{ previaPadronizar.paraS }}</strong> para S, tecla 000, validade 5<template v-if="previaPadronizar.opcoes.barrasProprias === 'naoPesavel'">,
+              <strong>{{ previaPadronizar.paraN }}</strong> para N por terem código de barras próprio</template>.
+              {{ previaPadronizar.invertidos }} mudam de lado, {{ previaPadronizar.semValor }} não tinham valor.</p>
+            <p class="text-medium-emphasis">{{ previaPadronizar.jaNoPadrao }} já estavam no padrão, intocados.
+              {{ previaPadronizar.barrasProprias }} ativos têm código de barras próprio.</p>
+            <p>Espelho SIA: <strong>{{ previaPadronizar.espelhoCorrigir }}</strong> linha(s) corrigidas,
               {{ previaPadronizar.espelhoJaNoPadrao }} já diziam isso, {{ previaPadronizar.semEspelho }} ativos sem espelho.</p>
+            <template v-if="previaPadronizar.amostraNaoPesaveis.length">
+              <p class="mt-3 mb-1 text-medium-emphasis">Amostra dos que ficam N (barras próprias):</p>
+              <ul class="ps-5">
+                <li v-for="item in previaPadronizar.amostraNaoPesaveis" :key="'n' + item.codigoInterno + item.nome">
+                  {{ item.codigoInterno }} · {{ item.nome }} · barras {{ item.codigoBarras }}
+                </li>
+              </ul>
+            </template>
             <template v-if="previaPadronizar.amostraInvertidos.length">
               <p class="mt-3 mb-1 text-medium-emphasis">Amostra dos que deixam de ser N:</p>
               <ul class="ps-5">
@@ -422,7 +442,7 @@ onMounted(() => {
             <v-text-field v-model="confirmacaoPadronizar" :label="`Digite ${previaPadronizar.confirmacao}`" variant="outlined" class="mt-3" />
             <v-btn color="primary" prepend-icon="save" :loading="aplicandoPadronizar"
               :disabled="confirmacaoPadronizar.trim().toUpperCase() !== previaPadronizar.confirmacao || previaPadronizar.gravar + previaPadronizar.espelhoCorrigir === 0"
-              @click="aplicarPadronizar">Tornar todos pesáveis</v-btn>
+              @click="aplicarPadronizar">Padronizar pesável</v-btn>
           </template>
         </v-card-text>
       </v-card>

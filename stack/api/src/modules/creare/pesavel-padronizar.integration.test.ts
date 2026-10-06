@@ -141,6 +141,32 @@ describe('padronizar pesável nos ativos', () => {
     expect(await ler('a')).toMatchObject({ pesavel: null });
   });
 
+  it('barras próprias viram N (produto e espelho) quando a regra está ligada; a prévia sem a regra não autoriza aplicar com ela', async () => {
+    await produto('coca', 'TNP', '13167', { pesavel: 'S', tecla: 0, validade: 5, barras: '7894900011517' });
+    await produto('pao', 'TNP', '13200', { pesavel: 'N', tecla: 0, validade: 0 });
+    await produto('etiqueta', 'TNP', '11400', { pesavel: 'N', tecla: 0, validade: 0, barras: '2114000005003' });
+    await espelho('e-coca', 'TNP', '13167', 'S', '000', '5');
+    await espelho('e-coca-barras', 'TNP', '77777', 'S', '000', '5', '7894900011517');
+    const opcoes = { barrasProprias: 'naoPesavel' as const };
+
+    const previa = await service.previa('TNP', opcoes);
+    expect(previa).toMatchObject({
+      totalAtivos: 3, gravar: 3, paraS: 2, paraN: 1, barrasProprias: 1, espelhoCorrigir: 2,
+      amostraNaoPesaveis: [{ codigoInterno: '13167', codigoBarras: '7894900011517', nome: 'PRODUTO coca' }],
+    });
+
+    const semRegra = await service.previa('TNP');
+    await expect(service.aplicar('TNP', FRASE, semRegra.hashPlano, opcoes)).rejects.toMatchObject({ statusCode: 409 });
+
+    const r = await service.aplicar('TNP', FRASE, previa.hashPlano, opcoes);
+    expect(r).toMatchObject({ gravados: 3, paraS: 2, paraN: 1, espelhosCorrigidos: 2 });
+    expect(await ler('coca')).toMatchObject({ pesavel: 'N', tecla_balanca: 0, validade_balanca: 0 });
+    expect(await ler('pao')).toMatchObject({ pesavel: 'S', tecla_balanca: 0, validade_balanca: 5 });
+    expect(await ler('etiqueta')).toMatchObject({ pesavel: 'S', tecla_balanca: 0, validade_balanca: 5 });
+    expect(await lerEspelho('e-coca')).toEqual({ pesavel: 'N', tecla_balanca: '0', validade_balanca: '0' });
+    expect(await lerEspelho('e-coca-barras')).toEqual({ pesavel: 'N', tecla_balanca: '0', validade_balanca: '0' });
+  });
+
   it('a frase é da loja: a da TNP não serve para a LI', async () => {
     await produto('li', 'LI', '13200');
     const previa = await service.previa('LI');
