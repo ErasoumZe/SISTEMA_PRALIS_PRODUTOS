@@ -165,8 +165,10 @@ describe('gerador Criare estrito', () => {
     expect(parsed.categoryCode).toBe('000000003');
   });
 
-  it('usa somente o campo interno estendido para codigo com 7 a 9 digitos', () => {
-    const parsed = parseCreareRecord(generateCreareRecord(bread({ codigoInterno: '1234567' }), config));
+  it('usa somente o campo interno estendido para codigo com 7 a 9 digitos (nao pesavel: pesavel nao cabe na balanca)', () => {
+    const parsed = parseCreareRecord(generateCreareRecord(
+      bread({ codigoInterno: '1234567', pesavel: 'N', teclaBalanca: null, validadeBalanca: null }), config,
+    ));
     expect(parsed.internalCode).toBe('000000');
     expect(parsed.extendedInternalCode).toBe('001234567');
   });
@@ -449,6 +451,30 @@ describe('casamento no SIA manda no coditem, no grupo e na aliquota', () => {
   it('RECUSA quando o codigo interno do Pralis diverge do coditem do SIA', () => {
     expect(() => generateCreareRecord(bread({ codigoInterno: '999999' }), config, sia))
       .toThrow(/diverge do coditem/);
+  });
+
+  /*
+   * 06/10/2026: a balanca recusou o ITENSMGV inteiro por UM produto com codigo
+   * 000000 ("5STAR 40 G"). Zero nunca e codigo; e pesavel acima de 999999 nao
+   * cabe na balanca, mesmo que o SIA aceite 9 digitos.
+   */
+  it('RECUSA codigo interno zero, com ou sem espelho', () => {
+    expect(() => generateCreareRecord(bread({ codigoInterno: '0' }), config)).toThrow(/zero; o SIA e a balanca exigem/);
+    expect(() => generateCreareRecord(bread({ codigoInterno: '000000' }), config)).toThrow(/zero; o SIA e a balanca exigem/);
+    expect(() => generateCreareRecord(bread({ codigoInterno: null }), config, { ...sia, coditem: '000000' }))
+      .toThrow(/Coditem do SIA e zero/);
+  });
+
+  it('RECUSA pesavel com codigo acima de 999999, porque a balanca nao aceita', () => {
+    expect(() => generateCreareRecord(bread({ pesavel: 'S', codigoInterno: '7130310' }), config))
+      .toThrow(/nao cabe na balanca/);
+  });
+
+  it('aceita nao pesavel com codigo de 7 digitos: vai no campo estendido, como antes', () => {
+    const parsed = parseCreareRecord(generateCreareRecord(
+      bread({ pesavel: 'N', teclaBalanca: null, validadeBalanca: null, codigoInterno: '7130310' }), config,
+    ));
+    expect(parsed.extendedInternalCode).toBe('007130310');
   });
 
   it('aceita quando os dois codigos sao o mesmo numero com zeros a esquerda', () => {
