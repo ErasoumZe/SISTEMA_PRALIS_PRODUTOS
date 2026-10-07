@@ -6,6 +6,14 @@ type Dashboard = AdminSchemas.Dashboard;
 type AdminUser = AdminSchemas.AdminUser;
 export type VendasReport = VendasSchemas.VendasReport;
 export type VendasReportQuery = VendasSchemas.VendasReportQuery;
+export interface ResumoCuponsCreare {
+  origem: 'creare_cupom'; loja: 'TNP' | 'LI';
+  periodo: { inicio: string; fim: string }; pdv: string | null;
+  cuponsRecebidos: number; vendasConfirmadas: number; vendasCanceladas: number;
+  faturamento: number; valorPago: number; primeiraVenda: string | null; ultimaVenda: string | null;
+  formasPagamento: Array<{ id: string; nome: string; vendas: number; valor: number }>;
+  aviso: string;
+}
 export type VendasRankingResposta = VendasRanking.VendasRanking;
 export type DetalhePdv = VendasPdv.DetalhePdv;
 export type DetalhePdvQuery = VendasPdv.DetalhePdvQuery;
@@ -538,6 +546,9 @@ export function useApi() {
     // O backend decide a loja: admin informa, usuario de loja recebe a dele.
     vendasReport: (query: VendasReportQuery) =>
       unwrap($fetch<{ data: VendasReport }>('/vendas/relatorio', { ...base, query })),
+
+    vendasCreareResumo: (query: { loja: 'TNP' | 'LI'; inicio: string; fim: string; pdv?: string }) =>
+      unwrap($fetch<{ data: ResumoCuponsCreare }>('/vendas/creare/resumo', { ...base, query })),
 
     /** Há quanto tempo cada fonte de vendas não recebe lote do robô. */
     vendasPulso: () => unwrap($fetch<{ data: Pulso }>('/vendas/pulso', { ...base })),

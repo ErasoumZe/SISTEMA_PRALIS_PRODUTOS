@@ -33,7 +33,12 @@ export function obterConfig() {
       apiUrl: (process.env.PADARIA_API_URL?.trim() || "http://localhost:4100").replace(/\/+$/, ""),
       codigoIntegracao: obterObrigatoria("PADARIA_INTEGRACAO_CODIGO")
     },
-    pralis: pralisUrl ? { apiUrl: pralisUrl.replace(/\/+$/, ""), token: pralisToken, empresa: pralisEmpresa } : null,
+    pralis: pralisUrl ? {
+      apiUrl: pralisUrl.replace(/\/+$/, ""), token: pralisToken, empresa: pralisEmpresa,
+      // Explicito para nao duplicar os itens que o bot ao vivo ja entrega.
+      enviarItens: process.env.PRALIS_ENVIAR_ITENS === "true",
+      enviarCupons: process.env.PRALIS_ENVIAR_CUPONS === "true"
+    } : null,
     // Usado so pelo modo producao (src/sincronizar.js e src/loop.js). Defaults sensatos.
     sincronizacao: {
       diasIniciais: obterNumero("SYNC_DIAS_INICIAIS", 1),

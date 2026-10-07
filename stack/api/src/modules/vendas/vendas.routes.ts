@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { container } from 'tsyringe';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { apiResponseSchema } from '@/config/api.replies';
+import { apiResponseSchema, buildResponse, AppError } from '@/config/api.replies';
 import { VendasController } from './vendas.controller';
 import {
   importarVendasBodySchema,
@@ -16,6 +16,8 @@ import { VendasUnicosController } from './vendas-unicos.controller';
 import { MetasController } from './metas.controller';
 import { FatorPontosController } from './fator-pontos.controller';
 import { z } from 'zod/v4';
+import { resumoCuponsCreare } from './vendas-creare.service';
+import { reportStore } from './vendas-report.controller';
 import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasGerentes, VendasPdv, VendasAbc, VendasPulso, VendasLista, MetasSchemas, FatorPontosSchemas } from '@pralis/shared';
 
 export async function vendasRoutes(app: FastifyInstance) {
@@ -46,6 +48,29 @@ export async function vendasRoutes(app: FastifyInstance) {
       bodyLimit: 2 * 1024 * 1024,
     },
     controller.importar.bind(controller),
+  );
+
+  const resumoCreareQuery = z.object({
+    loja: z.enum(['TNP', 'LI']), inicio: z.iso.date(), fim: z.iso.date(),
+    pdv: z.string().trim().optional(),
+  });
+  typed.get<{ Querystring: z.infer<typeof resumoCreareQuery> }>(
+    '/vendas/creare/resumo',
+    {
+      preHandler: [vendasDinheiroAuth],
+      schema: {
+        querystring: resumoCreareQuery,
+        response: { 200: apiResponseSchema(z.any()) },
+        summary: 'Cupons e formas de pagamento do CREARE, sem misturar com itens ou fechamento',
+        tags: ['VENDAS'],
+      },
+    },
+    async (request, reply) => {
+      if (request.query.inicio > request.query.fim) throw new AppError('Período inválido.', 400, 'INVALID_PERIOD');
+      const loja = reportStore(request, request.query.loja);
+      const dados = await resumoCuponsCreare(loja, request.query.inicio, request.query.fim, request.query.pdv);
+      return reply.status(200).send(buildResponse(dados, 'Resumo de cupons do CREARE'));
+    },
   );
 
   typed.get<{ Querystring: VendasSchemas.VendasReportQuery }>(

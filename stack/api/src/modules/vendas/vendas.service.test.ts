@@ -21,6 +21,7 @@ function setup() {
     importarVendas: vi.fn().mockResolvedValue({ recebidas: 1, inseridas: 1, atualizadas: 0, ignoradas: 0 }),
     importarFechamentos: vi.fn(),
     importarItensPdv: vi.fn().mockResolvedValue({ recebidas: 1, inseridas: 1, atualizadas: 0, ignoradas: 0 }),
+    importarCuponsCreare: vi.fn().mockResolvedValue({ recebidas: 1, inseridas: 1, atualizadas: 0, ignoradas: 0 }),
   } as unknown as VendasRepository;
   return { repository, service: new VendasService(repository) };
 }
@@ -65,6 +66,24 @@ describe('VendasService', () => {
       expect.objectContaining({ ID_VENDA_BALCAO: '101', ID_ITEM_VENDA_BALCAO: '501', TOTAL: '10.00' }),
     ]);
     await expect(service.importar({ tipo: 'venda_item_pdv', linhas: [{ ...item, ID_VENDA_BALCAO: '' }] }))
+      .rejects.toMatchObject({ code: 'SALES_BATCH_INVALID', statusCode: 422 });
+  });
+
+  it('recebe total e formas de pagamento por cupom sem substituir o lote de itens', async () => {
+    const { repository, service } = setup();
+    const cupom = {
+      ID_VENDA_BALCAO: '101', ID_DISPOSITIVO: '7', PDV: 'PDV 7',
+      DATA_HORA_VENDA: '2026-10-07 12:00:00', STATUS: 'F',
+      VALOR_SUBTOTAL: '110', VALOR_DESCONTO: '10', VALOR_ACRESCIMO: '0',
+      VALOR_TOTAL: '100', VALOR_PAGO: '100', EMPRESA: 'TNP CENTRAL',
+      PAGAMENTOS: [{ ID_PAGAMENTO: '200', ID_FORMA_PAGAMENTO: '3', FORMA_PAGAMENTO: 'PIX', VALOR: '100,00' }],
+    };
+    await service.importar({ tipo: 'venda_creare', linhas: [cupom] });
+    expect(repository.importarCuponsCreare).toHaveBeenCalledWith([
+      expect.objectContaining({ VALOR_TOTAL: '100', PAGAMENTOS: [expect.objectContaining({ VALOR: '100.00' })] }),
+    ]);
+    expect(repository.importarItensPdv).not.toHaveBeenCalled();
+    await expect(service.importar({ tipo: 'venda_creare', linhas: [{ ...cupom, ID_VENDA_BALCAO: '' }] }))
       .rejects.toMatchObject({ code: 'SALES_BATCH_INVALID', statusCode: 422 });
   });
 });

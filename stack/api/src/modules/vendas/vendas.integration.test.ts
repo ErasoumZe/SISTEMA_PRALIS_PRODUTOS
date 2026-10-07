@@ -54,7 +54,7 @@ describe('ingestão de vendas e fechamentos (Postgres real)', () => {
   it('migra as tabelas com as chaves naturais e hashes únicos', async () => {
     const indexes = await db.execute(sqlTag`
       SELECT indexname FROM pg_indexes
-      WHERE tablename IN ('venda_produto_dia', 'fechamento_caixa_dia', 'venda_item_pdv')
+      WHERE tablename IN ('venda_produto_dia', 'fechamento_caixa_dia', 'venda_item_pdv', 'venda_creare')
     `);
     const names = indexes.rows.map((r) => r.indexname);
     expect(names).toContain('uq_venda_produto_dia_natural');
@@ -62,6 +62,27 @@ describe('ingestão de vendas e fechamentos (Postgres real)', () => {
     expect(names).toContain('uq_fechamento_caixa_dia_natural');
     expect(names).toContain('uq_fechamento_caixa_dia_hash');
     expect(names).toContain('uq_venda_item_pdv_natural');
+    expect(names).toContain('uq_venda_creare_natural');
+  });
+
+  it('guarda cupom e pagamentos por ID, atualiza cancelamento e resume sem duplicar', async () => {
+    const { resumoCuponsCreare } = await import('./vendas-creare.service');
+    const row = {
+      ID_VENDA_BALCAO: '777', ID_DISPOSITIVO: '7', PDV: 'PDV 07',
+      DATA_HORA_VENDA: '2026-10-07 12:00:00', STATUS: 'F',
+      VALOR_SUBTOTAL: '110', VALOR_DESCONTO: '10', VALOR_ACRESCIMO: '0',
+      VALOR_TOTAL: '100', VALOR_PAGO: '100', EMPRESA: 'TNP CENTRAL',
+      PAGAMENTOS: [{ ID_PAGAMENTO: '901', ID_FORMA_PAGAMENTO: '3', FORMA_PAGAMENTO: 'PIX', VALOR: '100' }],
+    };
+    const tipo = 'venda_creare' as const;
+    expect(await service.importar({ tipo, linhas: [row] })).toMatchObject({ inseridas: 1 });
+    expect(await service.importar({ tipo, linhas: [row] })).toMatchObject({ ignoradas: 1 });
+    const resumo = await resumoCuponsCreare('TNP', '2026-10-07', '2026-10-07', '7');
+    expect(resumo).toMatchObject({ vendasConfirmadas: 1, faturamento: 100,
+      formasPagamento: [{ id: '3', nome: 'PIX', valor: 100 }] });
+    expect(await service.importar({ tipo, linhas: [{ ...row, STATUS: 'C' }] })).toMatchObject({ atualizadas: 1 });
+    const cancelado = await resumoCuponsCreare('TNP', '2026-10-07', '2026-10-07', '7');
+    expect(cancelado).toMatchObject({ cuponsRecebidos: 1, vendasConfirmadas: 0, vendasCanceladas: 1, faturamento: 0, formasPagamento: [] });
   });
 
   it('insere, corrige por chave natural e preserva produtos sem código pela descrição', async () => {

@@ -3,6 +3,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   text,
@@ -113,6 +114,35 @@ export const vendaItemPdv = pgTable(
     uniqueIndex('uq_venda_item_pdv_natural').on(t.loja, t.itemIdErp),
     index('idx_venda_item_pdv_loja_pdv_hora').on(t.loja, t.dispositivoIdErp, t.vendidoEm),
     index('idx_venda_item_pdv_loja_venda').on(t.loja, t.vendaIdErp),
+  ],
+);
+
+// Total e pagamentos do cupom original do CREARE. Nao substitui os itens nem
+// o fechamento: cada fonte tem um grao e uma cobertura diferentes.
+export const vendaCreare = pgTable(
+  'venda_creare',
+  {
+    id: text('id').primaryKey().$defaultFn(() => uuidv7()),
+    loja: text('loja').notNull(),
+    vendaIdErp: text('venda_id_erp').notNull(),
+    dispositivoIdErp: text('dispositivo_id_erp').notNull(),
+    pdv: text('pdv').notNull(),
+    vendidoEm: timestamp('vendido_em', { mode: 'string' }).notNull(),
+    status: text('status').notNull(),
+    valorSubtotal: numeric('valor_subtotal', { precision: 16, scale: 2 }).notNull(),
+    valorDesconto: numeric('valor_desconto', { precision: 16, scale: 2 }).notNull(),
+    valorAcrescimo: numeric('valor_acrescimo', { precision: 16, scale: 2 }).notNull(),
+    valorTotal: numeric('valor_total', { precision: 16, scale: 2 }).notNull(),
+    valorPago: numeric('valor_pago', { precision: 16, scale: 2 }).notNull(),
+    pagamentos: jsonb('pagamentos').$type<Array<{
+      idPagamento: string; idFormaPagamento: string; formaPagamento: string; valor: string;
+    }>>().notNull(),
+    conteudoHash: text('conteudo_hash').notNull(),
+    atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('uq_venda_creare_natural').on(t.loja, t.vendaIdErp),
+    index('idx_venda_creare_loja_hora_pdv').on(t.loja, t.vendidoEm, t.dispositivoIdErp),
   ],
 );
 

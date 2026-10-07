@@ -42,6 +42,37 @@ export function montarLinhasPralis({ vendas, itens }, empresa) {
   return linhas;
 }
 
+// O valor oficial do cupom e os pagamentos nao podem ser reconstruidos pela
+// soma dos itens: crediario, troco, acrescimos e cancelamentos mudam a conta.
+export function montarCuponsPralis({ vendas, pagamentos }, empresa) {
+  const porVenda = new Map();
+  for (const pagamento of pagamentos) {
+    const id = texto(pagamento.idVendaBalcao);
+    const lista = porVenda.get(id) ?? [];
+    lista.push({
+      ID_PAGAMENTO: texto(pagamento.idFormaPgtoVendaBalcao),
+      ID_FORMA_PAGAMENTO: texto(pagamento.idFormaPagamento),
+      FORMA_PAGAMENTO: texto(pagamento.descricaoFormaPagamento) || "Forma sem descricao",
+      VALOR: texto(pagamento.valor ?? 0)
+    });
+    porVenda.set(id, lista);
+  }
+  return vendas.filter((venda) => venda.idVendaBalcao && venda.dataHoraVenda).map((venda) => ({
+    ID_VENDA_BALCAO: texto(venda.idVendaBalcao),
+    ID_DISPOSITIVO: texto(venda.idDispositivo),
+    PDV: texto(venda.nomeCaixa),
+    DATA_HORA_VENDA: texto(venda.dataHoraVenda),
+    STATUS: texto(venda.statusVenda),
+    VALOR_SUBTOTAL: texto(venda.valorSubtotal ?? 0),
+    VALOR_DESCONTO: texto(venda.valorDesconto ?? 0),
+    VALOR_ACRESCIMO: texto(venda.valorAcrescimo ?? 0),
+    VALOR_TOTAL: texto(venda.valorTotal ?? 0),
+    VALOR_PAGO: texto(venda.valorPago ?? 0),
+    PAGAMENTOS: porVenda.get(texto(venda.idVendaBalcao)) ?? [],
+    EMPRESA: empresa
+  }));
+}
+
 async function lerPendentes(arquivo) {
   try {
     const conteudo = JSON.parse(await readFile(arquivo, "utf8"));
@@ -60,7 +91,7 @@ async function salvarPendentes(arquivo, linhas) {
   await rename(temporario, arquivo);
 }
 
-export async function enviarLotePralis(config, linhas) {
+export async function enviarLotePralis(config, linhas, tipo = "venda_item_pdv") {
   const resposta = await fetch(`${config.apiUrl}/vendas/importar`, {
     method: "POST",
     headers: {
@@ -68,7 +99,7 @@ export async function enviarLotePralis(config, linhas) {
       "content-type": "application/json",
       accept: "application/json"
     },
-    body: JSON.stringify({ tipo: "venda_item_pdv", linhas })
+    body: JSON.stringify({ tipo, linhas })
   });
   if (!resposta.ok) {
     throw new ErroHttp(`Pralis HTTP ${resposta.status}`, {
@@ -79,9 +110,10 @@ export async function enviarLotePralis(config, linhas) {
   return resposta.json();
 }
 
-export async function sincronizarPralis(config, filaArquivo, linhasAtuais, retry = {}, enviar = enviarLotePralis) {
+export async function sincronizarPralis(config, filaArquivo, linhasAtuais, retry = {}, enviar = enviarLotePralis,
+  { tipo = "venda_item_pdv", chave = "ID_ITEM_VENDA_BALCAO" } = {}) {
   const anteriores = await lerPendentes(filaArquivo);
-  const porId = new Map([...anteriores, ...linhasAtuais].map((linha) => [linha.ID_ITEM_VENDA_BALCAO, linha]));
+  const porId = new Map([...anteriores, ...linhasAtuais].map((linha) => [linha[chave], linha]));
   const linhas = [...porId.values()];
   const pendentes = [];
   let enviados = 0;
@@ -89,15 +121,15 @@ export async function sincronizarPralis(config, filaArquivo, linhasAtuais, retry
   for (let i = 0; i < linhas.length; i += LOTE) {
     const lote = linhas.slice(i, i + LOTE);
     try {
-      await enviarComRetry(() => enviar(config, lote), retry);
+      await enviarComRetry(() => enviar(config, lote, tipo), retry);
       enviados += lote.length;
     } catch (erro) {
       erros += 1;
       pendentes.push(...lote);
-      console.warn(`[pralis] lote pendente: ${erro.status ? `HTTP ${erro.status}` : "falha de rede"}`);
+      console.warn(`[pralis/${tipo}] lote pendente: ${erro.status ? `HTTP ${erro.status}` : "falha de rede"}`);
     }
   }
   await salvarPendentes(filaArquivo, pendentes);
-  console.log(`[pralis] itens=${linhas.length} enviados=${enviados} pendentes=${pendentes.length} lotes_com_erro=${erros}`);
+  console.log(`[pralis/${tipo}] recebidos=${linhas.length} enviados=${enviados} pendentes=${pendentes.length} lotes_com_erro=${erros}`);
   return { itens: linhas.length, enviados, pendentes: pendentes.length, lotesComErro: erros };
 }

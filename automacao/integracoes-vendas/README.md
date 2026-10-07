@@ -34,6 +34,30 @@ Copie `.env.producao.example` para `.env.producao` (que fica fora do git) e pree
 
 ## 2. Gerar a chave de integracao
 
+### Segundo destino: cupons e pagamentos no Pralis (opt-in)
+
+O Caixa continua recebendo o payload completo em `POST /api/integracoes`, sem mudanca.
+Para alimentar o Pralis com o total original do cupom e suas formas de pagamento,
+configure na maquina da loja `PRALIS_VENDAS_API_URL`, `PRALIS_VENDAS_API_TOKEN`,
+`PRALIS_EMPRESA` e `PRALIS_ENVIAR_CUPONS="true"`. Use
+`PRALIS_ENVIAR_ITENS="false"` enquanto o bot "Vendas ao vivo" continuar mandando
+os itens. Nao copie tokens para o repositorio ou para logs.
+
+O Pralis precisa estar publicado com o tipo `venda_creare` antes de ativar o envio.
+Esse lote tem fila independente (`.estado/fila-pralis-cupons.json`); uma falha nele
+nao desfaz as vendas ja entregues ao Caixa. O relatorio "Cupons CREARE" mostra
+somente datas recebidas; a primeira/ultima venda nao prova cobertura integral.
+
+Depois de homologar o fluxo ao vivo, reimporte historico em faixas de ate 31 dias,
+sem reenviar ao Caixa e sem alterar o cursor do agente:
+
+```powershell
+npm.cmd run reprocessar:pralis-cupons -- --de 2026-09-01 --ate 2026-09-30
+```
+
+Antes de executar, confira a faixa/loja e a saude da API. Repita uma faixa que
+falhou: o Pralis deduplica por loja + ID da venda. A fila do backfill e propria.
+
 No ERP, logado como admin: **Integracoes -> criar chave "Vendas do PDV"** -> copie o codigo -> cole
 em `PADARIA_INTEGRACAO_CODIGO`.
 

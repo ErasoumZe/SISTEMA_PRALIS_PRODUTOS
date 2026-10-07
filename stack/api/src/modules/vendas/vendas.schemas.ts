@@ -150,8 +150,31 @@ export const vendaItemPdvInputSchema = z.object({
   ATUALIZADO_EM: dataHora,
 }).loose();
 
+// Cupom do CREARE: valor e formas de pagamento independentes do somatorio dos itens.
+// O ERP nao fornece data de alteracao confiavel para cancelamentos; o servidor
+// compara o conteudo recebido quando a mesma venda e reenviada.
+export const vendaCreareInputSchema = z.object({
+  ID_VENDA_BALCAO: z.string().trim().min(1),
+  ID_DISPOSITIVO: z.string().trim().default(''),
+  PDV: z.string().trim(),
+  DATA_HORA_VENDA: dataHora,
+  STATUS: z.string().trim().min(1),
+  VALOR_SUBTOTAL: decimal,
+  VALOR_DESCONTO: decimal,
+  VALOR_ACRESCIMO: decimal,
+  VALOR_TOTAL: decimal,
+  VALOR_PAGO: decimal,
+  PAGAMENTOS: z.array(z.object({
+    ID_PAGAMENTO: z.string().trim().min(1),
+    ID_FORMA_PAGAMENTO: z.string().trim().min(1),
+    FORMA_PAGAMENTO: z.string().trim().min(1),
+    VALOR: decimal,
+  })).max(100),
+  EMPRESA: empresa,
+}).loose();
+
 export const importarVendasBodySchema = z.object({
-  tipo: z.enum(['venda_produto_dia', 'fechamento_caixa_dia', 'venda_item_pdv']),
+  tipo: z.enum(['venda_produto_dia', 'fechamento_caixa_dia', 'venda_item_pdv', 'venda_creare']),
   linhas: z.array(z.record(z.string(), z.unknown())).min(1).max(1000),
 });
 
@@ -165,5 +188,6 @@ export const importarVendasResultSchema = z.object({
 export type VendaProdutoInput = z.output<typeof vendaProdutoInputSchema>;
 export type FechamentoCaixaInput = z.output<typeof fechamentoCaixaInputSchema>;
 export type VendaItemPdvInput = z.output<typeof vendaItemPdvInputSchema>;
+export type VendaCreareInput = z.output<typeof vendaCreareInputSchema>;
 export type ImportarVendasBody = z.output<typeof importarVendasBodySchema>;
 export type ImportarVendasResult = z.output<typeof importarVendasResultSchema>;

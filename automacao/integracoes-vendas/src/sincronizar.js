@@ -18,7 +18,7 @@ import { gravarFila, lerFila } from "./fila-falhas.js";
 import { ehErroPermanente, enviarComRetry } from "./retry.js";
 import { criarThrottle, intervaloDeReqPorSegundo } from "./throttle.js";
 import { adquirirLock, liberarLock } from "./lock.js";
-import { montarLinhasPralis, sincronizarPralis } from "./pralis-client.js";
+import { montarCuponsPralis, montarLinhasPralis, sincronizarPralis } from "./pralis-client.js";
 
 const raizProjeto = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -32,6 +32,7 @@ export function derivarCaminhos(config) {
     cursorArquivo: path.join(estadoDir, "cursor.json"),
     filaArquivo: path.join(estadoDir, "fila-falhas.json"),
     filaPralisArquivo: path.join(estadoDir, "fila-pralis.json"),
+    filaPralisCuponsArquivo: path.join(estadoDir, "fila-pralis-cupons.json"),
     lockArquivo: path.join(estadoDir, "agente.lock")
   };
 }
@@ -119,6 +120,7 @@ export async function executarCiclo(config, caminhos) {
   // Agregado + IDs do dia corrente para a conciliacao: lidos com o pool ainda aberto, enviados depois.
   let porPdvCreare = null;
   let linhasPralis = [];
+  let cuponsPralis = [];
 
   const pool = criarPoolCreare(config.creare);
   try {
@@ -137,11 +139,15 @@ export async function executarCiclo(config, caminhos) {
     const inicioCancelamentos = inicioJanelaCancelamentos(hoje, sync.diasCancelamentos);
     const cancelamentos = await buscarVendasCanceladasDesde(pool, inicioCancelamentos, hoje);
     const payloadsCancelados = montarPayloads(cancelamentos, { offsetFuso: sync.offsetFuso });
-    if (config.pralis) {
+    if (config.pralis?.enviarItens) {
       const normais = montarLinhasPralis({ vendas, itens }, config.pralis.empresa);
       const cancelados = montarLinhasPralis(cancelamentos, config.pralis.empresa);
-      const porId = new Map([...normais, ...cancelados].map((linha) => [linha.ID_ITEM_VENDA_BALCAO, linha]));
-      linhasPralis = [...porId.values()];
+      linhasPralis = [...new Map([...normais, ...cancelados].map((linha) => [linha.ID_ITEM_VENDA_BALCAO, linha])).values()];
+    }
+    if (config.pralis?.enviarCupons) {
+      const normais = montarCuponsPralis({ vendas, pagamentos }, config.pralis.empresa);
+      const cancelados = montarCuponsPralis(cancelamentos, config.pralis.empresa);
+      cuponsPralis = [...new Map([...normais, ...cancelados].map((linha) => [linha.ID_VENDA_BALCAO, linha])).values()];
     }
     contagem.cancelamentosDetectados = payloadsCancelados.length;
     for (const payload of payloadsCancelados) {
@@ -166,10 +172,15 @@ export async function executarCiclo(config, caminhos) {
 
   // Segundo destino independente: falha no Pralis nao interrompe o Caixa.
   // Fila propria em disco preserva lotes enquanto a API estiver indisponivel.
-  const pralis = config.pralis
+  const pralis = config.pralis?.enviarItens
     ? await sincronizarPralis(config.pralis, caminhos.filaPralisArquivo, linhasPralis, {
       tentativas: sync.retryTentativas, baseMs: sync.retryBaseMs
     })
+    : null;
+  const pralisCupons = config.pralis?.enviarCupons
+    ? await sincronizarPralis(config.pralis, caminhos.filaPralisCuponsArquivo, cuponsPralis, {
+      tentativas: sync.retryTentativas, baseMs: sync.retryBaseMs
+    }, undefined, { tipo: "venda_creare", chave: "ID_VENDA_BALCAO" })
     : null;
 
   // 4) Log resumido do ciclo.
@@ -183,7 +194,7 @@ export async function executarCiclo(config, caminhos) {
   // 5) Conciliacao do dia (best-effort): nunca derruba o ciclo — as vendas ja foram entregues.
   const conciliacao = await conciliarDia(config, hoje, porPdvCreare);
 
-  return { ...contagem, filaPendente: falhas.length, pralis, conciliacao };
+  return { ...contagem, filaPendente: falhas.length, pralis, pralisCupons, conciliacao };
 }
 
 // Compara o agregado do CREARE com o sistema e loga PDV a PDV. A API e quem decide divergencia e
