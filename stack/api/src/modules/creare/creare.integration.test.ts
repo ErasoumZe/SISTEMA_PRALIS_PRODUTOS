@@ -546,3 +546,172 @@ describe('amostra de custo — para decidir 2 ou 3 casas olhando o SIA', () => {
     expect(d.amostraCusto).toHaveLength(0);
   });
 });
+
+/*
+ * Defeito de 07/10/2026: o MINI PAO DOCE GOTAS DE CHOCOLATE (13179) foi
+ * cadastrado, o health dizia "7181 casados, 0 invalidos", e ele nunca saiu em
+ * TXT nenhum. A causa era um lote aberto que nunca teve a entrega registrada:
+ * `pending` devolve o lote aberto ANTES de olhar o catalogo, e ninguem tinha
+ * como ver isso.
+ */
+describe('lote abandonado nao prende o catalogo', () => {
+  const envelhecer = async (id: string, minutos: number) => {
+    await db.execute(sqlTag`
+      UPDATE creare_export_batch SET criado_em = now() - ${`${minutos} minutes`}::interval WHERE id = ${id}`);
+  };
+
+  it('produto novo continua preso enquanto o lote aberto esta no prazo', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const aberto = (await service.pending('LI'))!;
+
+    await produto('p2', 'MINI PAO DOCE GOTAS DE CHOCOLATE', '7891149100835', '13179');
+    await siaLinha('013179', '7891149100835', '10');
+    await envelhecer(aberto.id, 5);
+
+    // dentro do prazo o lote tem que se repetir: e isso que impede dois
+    // downloads de produzirem dois arquivos diferentes
+    expect((await service.pending('LI'))?.id).toBe(aberto.id);
+    expect((await service.pending('LI'))?.itens).toHaveLength(1);
+  });
+
+  it('passado o prazo, o lote abandonado e reciclado e o produto novo SAI', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const abandonado = (await service.pending('LI'))!;
+
+    await produto('p2', 'MINI PAO DOCE GOTAS DE CHOCOLATE', '7891149100835', '13179');
+    await siaLinha('013179', '7891149100835', '10');
+    await envelhecer(abandonado.id, 16);
+
+    const novo = (await service.pending('LI'))!;
+    expect(novo.id).not.toBe(abandonado.id);
+    // nenhum dos dois teve entrega registrada, entao os dois voltam
+    expect(novo.itens).toHaveLength(2);
+    expect(novo.conteudo).toContain('13179');
+
+    // o lote velho sai da vaga sem perder a auditoria
+    const velho = await db.execute(sqlTag`
+      SELECT cancelado_em, conteudo FROM creare_export_batch WHERE id = ${abandonado.id}`);
+    expect(velho.rows[0]?.cancelado_em).not.toBeNull();
+    expect(velho.rows[0]?.conteudo).toBe(abandonado.conteudo);
+    // a vaga de lote aberto passa a ser do novo, nunca mais do abandonado
+    expect((await service.openBatch('LI'))?.id).toBe(novo.id);
+  });
+
+  it('reciclar nao avanca o cursor: o produto do lote perdido nao e dado como entregue', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const perdido = (await service.pending('LI'))!;
+    await envelhecer(perdido.id, 16);
+
+    const novo = (await service.pending('LI'))!;
+    expect(novo.itens).toHaveLength(1);
+    const entregue = await db.execute(sqlTag`SELECT count(*) AS total FROM creare_export_delivery_state`);
+    expect(Number(entregue.rows[0]?.total)).toBe(0);
+  });
+
+  it('a entrega de um lote reciclado e recusada, para o robo nao avancar o cursor errado', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const abandonado = (await service.pending('LI'))!;
+    await envelhecer(abandonado.id, 16);
+    await service.pending('LI');
+
+    await expect(service.acknowledgeDelivery('LI', abandonado.id, abandonado.sha256))
+      .rejects.toMatchObject({ code: 'CREARE_BATCH_OUTDATED' });
+  });
+});
+
+describe('health: o cursor incremental deixou de ser invisivel', () => {
+  const envelhecer = async (id: string, minutos: number) => {
+    await db.execute(sqlTag`
+      UPDATE creare_export_batch SET criado_em = now() - ${`${minutos} minutes`}::interval WHERE id = ${id}`);
+  };
+  const diag = async () => (await service.health()).lojas.find((loja) => loja.loja === 'LI')!;
+
+  it('nomeia o produto que esta esperando o proximo download', async () => {
+    await produto('p2', 'MINI PAO DOCE GOTAS DE CHOCOLATE', '7891149100835', '13179');
+    await siaLinha('013179', '7891149100835', '10');
+
+    const d = await diag();
+    expect(d.casados).toBe(1);
+    expect(d.incremental.pendentes).toBe(1);
+    expect(d.incremental.exemplosPendentes).toEqual([
+      { codigoInterno: '13179', nome: 'MINI PAO DOCE GOTAS DE CHOCOLATE' },
+    ]);
+    expect(d.incremental.loteAberto).toBeNull();
+    expect(d.incremental.diagnostico).toContain('aguardando o próximo download');
+  });
+
+  it('mostra que o produto novo esta preso atras de um lote aberto', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const aberto = (await service.pending('LI'))!;
+    await produto('p2', 'MINI PAO DOCE GOTAS DE CHOCOLATE', '7891149100835', '13179');
+    await siaLinha('013179', '7891149100835', '10');
+
+    const d = await diag();
+    // o flagrante: dois pendentes, e o lote aberto carrega um so
+    expect(d.incremental.pendentes).toBe(2);
+    expect(d.incremental.loteAberto).toMatchObject({ id: aberto.id, registros: 1, abandonado: false });
+    expect(d.incremental.cursorEntregue).toBe(0);
+    expect(d.incremental.diagnostico).toContain('aguardando o robô salvar');
+  });
+
+  it('acusa o lote abandonado com a idade dele', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const aberto = (await service.pending('LI'))!;
+    await envelhecer(aberto.id, 47);
+
+    const d = await diag();
+    expect(d.incremental.loteAberto).toMatchObject({ abandonado: true, idadeMinutos: 47 });
+    expect(d.incremental.diagnostico).toContain('sem registro de entrega');
+  });
+
+  it('depois da entrega diz que esta em dia e conta o cursor', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const lote = (await service.pending('LI'))!;
+    await service.acknowledgeDelivery('LI', lote.id, lote.sha256);
+
+    const d = await diag();
+    expect(d.incremental.pendentes).toBe(0);
+    expect(d.incremental.loteAberto).toBeNull();
+    expect(d.incremental.cursorEntregue).toBe(1);
+    expect(d.incremental.cursorConfirmado).toBe(0);
+    expect(d.incremental.ultimaEntrega).toMatchObject({ loteId: lote.id, registros: 1 });
+    expect(d.incremental.diagnostico).toContain('Nada pendente');
+
+    await service.confirm('LI', lote.id, lote.sha256);
+    expect((await diag()).incremental.cursorConfirmado).toBe(1);
+  });
+
+  it('alterar um produto ja entregue volta a aparecer como pendente', async () => {
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    const lote = (await service.pending('LI'))!;
+    await service.acknowledgeDelivery('LI', lote.id, lote.sha256);
+    expect((await diag()).incremental.pendentes).toBe(0);
+
+    await db.execute(sqlTag`UPDATE products SET nome = 'CERVEJA LATA 350' WHERE id = 'p1'`);
+    expect((await diag()).incremental.pendentes).toBe(1);
+  });
+
+  it('a contagem de pendentes do health bate com o que o download entrega', async () => {
+    // a TNP forca `barcodeField: extended`; com a config crua o registro
+    // apurado aqui teria outro hash e o health mentiria sobre a TNP
+    await produto('p1', 'CERVEJA', '7891149100828');
+    await siaLinha('012345', '7891149100828', '10');
+    await produto('p2', 'MINI PAO DOCE GOTAS DE CHOCOLATE', '7891149100835', '13179');
+    await siaLinha('013179', '7891149100835', '10');
+
+    const antes = (await diag()).incremental.pendentes;
+    const lote = (await service.pending('LI'))!;
+    expect(lote.itens).toHaveLength(antes);
+
+    await service.acknowledgeDelivery('LI', lote.id, lote.sha256);
+    expect((await diag()).incremental.pendentes).toBe(0);
+  });
+});

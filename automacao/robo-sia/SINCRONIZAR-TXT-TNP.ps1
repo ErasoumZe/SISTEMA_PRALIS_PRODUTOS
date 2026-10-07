@@ -25,6 +25,29 @@ function ConfirmarEntrega([string]$base, [string]$token, [string]$id, [string]$s
         -ContentType 'application/json' -Body $body -TimeoutSec 30
 }
 
+<#
+  Registrar a entrega e o que LIBERA o proximo TXT. Falhar aqui nao e motivo
+  para derrubar a execucao: o arquivo ja foi baixado, verificado e salvo, que e
+  o que a loja precisa. Antes, qualquer falha caia no catch de fora e o script
+  terminava com exit 1 -- e, cinco minutos depois, repetia o mesmo erro.
+  Enquanto isso o lote continuava aberto na API, e lote aberto significa que
+  nenhum produto novo entra em TXT nenhum.
+
+  Agora o erro vira uma linha propria no log e a API se recupera sozinha:
+  passados 15 minutos sem entrega registrada, ela recicla o lote abandonado.
+  O estado tambem aparece no /creare/health, em `incremental`.
+#>
+function TentarEntrega([string]$base, [string]$token, [string]$id, [string]$sha) {
+    try {
+        ConfirmarEntrega $base $token $id $sha
+        return $true
+    } catch {
+        Registrar ("ENTREGA NAO REGISTRADA do lote " + $id + ': ' + $_.Exception.Message `
+            + ' | o TXT esta salvo; confira `incremental` no /creare/health')
+        return $false
+    }
+}
+
 try {
     $locked = $mutex.WaitOne(0)
     if (-not $locked) { Write-Host 'Outra sincronizacao TNP ja esta em andamento.'; exit 0 }
@@ -84,10 +107,11 @@ try {
             [System.IO.File]::Exists([string]$anterior.arquivo)) {
             $hashAnterior = (Get-FileHash -LiteralPath ([string]$anterior.arquivo) -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($hashAnterior -eq $sha) {
-                ConfirmarEntrega $base $token $id $sha
-                Registrar "TNP: lote $id ja salvo em $($anterior.arquivo). Entrega registrada; nenhum TXT duplicado."
+                $ok = TentarEntrega $base $token $id $sha
+                Registrar "TNP: lote $id ja salvo em $($anterior.arquivo). Nenhum TXT duplicado."
                 [System.IO.File]::Delete($temporario)
                 $temporario = $null
+                if (-not $ok) { break }
                 continue
             }
         }
@@ -107,8 +131,9 @@ try {
     [System.IO.File]::WriteAllText($estadoTemporario, ($dados | ConvertTo-Json -Compress))
     if ([System.IO.File]::Exists($estado)) { [System.IO.File]::Delete($estado) }
     [System.IO.File]::Move($estadoTemporario, $estado)
-    ConfirmarEntrega $base $token $id $sha
-    Registrar "TNP: $($linhas.Length) registro(s) salvos em $arquivo. Entrega registrada; importacao no SIA nao confirmada."
+    $ok = TentarEntrega $base $token $id $sha
+    Registrar "TNP: $($linhas.Length) registro(s) salvos em $arquivo. Importacao no SIA nao confirmada."
+    if (-not $ok) { break }
     }
 } catch {
     Registrar "ERRO: download TNP falhou: $($_.Exception.Message)"
