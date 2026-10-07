@@ -6,11 +6,18 @@
   5 em 5 minutos a noite toda, entregando o lote das 07:12, pegando 204 as
   07:15 -- e nunca mais. Parada limpa, sem erro, sem linha de log.
 
-  Causa: em 06/10 o utilitario da janela oculta trocou o login da tarefa para
-  InteractiveToken. Ele avisa isso no proprio cabecalho ("passa a funcionar
-  somente enquanto SERVIDOR\Servidor estiver conectado"). A tarefa tinha UM
-  disparador: um TimeTrigger de 29/09 com repeticao de 5 minutos. Quando a
-  sessao terminou, a repeticao morreu -- e nao havia nada que a ressuscitasse.
+  Causa, confirmada no PC as 17:54: a execucao das 07:20 TRAVOU e ficou viva
+  (powershell 35580, estado Running, resultado 267009). O gatilho continuou
+  programando de 5 em 5 minutos, mas MultipleInstancesPolicy = IgnoreNew
+  descartou cada disparo enquanto a instancia travada existia -- sem log, sem
+  erro, sem nada. Sem ExecutionTimeLimit (o padrao e 72 horas), ninguem a
+  matava. Dez horas assim.
+
+  Contexto que ajudou a travar: em 06/10 o utilitario da janela oculta trocou
+  o login para InteractiveToken ("funciona somente enquanto SERVIDOR\Servidor
+  estiver conectado"), e a tarefa tinha UM disparador, um TimeTrigger de
+  29/09. Perder a sessao e exatamente o tipo de coisa que deixa uma instancia
+  interativa pendurada, e sem AtLogOn/AtStartup nada recomeca limpo.
 
   Tres defeitos de configuracao, cada um capaz de parar o TXT em silencio:
 
@@ -75,9 +82,15 @@ $definicao = $tarefa.Definition
 # --- as mesmas guardas do OCULTAR-TAREFA: nunca gravar em tarefa alheia -----
 $identidade = [System.Security.Principal.WindowsIdentity]::GetCurrent()
 $contaTarefa = [string]$definicao.Principal.UserId
-if ((ObterSid $contaTarefa) -ne $identidade.User.Value) {
+$sidTarefa = ObterSid $contaTarefa
+if ($sidTarefa -ne $identidade.User.Value) {
     throw "A tarefa pertence a $contaTarefa, mas este PowerShell esta como $($identidade.Name). Pare aqui."
 }
+# O Agendador devolveu so "Servidor" em 07/10/2026, e o RegisterTaskDefinition
+# recusou isso no UserId do disparador de logon ("(23,26):UserId:Servidor").
+# Daqui em diante, sempre o nome qualificado, resolvido a partir do SID.
+$contaQualificada = (New-Object System.Security.Principal.SecurityIdentifier -ArgumentList $sidTarefa).Translate(
+    [System.Security.Principal.NTAccount]).Value
 if ($definicao.Actions.Count -ne 1 -or $definicao.Actions.Item(1).Type -ne 0) {
     throw 'A tarefa nao tem exatamente uma acao de programa. Nada foi alterado.'
 }
@@ -121,8 +134,12 @@ foreach ($t in $definicao.Triggers) {
 $pendencias = @()
 if (-not $temLogon) { $pendencias += 'falta disparador AtLogOn (a tarefa nao volta depois de um logoff)' }
 if (-not $temBoot) { $pendencias += 'falta disparador AtStartup (a tarefa nao volta depois de um reboot)' }
-if (-not $definicao.Settings.ExecutionTimeLimit -or $definicao.Settings.ExecutionTimeLimit -eq 'PT0S') {
-    $pendencias += 'sem ExecutionTimeLimit (instancia pendurada bloqueia a tarefa para sempre)'
+# O COM devolve o padrao PT72H quando o XML nao traz nada -- e 72 horas e,
+# na pratica, "nunca". Em 07/10/2026 uma instancia ficou viva das 07:20 ate
+# a noite e o diagnostico nao acusou, porque so olhava vazio/PT0S.
+if ($definicao.Settings.ExecutionTimeLimit -ne $LIMITE_EXECUCAO) {
+    $pendencias += ("ExecutionTimeLimit = '" + $definicao.Settings.ExecutionTimeLimit +
+        "' (instancia pendurada bloqueia a tarefa ate la; vai para $LIMITE_EXECUCAO)")
 }
 if ($definicao.Settings.StopIfGoingOnBatteries) { $pendencias += 'StopIfGoingOnBatteries ligado' }
 if ($definicao.Settings.DisallowStartIfOnBatteries) { $pendencias += 'DisallowStartIfOnBatteries ligado' }
@@ -141,6 +158,18 @@ if (-not $Aplicar) {
     Write-Host ''
     Write-Host 'Diagnostico apenas. Rode com -Aplicar para corrigir (faz backup do XML antes).'
     exit 0
+}
+$principal = New-Object System.Security.Principal.WindowsPrincipal -ArgumentList $identidade
+if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    # Disparador de inicializacao (AtStartup) so se registra elevado. Sem isto
+    # o COM devolve "Acesso negado (0x80070005)" depois de listar tudo certo.
+    throw 'Este PowerShell nao esta elevado. Abra como Administrador (mesma conta) e rode -Aplicar de novo. Nada foi alterado.'
+}
+if ([int]$tarefa.State -eq 4) {
+    # O ExecutionTimeLimit novo so vale para instancias NOVAS. Gravar agora
+    # deixaria a tarefa "reparada" no papel e travada na pratica.
+    throw ('A tarefa esta em execucao. Encerre a instancia pendurada antes de aplicar: ' +
+        'Stop-Process -Id <id da lista acima> -Force ; Stop-ScheduledTask -TaskName "' + $NomeTarefa + '"')
 }
 
 # --- backup antes de gravar --------------------------------------------------
@@ -162,7 +191,7 @@ $definicao.Settings.StartWhenAvailable = $true
 # IgnoreNew impede execucao dupla.
 if (-not $temLogon) {
     $g = $definicao.Triggers.Create($TIPO_LOGON)
-    $g.UserId = $contaTarefa
+    $g.UserId = $contaQualificada
     $g.Repetition.Interval = $INTERVALO
     # 1 minuto de folga: no logon o Windows ainda esta subindo servico e rede
     $g.Delay = 'PT1M'
@@ -176,7 +205,7 @@ if (-not $temBoot) {
 }
 
 # 4 = TASK_CREATE_OR_UPDATE. Login preservado: InteractiveToken nao usa senha.
-$null = $pasta.RegisterTaskDefinition($NomeTarefa, $definicao, 4, $contaTarefa, $null, $logon)
+$null = $pasta.RegisterTaskDefinition($NomeTarefa, $definicao, 4, $contaQualificada, $null, $logon)
 Write-Host ''
 Write-Host 'Tarefa reparada. Confira com:  Get-ScheduledTaskInfo -TaskName "Download TXT SIA TNP"'
 Write-Host 'Para o TXT dos produtos pendentes sair agora, rode o robo a mao:'
