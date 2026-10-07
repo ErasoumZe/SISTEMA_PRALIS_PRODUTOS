@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { VendasGerentes, VendasGerentesPeriodo, VendasRanking } from '@pralis/shared';
 import { AppError } from '@/config/api.replies';
 import { db } from '@/db/databases';
+import { FatorPontosService } from './fator-pontos.service';
 
 type Loja = 'TNP' | 'LI';
 /**
@@ -17,7 +18,9 @@ type Linha = {
   aoVivo?: boolean;
 };
 type ItemLinha = { data: string; dispositivoIdErp: string; quantidade: number; vendas: number };
-const pontos = (valor: number) => Math.round(valor * VendasRanking.PONTOS_POR_REAL * 100) / 100;
+const pontosCom = (fator: number) => (valor: number) => Math.round(valor * fator * 100) / 100;
+/** A régua antiga, usada quando ninguém passa outra (testes puros inclusive). */
+const pontos = pontosCom(VendasRanking.PONTOS_POR_REAL);
 const dinheiro = (valor: number) => Math.round(valor * 100) / 100;
 
 function datasDoPeriodo(inicio: string, fim: string): string[] {
@@ -36,7 +39,10 @@ function datasDoPeriodo(inicio: string, fim: string): string[] {
 export function montarRelatorioGerentes(
   loja: Loja, inicio: string, fim: string, pdvs: string[], linhas: Linha[], filtroPdv?: string,
   itens: ItemLinha[] = [], podeVerDinheiro = false,
+  /** Pontos por real. O padrão é a régua que valia antes da tela de configuração. */
+  fator: number = VendasRanking.PONTOS_POR_REAL,
 ): VendasGerentes.Gerentes {
+  const pontos = pontosCom(fator);
   const datas = datasDoPeriodo(inicio, fim);
   if (filtroPdv && !pdvs.includes(filtroPdv)) throw new AppError('PDV não encontrado nesta loja.', 422, 'PDV_NOT_FOUND');
   const visiveis = filtroPdv ? [filtroPdv] : pdvs;
@@ -99,9 +105,12 @@ export function montarRelatorioGerentes(
 
 @injectable()
 export class VendasGerentesService {
+  constructor(@inject(FatorPontosService) private fatores: FatorPontosService) {}
+
   async relatorioHoras(
     loja: Loja, pedido: VendasGerentes.GerentesHorasQuery, podeVerDinheiro = false,
   ): Promise<VendasGerentes.GerentesHoras> {
+    const pontos = pontosCom(await this.fatores.fatorEm(loja, pedido.data));
     const movimento = await db.execute(sql`
       SELECT to_char(vendido_em, 'HH24') || 'h' AS hora, pdv,
         SUM(total)::float8 AS total, SUM(quantidade)::float8 AS quantidade,
@@ -231,6 +240,8 @@ export class VendasGerentesService {
       loja, pedido.inicio, pedido.fim,
       pdvs, linhas,
       pedido.pdv, itens, podeVerDinheiro,
+      // a régua do relatório é a vigente no primeiro dia do período
+      await this.fatores.fatorEm(loja, pedido.inicio),
     );
   }
 }

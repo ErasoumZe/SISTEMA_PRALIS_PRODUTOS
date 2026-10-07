@@ -1,5 +1,5 @@
 import type { ProductSchemas, ProductRequests, AdminSchemas, VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasGerentes, VendasPdv, VendasAbc, VendasPulso } from '@pralis/shared';
-import type { VendasLista, MetasSchemas } from '@pralis/shared';
+import type { VendasLista, MetasSchemas, FatorPontosSchemas } from '@pralis/shared';
 
 type Product = ProductSchemas.ProductEntity;
 type Dashboard = AdminSchemas.Dashboard;
@@ -561,6 +561,14 @@ export function useApi() {
       unwrap($fetch<{ data: RelatorioGerentesHoras }>('/vendas/gerentes/horas', { ...base, query })),
 
     /** Metas por turno do Relatório Gerentes, em pontos. Gerar a matriz é só admin. */
+    /** A régua que converte reais em pontos. Só admin com a tela liberada. */
+    fatorPontos: (loja: 'TNP' | 'LI') =>
+      unwrap($fetch<{ data: FatorPontosResposta }>('/vendas/fator-pontos', { ...base, query: { loja } })),
+    salvarFatorPontos: (body: SalvarFatorBody) =>
+      unwrap($fetch<{ data: FatorVersao }>('/vendas/fator-pontos', { ...base, method: 'POST', body })),
+    apagarFatorPontos: (id: string) =>
+      unwrap($fetch<{ data: null }>(`/vendas/fator-pontos/${id}`, { ...base, method: 'DELETE' })),
+
     metasTurno: (query: MetasTurnoQuery) =>
       unwrap($fetch<{ data: MetasTurno }>('/vendas/gerentes/metas', { ...base, query })),
     gerarMatrizMetas: (body: GerarMatrizBody) =>

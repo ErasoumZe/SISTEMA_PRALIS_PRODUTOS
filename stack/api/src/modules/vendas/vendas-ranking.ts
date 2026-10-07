@@ -34,7 +34,11 @@ export interface ResultadoRanking {
 /** Centavos, sempre. `0.1 * 0.25` em ponto flutuante não fecha sozinho. */
 const centavos = (v: number): number => Math.round(v * 100) / 100;
 
-export function agruparPorChave(linhas: readonly LinhaClassificada[]): ResultadoRanking {
+export function agruparPorChave(
+  linhas: readonly LinhaClassificada[],
+  /** Pontos por real. O padrão é a régua que o código usava antes da tela. */
+  fator: number = VendasRanking.PONTOS_POR_REAL,
+): ResultadoRanking {
   const somas = new Map<string, { rotulo: string; faturamento: number; quantidade: number; numeroVendas: number | null }>();
   let classificado = 0;
   let semClassificacao = 0;
@@ -82,13 +86,13 @@ export function agruparPorChave(linhas: readonly LinhaClassificada[]): Resultado
     quantidade: centavos(v.quantidade),
     numeroVendas: v.numeroVendas,
     participacao: faturamentoTotal ? centavos((v.faturamento / faturamentoTotal) * 100) : 0,
-    pontos: centavos(v.faturamento * VendasRanking.PONTOS_POR_REAL),
+    pontos: centavos(v.faturamento * fator),
     posicao: i + 1,
   }));
 
   return {
     faturamentoTotal,
-    pontosTotal: centavos(classificado * VendasRanking.PONTOS_POR_REAL),
+    pontosTotal: centavos(classificado * fator),
     itens,
     cobertura: {
       faturamentoClassificado: centavos(classificado),

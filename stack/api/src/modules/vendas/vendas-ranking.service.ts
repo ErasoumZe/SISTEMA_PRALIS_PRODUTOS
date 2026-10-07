@@ -5,6 +5,7 @@ import { VendasReportRepository } from './vendas-report.repository';
 import { filtroVazio, indexarPorCodigo, passaNoFiltro, resolverProduto, type FiltroCadastro, type ProdutoCadastro } from './vendas-margem';
 import { chaveProduto, escolherFonte, porPdvItens, produtosItens, type Fonte, type PedidoFonte } from './vendas-fonte';
 import { agruparPorChave, type LinhaClassificada } from './vendas-ranking';
+import { FatorPontosService } from './fator-pontos.service';
 /** Lojas com relatório nesta etapa — mesma definição dos demais serviços. */
 type Loja = 'TNP' | 'LI';
 
@@ -21,7 +22,10 @@ const SEM_VALOR = 'Sem classificação no cadastro';
 
 @injectable()
 export class VendasRankingService {
-  constructor(@inject(VendasReportRepository) private repository: VendasReportRepository) {}
+  constructor(
+    @inject(VendasReportRepository) private repository: VendasReportRepository,
+    @inject(FatorPontosService) private fatores: FatorPontosService,
+  ) {}
 
   async ranking(
     loja: Loja,
@@ -95,7 +99,7 @@ export class VendasRankingService {
       };
     });
 
-    const r = agruparPorChave(linhas);
+    const r = agruparPorChave(linhas, await this.fatores.fatorEm(loja, inicio));
     return {
       loja,
       periodo: { inicio, fim },
@@ -132,13 +136,14 @@ export class VendasRankingService {
         .map((v) => chaveProduto(v.produtoCodigo, v.produto));
     }
     const linhas = await porPdvItens(loja, fonte, chaves);
+    const fator = await this.fatores.fatorEm(loja, inicio);
     const r = agruparPorChave(linhas.map((l) => ({
       chave: l.dispositivoIdErp,
       rotulo: l.pdv || `dispositivo ${l.dispositivoIdErp}`,
       faturamento: l.total,
       quantidade: 0,
       numeroVendas: l.numeroVendas,
-    })));
+    })), fator);
     return {
       loja,
       periodo: { inicio, fim },
@@ -151,13 +156,14 @@ export class VendasRankingService {
 
   private async porPdv(loja: Loja, inicio: string, fim: string): Promise<VendasRanking.VendasRanking> {
     const linhas = await this.repository.porPdv(loja, inicio, fim);
+    const fator = await this.fatores.fatorEm(loja, inicio);
     const r = agruparPorChave(linhas.map((l) => ({
       chave: l.dispositivoIdErp || `legado:${l.pdv}`,
       rotulo: l.operador ? `${l.pdv} — ${l.operador}` : l.pdv,
       faturamento: l.total,
       quantidade: 0,
       numeroVendas: l.numeroVendas,
-    })));
+    })), fator);
 
     return {
       loja,

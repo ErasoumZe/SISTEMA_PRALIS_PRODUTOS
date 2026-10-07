@@ -17,7 +17,9 @@ beforeAll(async () => {
   await migrate(database.db, { migrationsFolder: './drizzle' });
   const { VendasReportRepository } = await import('./vendas-report.repository');
   const { VendasGerentesAreasService } = await import('./vendas-gerentes-areas.service');
-  servico = new VendasGerentesAreasService(new VendasReportRepository());
+  const { FatorPontosService } = await import('./fator-pontos.service');
+  const { FatorPontosRepository } = await import('./fator-pontos.repository');
+  servico = new VendasGerentesAreasService(new VendasReportRepository(), new FatorPontosService(new FatorPontosRepository()));
 }, 300_000);
 
 afterAll(async () => { await db?.$client.end(); await container?.stop(); });

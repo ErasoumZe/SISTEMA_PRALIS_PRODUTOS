@@ -27,3 +27,5 @@ export * as Telas from './src/permissoes/telas';
 export * as VendasLista from './src/vendas/vendas-lista.schemas';
 export * as Metas from './src/vendas/metas';
 export * as MetasSchemas from './src/vendas/metas.schemas';
+export * as FatorPontos from './src/vendas/fator-pontos';
+export * as FatorPontosSchemas from './src/vendas/fator-pontos.schemas';

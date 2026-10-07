@@ -4,11 +4,12 @@ import { db } from '@/db/databases';
 import { AppError } from '@/config/api.replies';
 import { VendasGerentes, VendasRanking } from '@pralis/shared';
 import { VendasReportRepository } from './vendas-report.repository';
+import { FatorPontosService } from './fator-pontos.service';
 import { indexarPorCodigo, resolverProduto } from './vendas-margem';
 import { areaEfetiva } from './vendas-gerentes-area-grupo';
 
 const arredondar = (n: number) => Math.round(n * 100) / 100;
-const pontos = (n: number) => arredondar(n * VendasRanking.PONTOS_POR_REAL);
+const pontosCom = (fator: number) => (n: number) => arredondar(n * fator);
 
 function categorias(inicio: string, fim: string, granularidade: 'hora' | 'dia'): string[] {
   const primeiro = Date.parse(`${inicio}T00:00:00Z`);
@@ -30,12 +31,18 @@ function categorias(inicio: string, fim: string, granularidade: 'hora' | 'dia'):
 
 @injectable()
 export class VendasGerentesAreasService {
-  constructor(@inject(VendasReportRepository) private repository: VendasReportRepository) {}
+  constructor(
+    @inject(VendasReportRepository) private repository: VendasReportRepository,
+    @inject(FatorPontosService) private fatores: FatorPontosService,
+  ) {}
 
   async relatorio(pedido: VendasGerentes.GerentesAreasQuery, podeVerDinheiro: boolean): Promise<VendasGerentes.GerentesAreas> {
     const { inicio, fim, granularidade } = pedido;
     const eixo = categorias(inicio, fim, granularidade);
-    if (granularidade === 'dia') return this.relatorioDiario(inicio, fim, eixo, podeVerDinheiro);
+    // A régua do relatório é a vigente no primeiro dia do período. Ver
+    // `FatorPontosService` para o porquê de não converter dia a dia.
+    const pontos = pontosCom(await this.fatores.fatorEm('TNP', inicio));
+    if (granularidade === 'dia') return this.relatorioDiario(inicio, fim, eixo, podeVerDinheiro, pontos);
     const horario = granularidade === 'hora' ? sql`AND EXTRACT(HOUR FROM i.vendido_em) BETWEEN 6 AND 22` : sql``;
     const onde = sql`i.loja = 'TNP' AND i.vendido_em >= ${inicio}::date
       AND i.vendido_em < (${fim}::date + INTERVAL '1 day')
@@ -127,6 +134,7 @@ export class VendasGerentesAreasService {
   /** A fonte diária já chega do robô atual; ela não traz hora nem número de cupons por produto. */
   private async relatorioDiario(
     inicio: string, fim: string, eixo: string[], podeVerDinheiro: boolean,
+    pontos: (n: number) => number,
   ): Promise<VendasGerentes.GerentesAreas> {
     const [vendas, cadastro, dePara] = await Promise.all([
       db.execute(sql`SELECT data::text AS chave, produto_codigo, produto,

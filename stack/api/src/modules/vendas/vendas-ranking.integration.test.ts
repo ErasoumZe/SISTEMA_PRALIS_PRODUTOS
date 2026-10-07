@@ -33,7 +33,9 @@ beforeAll(async () => {
 
   const { VendasRankingService } = await import('./vendas-ranking.service');
   const { VendasReportRepository } = await import('./vendas-report.repository');
-  servico = new VendasRankingService(new VendasReportRepository());
+  const { FatorPontosService } = await import('./fator-pontos.service');
+  const { FatorPontosRepository } = await import('./fator-pontos.repository');
+  servico = new VendasRankingService(new VendasReportRepository(), new FatorPontosService(new FatorPontosRepository()));
 }, 300_000);
 
 afterAll(async () => {
