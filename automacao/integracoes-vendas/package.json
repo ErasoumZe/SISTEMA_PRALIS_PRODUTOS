@@ -7,9 +7,10 @@
     "dev:teste_integracao": "node --env-file=.env.desenvolvimento src/dev-teste-integracao.js",
     "sincronizar": "node --env-file-if-exists=.env.producao src/sincronizar.js",
     "reprocessar": "node --env-file-if-exists=.env.producao src/reprocessar.js",
+    "reprocessar:pralis-cupons": "node --env-file-if-exists=.env.producao src/reprocessar-pralis-cupons.js",
     "agente": "node --env-file-if-exists=.env.producao src/loop.js",
     "test": "node --test",
-    "check": "node --check src/api-client.js && node --check src/creare-repository.js && node --check src/cursor.js && node --check src/database.js && node --check src/dev-teste-integracao.js && node --check src/env.js && node --check src/fila-falhas.js && node --check src/lock.js && node --check src/loop.js && node --check src/payload.js && node --check src/pralis-client.js && node --check src/query-loader.js && node --check src/reprocessar.js && node --check src/retry.js && node --check src/sincronizar.js && node --check src/throttle.js"
+    "check": "node --check src/api-client.js && node --check src/creare-repository.js && node --check src/cursor.js && node --check src/database.js && node --check src/dev-teste-integracao.js && node --check src/env.js && node --check src/fila-falhas.js && node --check src/lock.js && node --check src/loop.js && node --check src/payload.js && node --check src/pralis-client.js && node --check src/query-loader.js && node --check src/reprocessar.js && node --check src/reprocessar-pralis-cupons.js && node --check src/retry.js && node --check src/sincronizar.js && node --check src/throttle.js"
   },
   "dependencies": {
     "mysql2": "^3.24.5"

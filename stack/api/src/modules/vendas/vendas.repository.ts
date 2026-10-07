@@ -1,13 +1,14 @@
 import { injectable } from 'tsyringe';
-import { and, eq, lt, or, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import { and, eq, lt, ne, or, sql } from 'drizzle-orm';
 import { db, type Tx } from '@/db/databases';
-import { fechamentoCaixaDia, vendaItemPdv, vendaProdutoDia } from './vendas.table';
-import type { FechamentoCaixaInput, ImportarVendasResult, VendaItemPdvInput, VendaProdutoInput } from './vendas.schemas';
+import { fechamentoCaixaDia, vendaCreare, vendaItemPdv, vendaProdutoDia } from './vendas.table';
+import type { FechamentoCaixaInput, ImportarVendasResult, VendaCreareInput, VendaItemPdvInput, VendaProdutoInput } from './vendas.schemas';
 
 type Loja = 'TNP' | 'LI';
 type Action = 'inserted' | 'updated' | 'ignored';
 
-const loja = (empresa: VendaProdutoInput['EMPRESA'] | FechamentoCaixaInput['EMPRESA'] | VendaItemPdvInput['EMPRESA']): Loja =>
+const loja = (empresa: VendaProdutoInput['EMPRESA'] | FechamentoCaixaInput['EMPRESA'] | VendaItemPdvInput['EMPRESA'] | VendaCreareInput['EMPRESA']): Loja =>
   empresa === 'TNP CENTRAL' ? 'TNP' : 'LI';
 
 function result(recebidas: number): ImportarVendasResult {
@@ -44,6 +45,41 @@ export class VendasRepository {
       for (const row of rows) count(output, await this.upsertItemPdv(tx, row));
       return output;
     });
+  }
+
+  async importarCuponsCreare(rows: VendaCreareInput[]): Promise<ImportarVendasResult> {
+    return db.transaction(async (tx) => {
+      const output = result(rows.length);
+      for (const row of rows) count(output, await this.upsertCupomCreare(tx, row));
+      return output;
+    });
+  }
+
+  private async upsertCupomCreare(tx: Tx, row: VendaCreareInput): Promise<Action> {
+    const store = loja(row.EMPRESA);
+    const pagamentos = row.PAGAMENTOS.map((p) => ({
+      idPagamento: p.ID_PAGAMENTO,
+      idFormaPagamento: p.ID_FORMA_PAGAMENTO,
+      formaPagamento: p.FORMA_PAGAMENTO,
+      valor: p.VALOR,
+    })).sort((a, b) => a.idPagamento.localeCompare(b.idPagamento));
+    const values = {
+      loja: store, vendaIdErp: row.ID_VENDA_BALCAO,
+      dispositivoIdErp: row.ID_DISPOSITIVO, pdv: row.PDV,
+      vendidoEm: row.DATA_HORA_VENDA, status: row.STATUS,
+      valorSubtotal: row.VALOR_SUBTOTAL, valorDesconto: row.VALOR_DESCONTO,
+      valorAcrescimo: row.VALOR_ACRESCIMO, valorTotal: row.VALOR_TOTAL,
+      valorPago: row.VALOR_PAGO, pagamentos,
+    };
+    const conteudoHash = createHash('sha256').update(JSON.stringify(values)).digest('hex');
+    const inserted = await tx.insert(vendaCreare).values({ ...values, conteudoHash })
+      .onConflictDoNothing().returning({ id: vendaCreare.id });
+    if (inserted.length) return 'inserted';
+    const updated = await tx.update(vendaCreare)
+      .set({ ...values, conteudoHash, atualizadoEm: new Date() })
+      .where(and(eq(vendaCreare.loja, store), eq(vendaCreare.vendaIdErp, row.ID_VENDA_BALCAO), ne(vendaCreare.conteudoHash, conteudoHash)))
+      .returning({ id: vendaCreare.id });
+    return updated.length ? 'updated' : 'ignored';
   }
 
   private async upsertItemPdv(tx: Tx, row: VendaItemPdvInput): Promise<Action> {

@@ -1,9 +1,8 @@
-# Atualização do robô CREARE no servidor — piloto Pralis
+# Cupons CREARE no Pralis — ativacao controlada
 
 Esta pasta alimenta o Caixa principal via `POST /api/integracoes`; o destino Pralis
-é opcional e ainda **não homologado na padaria**. Não instalar este piloto só
-porque o CI passou. Antes, cumprir os portões em
-`C:\projetos\PRALIS\21 - Corte seguro da integracao de vendas.md`.
+e opcional e ainda **nao homologado na padaria**. O bot "Vendas ao vivo" continua
+responsavel pelos itens. Este pacote acrescenta CUPOM e PAGAMENTOS, sem duplicar itens.
 Ela reprocessa o dia atual a cada minuto e varre cancelamentos dos ultimos 90 dias, inclusive se a
 venda original for de outro dia.
 
@@ -14,19 +13,19 @@ venda original for de outro dia.
 2. **Não copie nem apague** `.env.producao`, `.estado` ou `logs` do servidor.
    Copie somente o código desta versão, comparando `src/`, `queries/`, `test/`
    e os arquivos de instalação. Nunca inclua credenciais no repositório.
-3. Antes de ativar o Pralis, rode `npm ci`, `npm run check` e `npm test` na
-   instalação real. O destino novo permanece desligado sem as três envs Pralis.
-4. Em janela acompanhada, siga a sequência de corte da nota 21. Só então
-   abra PowerShell **como administrador** na pasta instalada e execute:
-
-   ```powershell
-   .\instalar-tarefa-windows.ps1
-   ```
-
-5. O instalador substitui a tarefa anterior com o mesmo nome. Confirme que a tarefa
-   `Cicluz-CREARE-Sincronizacao` esta como `Running` e leia
-   `logs\agente-saida.log`. Deve surgir uma linha a cada minuto com
-   `cancelamentos_detectados` e `cancelamentos_reenviados`.
+3. Publique primeiro a API/PWA com a tabela `venda_creare`; sem ela, o destino
+   novo sera recusado. Confirme o deploy do commit, nao apenas o merge.
+4. Na instalacao real, rode `npm.cmd run check` e `npm.cmd test` SEM iniciar
+   outro agente. Configure `PRALIS_ENVIAR_CUPONS="true"` e
+   `PRALIS_ENVIAR_ITENS="false"` no `.env.producao` real. Preserve as tres
+   variaveis Pralis URL/token/empresa existentes, sem publica-las.
+5. **Nao execute `instalar-tarefa-windows.ps1` automaticamente.** Em 07/10
+   havia um PID antigo (10212, iniciado em 26/09) com o lock e a tarefa nova
+   `Ready`. Identifique o supervisor/parent do PID e planeje a passagem para
+   a tarefa nova. Reinstalar sem isso pode parar o Caixa ou deixar dois runners.
+6. Depois do corte acompanhado, confira log fresco de `[sincronizar]`,
+   `[pralis/venda_creare]`, fila Pralis de cupons vazia e conciliacao Caixa.
+   O bot de itens deve seguir ligado. Compare pelo menos um dia/PDV com SIA.
 
 ## Recuperacao do que ficou pendente
 
@@ -44,3 +43,12 @@ npm run reprocessar -- --ids 123456
 
 O script e idempotente: uma venda existente volta como `sem novidade`; a mesma venda com status
 alterado para `CANCELADA` volta como `atualizada`.
+
+Para popular historico de cupons **somente no Pralis**, em faixas de ate 31 dias:
+
+```powershell
+npm.cmd run reprocessar:pralis-cupons -- --de 2026-09-01 --ate 2026-09-30
+```
+
+Esse comando nao envia ao Caixa e nao altera o cursor do agente. Revise a faixa
+e confira a cobertura/valores antes de seguir para o mes seguinte.

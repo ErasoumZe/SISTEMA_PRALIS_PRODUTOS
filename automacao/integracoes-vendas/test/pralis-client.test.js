@@ -3,7 +3,37 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { montarLinhasPralis, sincronizarPralis } from "../src/pralis-client.js";
+import { montarCuponsPralis, montarLinhasPralis, sincronizarPralis } from "../src/pralis-client.js";
+
+test("cupom leva total e pagamentos do CREARE sem inferir pela soma de itens", () => {
+  const vendas = [{ idVendaBalcao: 42, idDispositivo: 2, nomeCaixa: "PDV 2",
+    dataHoraVenda: "2026-10-07 12:00:00", statusVenda: "F",
+    valorSubtotal: 110, valorDesconto: 10, valorAcrescimo: 0, valorTotal: 100, valorPago: 100 }];
+  const pagamentos = [{ idVendaBalcao: 42, idFormaPgtoVendaBalcao: 7,
+    idFormaPagamento: 3, descricaoFormaPagamento: "PIX", valor: 100 }];
+  const [cupom] = montarCuponsPralis({ vendas, pagamentos }, "TNP CENTRAL");
+  assert.equal(cupom.ID_VENDA_BALCAO, "42");
+  assert.equal(cupom.VALOR_TOTAL, "100");
+  assert.deepEqual(cupom.PAGAMENTOS, [{ ID_PAGAMENTO: "7", ID_FORMA_PAGAMENTO: "3",
+    FORMA_PAGAMENTO: "PIX", VALOR: "100" }]);
+});
+
+test("cupom possui fila propria, chave de venda e tipo proprio", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "pralis-cupom-test-"));
+  try {
+    const enviados = [];
+    const arquivo = path.join(dir, "cupons.json");
+    const linha = { ID_VENDA_BALCAO: "42", VALOR_TOTAL: "100" };
+    const resultado = await sincronizarPralis({}, arquivo, [linha], {}, async (_config, lote, tipo) => {
+      enviados.push({ lote, tipo });
+    }, { tipo: "venda_creare", chave: "ID_VENDA_BALCAO" });
+    assert.equal(resultado.enviados, 1);
+    assert.equal(enviados[0].tipo, "venda_creare");
+    assert.deepEqual(enviados[0].lote, [linha]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test("mapeia item, PDV, hora local e cancelamento real sem inferir pelo nome", () => {
   const venda = {

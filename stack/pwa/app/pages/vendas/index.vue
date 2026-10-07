@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ApexOptions } from 'apexcharts';
 import { VendasDatas, VendasFormato, VendasPagamentos } from '@pralis/shared';
-import type { VendasReport, VendasRankingResposta, DetalhePdv, AbcProdutos, Pulso, ListaVendas, VendaResumo, VendaDetalhe } from '~/composables/useApi';
+import type { VendasReport, VendasRankingResposta, DetalhePdv, AbcProdutos, Pulso, ListaVendas, VendaResumo, VendaDetalhe, ResumoCuponsCreare } from '~/composables/useApi';
 
 const api = useApi();
 const { user } = useAuth();
@@ -107,7 +107,28 @@ const carregando = ref(false);
 const erro = ref('');
 
 /** Aba visível. As três dividem o MESMO período — o filtro fica acima delas. */
-const aba = ref<'visao' | 'ranking' | 'vendas' | 'abc' | 'graficos'>((q('aba') as 'visao' | 'ranking' | 'vendas' | 'abc' | 'graficos') || 'visao');
+const aba = ref<'visao' | 'ranking' | 'vendas' | 'abc' | 'graficos' | 'creare'>((q('aba') as 'visao' | 'ranking' | 'vendas' | 'abc' | 'graficos' | 'creare') || 'visao');
+
+const resumoCreare = ref<ResumoCuponsCreare | null>(null);
+const carregandoCreare = ref(false);
+const erroCreare = ref('');
+async function carregarCreare() {
+  if (!isAdmin.value || aba.value !== 'creare' || inicio.value > fim.value) return;
+  carregandoCreare.value = true;
+  erroCreare.value = '';
+  try {
+    resumoCreare.value = await api.vendasCreareResumo({
+      loja: loja.value, inicio: inicio.value, fim: fim.value,
+      ...(filtroPdv.value ? { pdv: filtroPdv.value } : {}),
+    });
+  } catch (e: unknown) {
+    resumoCreare.value = null;
+    erroCreare.value = (e as { data?: { message?: string } })?.data?.message || 'Não foi possível consultar os cupons CREARE.';
+  } finally {
+    carregandoCreare.value = false;
+  }
+}
+watch([aba, loja, inicio, fim, filtroPdv], carregarCreare, { immediate: true });
 
 /**
  * Atalhos de período.
@@ -999,13 +1020,48 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
         <v-tab value="vendas" prepend-icon="receipt_long">Vendas</v-tab>
         <v-tab value="abc" prepend-icon="donut_large">Curva ABC</v-tab>
         <v-tab value="graficos" prepend-icon="bar_chart">Gráficos</v-tab>
+        <v-tab v-if="isAdmin" value="creare" prepend-icon="point_of_sale">Cupons CREARE</v-tab>
       </v-tabs>
 
-      <v-alert v-if="semMovimento" type="info" variant="tonal" class="mb-4">
+      <v-alert v-if="semMovimento && aba !== 'creare'" type="info" variant="tonal" class="mb-4">
         Nenhuma venda registrada nesse período para esta loja.
       </v-alert>
 
       <v-window v-else v-model="aba">
+        <v-window-item value="creare">
+          <v-card flat border rounded="lg" class="pa-5">
+            <div class="d-flex align-center flex-wrap ga-3 mb-3">
+              <div>
+                <div class="text-h6 font-weight-bold">Cupons e pagamentos do CREARE</div>
+                <div class="text-caption text-medium-emphasis">Fonte: venda_balcao + formapgto_venda_balcao. Não mistura com itens nem fechamento.</div>
+              </div>
+              <v-spacer />
+              <v-btn size="small" variant="tonal" prepend-icon="refresh" :loading="carregandoCreare" @click="carregarCreare">Atualizar</v-btn>
+            </div>
+            <v-alert v-if="erroCreare" type="error" variant="tonal" class="mb-3">{{ erroCreare }}</v-alert>
+            <v-alert v-else-if="resumoCreare && !resumoCreare.cuponsRecebidos" type="info" variant="tonal" class="mb-3">
+              Nenhum cupom CREARE recebido neste período. Isso pode significar falta de vendas ou integração ainda sem cobertura; não é faturamento zero confirmado.
+            </v-alert>
+            <template v-if="resumoCreare && resumoCreare.cuponsRecebidos">
+              <v-row>
+                <v-col cols="12" sm="6" md="3"><v-card flat border rounded="lg" class="pa-4"><div class="text-caption">Faturamento confirmado</div><div class="text-h5 font-weight-bold sales-revenue">{{ brl(resumoCreare.faturamento) }}</div></v-card></v-col>
+                <v-col cols="12" sm="6" md="3"><v-card flat border rounded="lg" class="pa-4"><div class="text-caption">Vendas confirmadas</div><div class="text-h5 font-weight-bold">{{ num(resumoCreare.vendasConfirmadas) }}</div></v-card></v-col>
+                <v-col cols="12" sm="6" md="3"><v-card flat border rounded="lg" class="pa-4"><div class="text-caption">Ticket médio</div><div class="text-h5 font-weight-bold">{{ brl(resumoCreare.vendasConfirmadas ? resumoCreare.faturamento / resumoCreare.vendasConfirmadas : 0) }}</div></v-card></v-col>
+                <v-col cols="12" sm="6" md="3"><v-card flat border rounded="lg" class="pa-4"><div class="text-caption">Cupons cancelados</div><div class="text-h5 font-weight-bold">{{ num(resumoCreare.vendasCanceladas) }}</div></v-card></v-col>
+              </v-row>
+              <div class="text-subtitle-1 font-weight-bold mt-5 mb-2">Formas de pagamento</div>
+              <div class="tabela-rolavel">
+                <table class="tabela-vendas"><thead><tr><th>Forma</th><th class="num">Vendas</th><th class="num">Valor</th></tr></thead>
+                  <tbody><tr v-for="forma in resumoCreare.formasPagamento" :key="forma.id"><td>{{ forma.nome }}</td><td class="num">{{ num(forma.vendas) }}</td><td class="num">{{ brl(forma.valor) }}</td></tr></tbody>
+                </table>
+              </div>
+              <div class="text-caption text-medium-emphasis mt-3">Primeiro cupom recebido: {{ resumoCreare.primeiraVenda ?? '—' }} · último: {{ resumoCreare.ultimaVenda ?? '—' }}. {{ resumoCreare.aviso }}</div>
+              <v-alert v-if="filtrosAtivos || comHora" type="info" variant="tonal" density="compact" class="mt-3">
+                Filtros de produto, grupo, setor e hora não se aplicam a este resumo de cupons. Período, loja e PDV se aplicam.
+              </v-alert>
+            </template>
+          </v-card>
+        </v-window-item>
         <!-- ─────────────────────────────────────────────── VISÃO GERAL ── -->
         <v-window-item value="visao">
           <!--
