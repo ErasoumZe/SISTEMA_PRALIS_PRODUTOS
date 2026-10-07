@@ -11,12 +11,58 @@ export interface PendingRecord {
   record: string;
 }
 
+export interface CursorDiagnostico {
+  /** Produtos que mudaram (ou nasceram) e ainda nao foram entregues. */
+  pendentes: string[];
+  cursorEntregue: number;
+  cursorConfirmado: number;
+  loteAberto: {
+    id: string;
+    registros: number;
+    criadoEm: Date;
+    idadeMinutos: number;
+    formatoVersao: number;
+    /** Passou da validade: o proximo download o cancela e recalcula. */
+    abandonado: boolean;
+  } | null;
+  ultimaEntrega: { loteId: string; registros: number; em: Date } | null;
+}
+
 export type ExportBatch = typeof creareExportBatch.$inferSelect;
 
 const digest = (value: string) => createHash('sha256').update(value, 'ascii').digest('hex');
 // Versoes antigas escreveram Pesavel=N sem consultar o cadastro SIA.
 // Nunca reutilizar nem confirmar um lote aberto daquela geracao.
 const CURRENT_FORMAT_VERSION = 3;
+
+/**
+ * Por quanto tempo um lote sem entrega registrada continua valendo.
+ *
+ * `pending` devolve o lote aberto SEM recalcular nada: o conteudo e o que foi
+ * apurado quando ele nasceu. Isso e proposital enquanto o robo esta no meio do
+ * ciclo (baixar, verificar, salvar, registrar entrega) -- e o que impede dois
+ * downloads de gerarem dois arquivos diferentes.
+ *
+ * O problema e quando a entrega NUNCA e registrada: o robo morre antes
+ * (rede, 409, PC desligado) e o lote fica ocupando a vaga para sempre. A
+ * partir dai nenhum produto novo entra em TXT nenhum, porque `pending` para no
+ * lote aberto antes de olhar o catalogo -- e nada disso aparece em lugar
+ * algum. Foi o que aconteceu com o MINI PAO DOCE GOTAS DE CHOCOLATE (13179)
+ * em 07/10/2026.
+ *
+ * A tarefa agendada roda de 5 em 5 minutos e registra a entrega na mesma
+ * execucao. 15 minutos sao tres ciclos: tempo de sobra para o caminho normal,
+ * e curto o bastante para a loja nao passar o dia travada.
+ *
+ * Reciclar e seguro: cancelar um lote NAO avanca o cursor. Os produtos dele
+ * continuam pendentes e voltam no lote seguinte. Se o robo chegou a salvar o
+ * arquivo antes de morrer, o SIA so recebe os mesmos registros de novo, e a
+ * importacao do Criare e upsert por CODITEM.
+ */
+const LOTE_ABERTO_VALIDADE_MINUTOS = 15;
+
+const expirado = (criadoEm: Date, agora = Date.now()) =>
+  agora - criadoEm.getTime() > LOTE_ABERTO_VALIDADE_MINUTOS * 60_000;
 
 /** Serializa criacao e confirmacao por loja, inclusive entre instancias da API. */
 async function lockStore(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], loja: CreareStore) {
@@ -25,12 +71,63 @@ async function lockStore(tx: Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 @injectable()
 export class CreareExportRepository {
+  /**
+   * Lote que ainda vale para ser reentregue. Um lote abandonado (ver
+   * `LOTE_ABERTO_VALIDADE_MINUTOS`) NAO conta como aberto: quem chamar cai no
+   * `prepare`, que o cancela e apura o catalogo de novo.
+   */
   async open(loja: CreareStore): Promise<ExportBatch | null> {
     const [batch] = await db.select().from(creareExportBatch)
       .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.entregueEm),
         isNull(creareExportBatch.confirmadoEm),
         isNull(creareExportBatch.canceladoEm), eq(creareExportBatch.formatoVersao, CURRENT_FORMAT_VERSION))).limit(1);
-    return batch ?? null;
+    if (!batch) return null;
+    return expirado(batch.criadoEm) ? null : batch;
+  }
+
+  /**
+   * Estado do cursor incremental, sem criar nem alterar lote.
+   *
+   * Existe porque o `/creare/health` dizia "7181 casados, 0 invalidos" --- que
+   * se le como "esta tudo exportado" --- sem saber nada sobre o incremental.
+   * Produto valido, no lote, e ausente do TXT era um estado invisivel.
+   */
+  async cursor(loja: CreareStore, rows: PendingRecord[]): Promise<CursorDiagnostico> {
+    const states = await db.select({ productId: creareExportDeliveryState.productId, hash: creareExportDeliveryState.hash })
+      .from(creareExportDeliveryState).where(eq(creareExportDeliveryState.loja, loja));
+    const delivered = new Map(states.map((item) => [item.productId, item.hash]));
+    const pendentes = rows.filter((row) => delivered.get(row.productId) !== digest(row.record)).map((row) => row.productId);
+
+    const [confirmados] = await db.select({ n: sql<number>`count(*)::int` })
+      .from(creareExportState).where(eq(creareExportState.loja, loja));
+
+    // Sem o filtro de validade de proposito: um lote abandonado e exatamente o
+    // que precisa aparecer aqui, com a idade dele.
+    const [aberto] = await db.select().from(creareExportBatch)
+      .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.entregueEm),
+        isNull(creareExportBatch.confirmadoEm), isNull(creareExportBatch.canceladoEm))).limit(1);
+    const [entrega] = await db.select().from(creareExportBatch)
+      .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.canceladoEm)))
+      .orderBy(sql`${creareExportBatch.entregueEm} DESC NULLS LAST`).limit(1);
+
+    return {
+      pendentes,
+      cursorEntregue: delivered.size,
+      cursorConfirmado: confirmados?.n ?? 0,
+      loteAberto: aberto
+        ? {
+            id: aberto.id,
+            registros: aberto.itens.length,
+            criadoEm: aberto.criadoEm,
+            idadeMinutos: Math.floor((Date.now() - aberto.criadoEm.getTime()) / 60_000),
+            formatoVersao: aberto.formatoVersao,
+            abandonado: expirado(aberto.criadoEm),
+          }
+        : null,
+      ultimaEntrega: entrega?.entregueEm
+        ? { loteId: entrega.id, registros: entrega.itens.length, em: entrega.entregueEm }
+        : null,
+    };
   }
 
   async prepare(loja: CreareStore, rows: PendingRecord[], ending: string, limite?: number): Promise<ExportBatch | null> {
@@ -40,11 +137,12 @@ export class CreareExportRepository {
         .where(and(eq(creareExportBatch.loja, loja), isNull(creareExportBatch.entregueEm),
           isNull(creareExportBatch.confirmadoEm),
           isNull(creareExportBatch.canceladoEm))).limit(1);
-      if (open?.formatoVersao === CURRENT_FORMAT_VERSION) return open;
+      if (open?.formatoVersao === CURRENT_FORMAT_VERSION && !expirado(open.criadoEm)) return open;
       if (open) {
         /*
-         * Lote gerado pelo formato anterior: manter historico, mas nunca servi-lo
-         * novamente nem aceitar sua confirmacao como importacao correta.
+         * Lote do formato anterior, ou abandonado sem registro de entrega:
+         * manter historico, mas nunca servi-lo novamente nem aceitar sua
+         * confirmacao como importacao correta.
          *
          * FECHA as duas datas, nao so `cancelado_em`. O indice unico de "lote
          * aberto por loja" existe em duas versoes: a de 0028 olha so

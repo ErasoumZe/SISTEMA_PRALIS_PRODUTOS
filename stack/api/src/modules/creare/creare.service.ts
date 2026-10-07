@@ -8,7 +8,12 @@ import { grupoIdPreenchido } from '@/modules/product/grupo-id-planilha';
 import { barcodeCandidates } from '@/modules/apoio/tax-rule.service';
 import { parseCreareConfigs, type CreareStore } from './creare.config';
 import { CreareDeParaRepository, type SiaDePara } from './creare.depara.repository';
-import { CreareExportRepository, type ExportBatch } from './creare-export.repository';
+import {
+  CreareExportRepository,
+  type CursorDiagnostico,
+  type ExportBatch,
+  type PendingRecord,
+} from './creare-export.repository';
 
 type ProductEntity = ProductSchemas.ProductEntity;
 
@@ -61,6 +66,68 @@ export interface CreareLojaDiagnostico {
   distribuicaoEcf: Record<string, number>;
   /** Amostra para decidir as casas decimais do custo — ver `CreareAmostraCusto`. */
   amostraCusto: CreareAmostraCusto[];
+  /**
+   * Estado do `modo=pendentes` — o caminho que a tarefa agendada usa.
+   *
+   * `casados` e `invalidos` descrevem o TXT COMPLETO; não dizem se o produto
+   * chegou ao PC da loja. Sem este bloco, "7181 casados, 0 inválidos" convivia
+   * com um produto novo que nunca saía em TXT nenhum.
+   */
+  incremental: CreareIncremental;
+}
+
+export interface CreareIncremental {
+  /** Produtos que mudaram (ou nasceram) e ainda não foram entregues. */
+  pendentes: number;
+  exemplosPendentes: Array<{ codigoInterno: string; nome: string }>;
+  /** Produtos cujo TXT o robô já salvou e verificou no PC. */
+  cursorEntregue: number;
+  /** Produtos confirmados como importados no SIA. */
+  cursorConfirmado: number;
+  /**
+   * Lote aguardando o robô registrar a entrega. Enquanto existe um aqui,
+   * `pendentes` NÃO entra em TXT: o download devolve este lote sem recalcular.
+   * `abandonado: true` significa que ele passou da validade e o próximo
+   * download o recicla sozinho.
+   */
+  loteAberto: {
+    id: string;
+    registros: number;
+    criadoEm: Date;
+    idadeMinutos: number;
+    formatoVersao: number;
+    abandonado: boolean;
+  } | null;
+  ultimaEntrega: { loteId: string; registros: number; em: Date } | null;
+  /** Em uma frase: o que está travando, ou que está em dia. */
+  diagnostico: string;
+}
+
+/**
+ * A frase que o health passa a responder.
+ *
+ * Existe porque o diagnóstico anterior exigia ler quatro contadores e saber de
+ * cor que `pending` para no lote aberto. Quem abre o health quer saber uma
+ * coisa: o produto que acabei de cadastrar vai chegar no PDV?
+ */
+function diagnosticar(cursor: CursorDiagnostico): string {
+  const { loteAberto } = cursor;
+  // `cursor.pendentes` e a LISTA de ids; um array vazio e truthy, e `${[]}` sai
+  // em branco. Contar aqui, nunca usar o array como numero.
+  const pendentes = cursor.pendentes.length;
+  if (loteAberto?.abandonado) {
+    return `Lote ${loteAberto.id} aberto há ${loteAberto.idadeMinutos} min sem registro de entrega: `
+      + `${pendentes} produto(s) estão presos atrás dele. O próximo download recicla o lote sozinho — `
+      + 'se continuar assim, o robô da loja não está conseguindo registrar a entrega.';
+  }
+  if (loteAberto) {
+    return `Lote ${loteAberto.id} com ${loteAberto.registros} registro(s) aguardando o robô salvar e `
+      + `registrar a entrega (${loteAberto.idadeMinutos} min). Produto novo só entra no TXT seguinte.`;
+  }
+  if (pendentes) {
+    return `${pendentes} produto(s) aguardando o próximo download da tarefa agendada (roda de 5 em 5 minutos).`;
+  }
+  return 'Nada pendente: tudo que está no cadastro já foi entregue ao PC da loja.';
 }
 
 export interface CreareHealth {
@@ -252,7 +319,11 @@ export class CreareService {
 
     const lojas: CreareLojaDiagnostico[] = [];
     for (const store of configuradas) {
-      const config = parsed.configs[store]!;
+      // `configuracao` e NAO `parsed.configs[store]`: e a config que a
+      // exportacao realmente usa (a TNP forca `barcodeField: 'extended'`).
+      // Com a config crua, os registros apurados aqui teriam outro hash e a
+      // contagem de pendentes nao bateria com a do download.
+      const config = this.configuracao(store);
       const lote = await this.montarLote(store, config);
       const distribuicaoEcf: Record<string, number> = {};
       for (const { sia } of lote.casados) {
@@ -273,6 +344,7 @@ export class CreareService {
         colisoesCoditem: lote.colisoesCoditem,
         distribuicaoEcf,
         amostraCusto: this.amostraCusto(lote, config),
+        incremental: await this.incremental(store, lote, config),
       });
     }
 
@@ -353,11 +425,34 @@ export class CreareService {
     if (!lote.casados.length) {
       throw new AppError('Nenhum produto casou com o cadastro do SIA.', 422, 'CREARE_EMPTY');
     }
-    const rows = lote.casados.map(({ produto, sia }) => ({
+    return this.exports.prepare(store, this.registros(lote, config),
+      config.lineEnding === 'CRLF' ? '\r\n' : '\n', limite);
+  }
+
+  /**
+   * Os registros do lote, na forma que o cursor compara.
+   *
+   * Um metodo so para `pending` e para o diagnostico: o cursor decide o que e
+   * pendente pelo HASH do registro, entao as duas apuracoes tem que gerar byte
+   * a byte a mesma coisa. Duplicar isso faria o health contar pendentes que o
+   * download nao entrega, ou pior, jurar que esta em dia.
+   */
+  private registros(lote: Lote, config: Creare.CreareStoreConfig): PendingRecord[] {
+    return lote.casados.map(({ produto, sia }) => ({
       productId: produto.id,
       record: Creare.generateCreareRecord(produto, config, sia),
     }));
-    return this.exports.prepare(store, rows, config.lineEnding === 'CRLF' ? '\r\n' : '\n', limite);
+  }
+
+  private async incremental(store: CreareStore, lote: Lote, config: Creare.CreareStoreConfig): Promise<CreareIncremental> {
+    const cursor = await this.exports.cursor(store, this.registros(lote, config));
+    const porId = new Map(lote.casados.map(({ produto }) => [produto.id, produto]));
+    const exemplosPendentes = cursor.pendentes.slice(0, 10).map((id) => ({
+      codigoInterno: String(porId.get(id)?.codigoInterno ?? ''),
+      nome: porId.get(id)?.nome ?? '(produto fora do lote)',
+    }));
+
+    return { ...cursor, pendentes: cursor.pendentes.length, exemplosPendentes, diagnostico: diagnosticar(cursor) };
   }
 
   async confirm(store: CreareStore, id: string, sha256: string) {
