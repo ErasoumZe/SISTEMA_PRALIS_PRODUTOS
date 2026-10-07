@@ -7,16 +7,44 @@
 param([string]$Destino = ('C:\importa' + [char]0x00E7 + [char]0x00E3 + 'o-sia\TXT'))
 
 $ErrorActionPreference = 'Stop'
-$mutex = New-Object System.Threading.Mutex($false, 'Global\PralisDownloadTxtTnp')
-$locked = $false
 $temporario = $null
+
+<#
+  O LOG E A PRIMEIRA COISA A EXISTIR -- nao a quinta.
+
+  Antes, `$logPath` so era atribuido depois do mutex, das duas variaveis de
+  ambiente e da criacao das pastas. `Registrar` e no-op enquanto ele e nulo,
+  entao as quatro causas mais provaveis de parada escreviam NADA no arquivo:
+
+    - outra instancia segurando o mutex  -> exit 0, e o Agendador diz "sucesso"
+    - PRALIS_API_BASE ausente            -> exit 1, log vazio
+    - CREARE_EXPORT_TOKEN ausente/curto  -> exit 1, log vazio
+    - pasta de destino indisponivel      -> exit 1, log vazio
+
+  Em 07/10/2026 o TXT parou as 07:12 e nao havia uma linha de log explicando.
+  A API tinha 3 produtos pendentes e nenhum lote aberto -- ou seja, ninguem
+  pediu arquivo. Sem log, nao havia como saber qual das quatro era.
+#>
 $logPath = $null
+try {
+    $logDir = Join-Path (Split-Path -Parent $Destino) 'logs'
+    [System.IO.Directory]::CreateDirectory($logDir) | Out-Null
+    $logPath = Join-Path $logDir 'sincronizar-tnp.log'
+} catch {
+    # Sem log em arquivo o script continua: o console da tarefa ainda recebe.
+    Write-Host ('Nao foi possivel abrir o log: ' + $_.Exception.Message)
+}
 
 function Registrar([string]$mensagem) {
     $linha = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  ' + $mensagem
     Write-Host $linha
-    if ($logPath) { [System.IO.File]::AppendAllText($logPath, $linha + [Environment]::NewLine) }
+    if ($logPath) {
+        try { [System.IO.File]::AppendAllText($logPath, $linha + [Environment]::NewLine) } catch { }
+    }
 }
+
+$mutex = New-Object System.Threading.Mutex($false, 'Global\PralisDownloadTxtTnp')
+$locked = $false
 
 function ConfirmarEntrega([string]$base, [string]$token, [string]$id, [string]$sha) {
     $url = $base.TrimEnd('/') + '/creare/lotes/' + $id + '/entrega?loja=TNP'
@@ -49,17 +77,29 @@ function TentarEntrega([string]$base, [string]$token, [string]$id, [string]$sha)
 }
 
 try {
-    $locked = $mutex.WaitOne(0)
-    if (-not $locked) { Write-Host 'Outra sincronizacao TNP ja esta em andamento.'; exit 0 }
+    try {
+        $locked = $mutex.WaitOne(0)
+    } catch [System.Threading.AbandonedMutexException] {
+        # Uma execucao anterior morreu segurando o mutex (PC desligado, processo
+        # encerrado). O .NET entrega a posse junto com a excecao: seguir.
+        Registrar 'Mutex abandonado por uma execucao anterior; assumindo a posse.'
+        $locked = $true
+    }
+    if (-not $locked) {
+        # ESTE e o caso que antes saia em silencio com exit 0: o Agendador
+        # registrava sucesso e o log nao ganhava uma linha. Se repetir a cada
+        # 5 minutos, existe um PowerShell pendurado de uma execucao antiga --
+        # e nenhum TXT novo sai enquanto ele estiver vivo.
+        Registrar ('PAROU: outra sincronizacao TNP ja esta em andamento. Se esta linha repetir, ' +
+            'ha um processo pendurado -- confira com: Get-Process powershell, pwsh')
+        exit 0
+    }
     $base = [string]$env:PRALIS_API_BASE
     $token = [string]$env:CREARE_EXPORT_TOKEN
-    if ([string]::IsNullOrWhiteSpace($base)) { throw 'PRALIS_API_BASE ausente.' }
-    if ($token.Length -lt 32) { throw 'CREARE_EXPORT_TOKEN ausente ou curto.' }
+    if ([string]::IsNullOrWhiteSpace($base)) { throw 'PRALIS_API_BASE ausente no ambiente da conta da tarefa.' }
+    if ($token.Length -lt 32) { throw 'CREARE_EXPORT_TOKEN ausente ou curto no ambiente da conta da tarefa.' }
 
     [System.IO.Directory]::CreateDirectory($Destino) | Out-Null
-    $logDir = Join-Path (Split-Path -Parent $Destino) 'logs'
-    [System.IO.Directory]::CreateDirectory($logDir) | Out-Null
-    $logPath = Join-Path $logDir 'sincronizar-tnp.log'
     $estado = Join-Path $Destino '.ultimo-lote-tnp.json'
     # Na atualizacao, a primeira volta reconhece o lote legado ja salvo;
     # a segunda baixa os produtos novos na MESMA execucao da tarefa.

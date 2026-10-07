@@ -55,6 +55,31 @@ try {
         throw 'Novo lote nao foi salvo corretamente.'
     }
     Write-Host 'OK: lote antigo reconhecido sem duplicar; lote novo salvo e entregue na mesma execucao.'
+
+    <#
+      Falha ANTES da rede tem que chegar no arquivo de log.
+
+      Em 07/10/2026 o TXT parou e nao havia uma linha explicando. O motivo era
+      a ordem do proprio script: `$logPath` so era atribuido depois do mutex,
+      das duas variaveis de ambiente e da criacao das pastas, e `Registrar` e
+      no-op enquanto ele e nulo. As quatro causas mais provaveis de parada
+      escreviam apenas no console -- que o Agendador descarta.
+    #>
+    $destino2 = Join-Path $tempRoot 'TXT-sem-env'
+    [System.IO.Directory]::CreateDirectory($destino2) | Out-Null
+    $env:PRALIS_API_BASE = ''
+    $saida = & (Join-Path $PSScriptRoot 'SINCRONIZAR-TXT-TNP.ps1') -Destino $destino2 2>&1
+    $logFalha = Join-Path (Split-Path -Parent $destino2) 'logs\sincronizar-tnp.log'
+    if (-not [System.IO.File]::Exists($logFalha)) {
+        throw 'Falha antes da rede nao criou o log. Era exatamente o defeito de 07/10/2026.'
+    }
+    if ([System.IO.File]::ReadAllText($logFalha) -notmatch 'PRALIS_API_BASE ausente') {
+        throw "O log existe mas nao registrou o motivo da parada. Conteudo: $(Get-Content $logFalha -Raw)"
+    }
+    Write-Host 'OK: parada antes da rede fica registrada no arquivo de log, nao so no console.'
+    # O cenario acima termina de proposito com `exit 1` dentro do robo. Sem
+    # zerar aqui, o codigo de saida do TESTE sairia 1 com os dois casos OK.
+    $global:LASTEXITCODE = 0
 } finally {
     Remove-Item function:Invoke-WebRequest -ErrorAction SilentlyContinue
     Remove-Item function:Invoke-RestMethod -ErrorAction SilentlyContinue
