@@ -2,6 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import { Metas, MetasSchemas, VendasRanking } from '@pralis/shared';
 import { AppError } from '@/config/api.replies';
 import { MetasRepository, type DiaPorTurno, type LinhaMatriz } from './metas.repository';
+import { FatorPontosService } from './fator-pontos.service';
 
 type Loja = 'TNP' | 'LI';
 
@@ -17,8 +18,11 @@ const centavos = (valor: number) => Math.round(valor * 100) / 100;
  * mora lá e espalhá-lo num segundo lugar viraria duas verdades no dia em que
  * alguém mudasse um só.
  */
-const emPontos = (reais: number) => centavos(reais * VendasRanking.PONTOS_POR_REAL);
-const emPontosOuNulo = (reais: number | null) => (reais === null ? null : emPontos(reais));
+const emPontosCom = (fator: number) => (reais: number) => centavos(reais * fator);
+/** A régua antiga, usada quando ninguém passa outra. */
+const emPontos = emPontosCom(VendasRanking.PONTOS_POR_REAL);
+const emPontosOuNuloCom = (fator: number) => (reais: number | null) => (reais === null ? null : emPontosCom(fator)(reais));
+const emPontosOuNulo = emPontosOuNuloCom(VendasRanking.PONTOS_POR_REAL);
 
 function validarPeriodo(inicio: string, fim: string) {
   const i = Date.parse(`${inicio}T00:00:00Z`);
@@ -51,17 +55,19 @@ const comoMetaDia = (linha: LinhaMatriz): Metas.MetaDia => ({
 });
 
 /** A matriz vai para a tela em PONTOS; em reais ela só existe no banco. */
-const comoLinhaResposta = (linha: LinhaMatriz): MetasSchemas.MetaDiaSemana => ({
+const comoLinhaRespostaCom = (fator: number) => (linha: LinhaMatriz): MetasSchemas.MetaDiaSemana => ({
   diaSemana: linha.diaSemana,
   sigla: Metas.SIGLA_DIA[linha.diaSemana as Metas.DiaSemana],
   nome: Metas.NOME_DIA[linha.diaSemana as Metas.DiaSemana],
   ocorrencias: linha.ocorrencias,
-  referenciaMedia: emPontos(linha.referenciaMedia),
+  referenciaMedia: emPontosCom(fator)(linha.referenciaMedia),
   pctManha: linha.pctManha,
-  meta: emPontos(linha.meta),
-  metaManha: emPontos(linha.metaManha),
-  metaTarde: emPontos(linha.metaTarde),
+  meta: emPontosCom(fator)(linha.meta),
+  metaManha: emPontosCom(fator)(linha.metaManha),
+  metaTarde: emPontosCom(fator)(linha.metaTarde),
 });
+/** A régua padrão, para quem não passa nenhuma. */
+const comoLinhaResposta = comoLinhaRespostaCom(VendasRanking.PONTOS_POR_REAL);
 
 /**
  * Um cartão, EM PONTOS: meta do período, meta até a última apuração,
@@ -75,7 +81,10 @@ const comoLinhaResposta = (linha: LinhaMatriz): MetasSchemas.MetaDiaSemana => ({
  */
 export function montarTurno(
   metaPeriodo: number, metaAteAgora: number, realizado: number, comDinheiro: boolean,
+  fator: number = VendasRanking.PONTOS_POR_REAL,
 ): MetasSchemas.MetaTurno {
+  const emPontos = emPontosCom(fator);
+  const emPontosOuNulo = emPontosOuNuloCom(fator);
   const projecao = Metas.projecaoFechamento(metaPeriodo, realizado, metaAteAgora);
   return {
     metaPeriodo: emPontos(metaPeriodo),
@@ -110,7 +119,10 @@ export function montarMetas(
   matriz: LinhaMatriz[],
   apurados: DiaPorTurno[],
   comDinheiro = false,
+  /** A mesma régua do faturamento: meta e realizado precisam ser comparáveis. */
+  fator: number = VendasRanking.PONTOS_POR_REAL,
 ): MetasSchemas.Metas {
+  const emPontos = emPontosCom(fator);
   const linhasMeta = matriz.map(comoMetaDia);
   const datas = Metas.datasDe(periodo.inicio, periodo.fim);
   const doPeriodo = Metas.metaDoPeriodo(linhasMeta, datas);
@@ -144,11 +156,11 @@ export function montarMetas(
     loja,
     periodo,
     versao,
-    matriz: matriz.map(comoLinhaResposta),
+    matriz: matriz.map(comoLinhaRespostaCom(fator)),
     turnos: {
-      manha: montarTurno(doPeriodo.manha, ateAgora.manha, realizadoManha, comDinheiro),
-      tarde: montarTurno(doPeriodo.tarde, ateAgora.tarde, realizadoTarde, comDinheiro),
-      total: montarTurno(doPeriodo.total, ateAgora.total, realizadoManha + realizadoTarde, comDinheiro),
+      manha: montarTurno(doPeriodo.manha, ateAgora.manha, realizadoManha, comDinheiro, fator),
+      tarde: montarTurno(doPeriodo.tarde, ateAgora.tarde, realizadoTarde, comDinheiro, fator),
+      total: montarTurno(doPeriodo.total, ateAgora.total, realizadoManha + realizadoTarde, comDinheiro, fator),
     },
     dias,
     fonte: {
@@ -165,7 +177,10 @@ export function montarMetas(
 
 @injectable()
 export class MetasService {
-  constructor(@inject(MetasRepository) private repository: MetasRepository) {}
+  constructor(
+    @inject(MetasRepository) private repository: MetasRepository,
+    @inject(FatorPontosService) private fatores: FatorPontosService,
+  ) {}
 
   async consultar(loja: Loja, query: MetasSchemas.MetasQuery, comDinheiro = false): Promise<MetasSchemas.Metas> {
     const corrente = mesCorrente();
@@ -176,7 +191,11 @@ export class MetasService {
     // por duas matrizes diferentes, e a do início é a que a loja conhecia.
     const vigente = await this.repository.versaoVigente(loja, periodo.inicio);
     const apurados = await this.repository.vendaPorTurno(loja, periodo.inicio, periodo.fim);
-    return montarMetas(loja, periodo, vigente?.versao ?? null, vigente?.matriz ?? [], apurados, comDinheiro);
+    return montarMetas(
+      loja, periodo, vigente?.versao ?? null, vigente?.matriz ?? [], apurados, comDinheiro,
+      // a régua do relatório é a vigente no primeiro dia do período
+      await this.fatores.fatorEm(loja, periodo.inicio),
+    );
   }
 
   /**

@@ -14,8 +14,9 @@ import { VendasReportController, VendasRankingController, VendasGerentesControll
 import { VendasDeParaController } from './vendas-depara.controller';
 import { VendasUnicosController } from './vendas-unicos.controller';
 import { MetasController } from './metas.controller';
+import { FatorPontosController } from './fator-pontos.controller';
 import { z } from 'zod/v4';
-import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasGerentes, VendasPdv, VendasAbc, VendasPulso, VendasLista, MetasSchemas } from '@pralis/shared';
+import { VendasSchemas, VendasDePara, VendasUnicos, VendasRanking, VendasGerentes, VendasPdv, VendasAbc, VendasPulso, VendasLista, MetasSchemas, FatorPontosSchemas } from '@pralis/shared';
 
 export async function vendasRoutes(app: FastifyInstance) {
   const controller = container.resolve(VendasController);
@@ -29,6 +30,7 @@ export async function vendasRoutes(app: FastifyInstance) {
   const deParaController = container.resolve(VendasDeParaController);
   const unicosController = container.resolve(VendasUnicosController);
   const metasController = container.resolve(MetasController);
+  const fatorController = container.resolve(FatorPontosController);
   const typed = app.withTypeProvider<ZodTypeProvider>();
 
   typed.post<{ Body: ImportarVendasBody }>(
@@ -329,4 +331,52 @@ export async function vendasRoutes(app: FastifyInstance) {
     },
     metasController.gerar.bind(metasController),
   );
+  /*
+   * A régua que converte reais em pontos.
+   *
+   * As três rotas passam pela MESMA guarda, no controller: a tela liberada
+   * mais o papel de administrador. Mudar a régua muda a pontuação de todas as
+   * telas de uma vez.
+   */
+  typed.get<{ Querystring: FatorPontosSchemas.FatorPontosQuery }>(
+    '/vendas/fator-pontos',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        querystring: FatorPontosSchemas.fatorPontosQuerySchema,
+        response: { 200: apiResponseSchema(FatorPontosSchemas.fatorPontosSchema) },
+        summary: 'Régua de pontos da loja: vigências, a que vale hoje e onde ela se aplica',
+        tags: ['VENDAS', 'ADMIN'],
+      },
+    },
+    fatorController.consultar.bind(fatorController),
+  );
+
+  typed.post<{ Body: FatorPontosSchemas.SalvarFatorBody }>(
+    '/vendas/fator-pontos',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        body: FatorPontosSchemas.salvarFatorBodySchema,
+        response: { 200: apiResponseSchema(FatorPontosSchemas.fatorVersaoSchema) },
+        summary: 'Gravar a régua de pontos a partir de uma data',
+        tags: ['VENDAS', 'ADMIN'],
+      },
+    },
+    fatorController.salvar.bind(fatorController),
+  );
+
+  typed.delete<{ Params: { id: string } }>(
+    '/vendas/fator-pontos/:id',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        params: FatorPontosSchemas.apagarFatorParamsSchema,
+        summary: 'Apagar uma vigência da régua de pontos',
+        tags: ['VENDAS', 'ADMIN'],
+      },
+    },
+    fatorController.apagar.bind(fatorController),
+  );
 }
+

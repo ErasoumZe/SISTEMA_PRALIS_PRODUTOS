@@ -222,6 +222,14 @@ export const TELAS: readonly Tela[] = [
     icone: 'group',
   },
   {
+    id: 'fator-pontos',
+    titulo: 'Régua de pontos',
+    subtitulo: 'Quanto vale um real em pontos, por loja e a partir de quando',
+    path: '/vendas/fator-pontos',
+    secao: 'Administração',
+    icone: 'straighten',
+  },
+  {
     id: 'permissoes',
     titulo: 'Permissões',
     subtitulo: 'Quem enxerga cada tela',

@@ -20,7 +20,11 @@ beforeAll(async () => {
   const { migrate } = await import('drizzle-orm/node-postgres/migrator');
   await migrate(database.db, { migrationsFolder: './drizzle' });
   const { VendasGerentesService } = await import('./vendas-gerentes.service');
-  servico = new VendasGerentesService();
+  const { FatorPontosService } = await import('./fator-pontos.service');
+  const { FatorPontosRepository } = await import('./fator-pontos.repository');
+  // sem vigência gravada, a régua devolve o padrão de 0,25 — o que estes
+  // testes já afirmavam antes de ela existir.
+  servico = new VendasGerentesService(new FatorPontosService(new FatorPontosRepository()));
 }, 300_000);
 
 afterAll(async () => {

@@ -20,7 +20,9 @@ beforeAll(async () => {
   await migrate(database.db, { migrationsFolder: './drizzle' });
   const { MetasService } = await import('./metas.service');
   const { MetasRepository } = await import('./metas.repository');
-  servico = new MetasService(new MetasRepository());
+  const { FatorPontosService } = await import('./fator-pontos.service');
+  const { FatorPontosRepository } = await import('./fator-pontos.repository');
+  servico = new MetasService(new MetasRepository(), new FatorPontosService(new FatorPontosRepository()));
 }, 300_000);
 
 afterAll(async () => {

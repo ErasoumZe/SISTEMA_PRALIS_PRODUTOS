@@ -246,6 +246,13 @@
       "when": 1791215697617,
       "tag": "0034_condemned_gamora",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791329869713,
+      "tag": "0035_sloppy_vampiro",
+      "breakpoints": true
     }
   ]
 }
