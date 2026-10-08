@@ -102,11 +102,7 @@ const margemSchema = z.object({
 
 export const vendasReportSchema = z.object({
   loja: z.enum(['TNP', 'LI']),
-  /**
-   * `granularidade: 'dia'` é declaração, não enfeite: as duas fontes deste
-   * relatório só têm DATA. Hora existe apenas no detalhe por PDV, e quando a
-   * tela recebe hora aqui ela precisa saber que o servidor a ignorou.
-   */
+  /** Fechamento oficial é diário; recortes de itens podem ter hora. */
   periodo: z.object({ inicio: z.string(), fim: z.string(), granularidade: z.enum(['hora', 'dia']) }),
   filtros: filtrosAplicadosSchema,
   fonte: fonteSchema,
@@ -114,6 +110,12 @@ export const vendasReportSchema = z.object({
   serie: z.array(z.object({ t: z.string(), total: z.number(), numeroVendas: z.number() })),
   resumo: z.object({
     faturamento: z.number(),
+    /** Fechamento é o total oficial; itens são apenas valor de produtos. */
+    origemFaturamento: z.enum(['fechamento', 'itens']),
+    valorItens: z.number(),
+    diferencaItensFechamento: z.number().nullable(),
+    /** Dias com vendas nos itens, mas sem fechamento recebido no período. */
+    diasSemFechamento: z.array(z.string()),
     quantidade: z.number(),
     numeroVendas: z.number(),
     totalPagamentos: z.number(),

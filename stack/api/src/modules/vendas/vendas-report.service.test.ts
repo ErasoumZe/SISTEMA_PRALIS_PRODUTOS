@@ -21,6 +21,8 @@ function repositorio(over: {
   numeroVendas?: number;
   totalPagamentos?: number;
   faturamento?: number;
+  pagamentos?: VendasSchemas.PagamentoDia[];
+  diasComVendas?: string[];
   /** cadastro da loja; vazio = nada casa e a cobertura fica em 0 */
   cadastro?: Array<{ id: string; nome: string; codigoBarras: string | null; custo: number | null; qtCad: number }>;
 } = {}) {
@@ -38,7 +40,8 @@ function repositorio(over: {
       };
     },
     async produtos() { return produtos; },
-    async pagamentos() { return []; },
+    async pagamentos() { return over.pagamentos ?? []; },
+    async diasComVendasProdutos() { return over.diasComVendas ?? []; },
     async produtosDaLoja() { return over.cadastro ?? []; },
     async deParaDaLoja() { return new Map(); },
   } as unknown as VendasReportRepository;
@@ -122,6 +125,22 @@ describe('VendasReportService — período e agregações', () => {
     const r = await service(repositorio({ numeroVendas: 4, totalPagamentos: 100 })).report('TNP', '2026-08-01', '2026-08-02');
 
     expect(r.resumo.ticketMedio).toBe(25);
+  });
+
+  it('não apresenta fechamento parcial como total completo do período', async () => {
+    const pagamentos = [{ data: '2026-10-06', total: 21871.46, numeroVendas: 1433 }] as VendasSchemas.PagamentoDia[];
+    const repo = repositorio({
+      faturamento: 22024.68, pagamentos,
+      diasComVendas: ['2026-10-06', '2026-10-07'],
+    });
+    const r = await service(repo).report('TNP', '2026-10-06', '2026-10-07');
+
+    expect(r.resumo).toMatchObject({
+      origemFaturamento: 'fechamento', faturamento: 21871.46,
+      valorItens: 22024.68, diferencaItensFechamento: -153.22,
+      diasSemFechamento: ['2026-10-07'],
+    });
+    expect(r.serie).toEqual([{ t: '2026-10-06', total: 21871.46, numeroVendas: 1433 }]);
   });
 
   it('sem vendas o ticket médio é zero, nunca NaN nem divisão por zero', async () => {

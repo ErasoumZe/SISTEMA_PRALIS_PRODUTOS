@@ -227,23 +227,13 @@ const pts = (v: number) => VendasFormato.pontosComUnidade(v);
 const resumoCards = computed(() => {
   const r = dados.value?.resumo;
   if (!r) return [];
-  // A origem fica escrita no card: faturamento e quantidade vêm das VENDAS por
-  // produto; número de vendas e ticket vêm do FECHAMENTO de caixa. São duas
-  // fontes e podem divergir — sem dizer isso, o usuário lê como erro de conta.
-  const deCupons = dados.value?.fonte.tipo === 'itens';
-  if (deCupons) {
-    return [
-      { label: 'Faturamento', origem: 'cupons do caixa', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
-      { label: 'Quantidade vendida', origem: 'cupons do caixa', valor: num(r.quantidade), icon: 'inventory_2', cor: 'var(--cx-sales-volume)' },
-      { label: 'Nº de vendas', origem: 'cupons do caixa', valor: num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
-      { label: 'Ticket médio', origem: 'cupons do caixa', valor: brl(r.ticketMedio), icon: 'trending_up', cor: 'var(--cx-sales-volume)' },
-    ];
-  }
+  const oficial = r.origemFaturamento === 'fechamento';
+  const parcial = oficial && r.diasSemFechamento.length > 0;
   return [
-    { label: 'Faturamento', origem: 'vendas por produto', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
-    { label: 'Quantidade vendida', origem: 'vendas por produto', valor: num(r.quantidade), icon: 'inventory_2', cor: 'var(--cx-sales-volume)' },
-    { label: 'Nº de vendas', origem: 'fechamento de caixa', valor: num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
-    { label: 'Ticket médio', origem: 'fechamento de caixa', valor: brl(r.ticketMedio), icon: 'trending_up', cor: 'var(--cx-sales-volume)' },
+    { label: oficial ? (parcial ? 'Faturamento apurado' : 'Faturamento') : 'Valor dos itens', origem: oficial ? (parcial ? 'fechamento parcial' : 'fechamento de caixa') : 'sem fechamento para este recorte', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
+    { label: 'Quantidade vendida', origem: 'itens dos cupons', valor: num(r.quantidade), icon: 'inventory_2', cor: 'var(--cx-sales-volume)' },
+    { label: 'Nº de vendas', origem: oficial ? 'fechamento de caixa' : 'itens dos cupons', valor: num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
+    { label: 'Ticket médio', origem: oficial ? 'fechamento de caixa' : 'itens dos cupons', valor: brl(r.ticketMedio), icon: 'trending_up', cor: 'var(--cx-sales-volume)' },
   ];
 });
 
@@ -358,7 +348,11 @@ const MEDIDAS = [
   { valor: 'numeroVendas', label: 'Nº de vendas', sufixo: '' },
 ] as const;
 const medida = ref<'total' | 'numeroVendas'>('total');
-const medidaAtual = computed(() => MEDIDAS.find((m) => m.valor === medida.value)!);
+const medidaAtual = computed(() => {
+  const selecionada = MEDIDAS.find((m) => m.valor === medida.value)!;
+  return selecionada.valor === 'total' && dados.value?.resumo.origemFaturamento !== 'fechamento'
+    ? { ...selecionada, label: 'Valor dos itens' } : selecionada;
+});
 
 const serieGrande = computed(() => [{
   name: medidaAtual.value.label,
@@ -1097,13 +1091,28 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             </v-col>
           </v-row>
 
+          <v-alert v-if="dados.resumo.diasSemFechamento.length" type="warning" variant="tonal" class="mt-2">
+            O fechamento ainda não chegou para {{ dados.resumo.diasSemFechamento.map(dia).join(', ') }}.
+            O faturamento apurado cobre somente os dias com fechamento; não é o total completo do período.
+          </v-alert>
+
+          <v-alert
+            v-if="dados.resumo.origemFaturamento === 'fechamento' && dados.resumo.diferencaItensFechamento"
+            type="info" variant="tonal" class="mt-2"
+          >
+            Faturamento oficial: {{ brl(dados.resumo.faturamento) }} (fechamento, igual à aba Pagamentos).
+            A soma dos itens é {{ brl(dados.resumo.valorItens) }} — diferença de
+            {{ brl(Math.abs(dados.resumo.diferencaItensFechamento)) }}.
+            Itens e fechamento têm regras distintas; a diferença não foi incorporada ao faturamento.
+          </v-alert>
+
           <v-card flat border rounded="lg" class="pa-4 mt-3">
             <div class="d-flex align-center flex-wrap ga-3 mb-1">
               <div>
                 <div class="text-subtitle-1 font-weight-bold">{{ medidaAtual.label }} por {{ porHora ? 'hora' : 'dia' }}</div>
                 <div class="text-caption text-medium-emphasis">
                   {{ dia(dados.periodo.inicio) }} a {{ dia(dados.periodo.fim) }} ·
-                  {{ dados.fonte.tipo === 'itens' ? 'cupons do caixa' : 'fechamento de caixa' }}
+                  {{ dados.resumo.origemFaturamento === 'fechamento' ? 'fechamento de caixa' : 'itens dos cupons (não conciliado)' }}
                 </div>
               </div>
               <v-spacer />
@@ -1113,9 +1122,9 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
                 faz o cruzamento das linhas parecer significado quando é só
                 coincidência de escala.
               -->
-              <!-- hora só existe com os cupons: no diário o botão nem aparece -->
+              <!-- Sem total oficial por hora, não apresentar a soma dos itens como faturamento. -->
               <v-btn-toggle
-                v-if="dados.fonte.tipo === 'itens'"
+                v-if="dados.fonte.tipo === 'itens' && dados.resumo.origemFaturamento === 'itens'"
                 :model-value="porHora ? 'hora' : 'dia'"
                 density="compact"
                 variant="outlined"
@@ -1146,14 +1155,14 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             </template>
           </v-card>
 
-          <div v-if="dados.fonte.tipo === 'itens'" class="text-caption text-medium-emphasis mt-3">
-            Todos os números acima saem dos cupons do caixa (itens confirmados, sem cancelados).
-            O fechamento de caixa pode diferir: ele inclui crediário, sobra/perda e outros lançamentos que não são venda de produto.
+          <div v-if="dados.resumo.origemFaturamento === 'fechamento'" class="text-caption text-medium-emphasis mt-3">
+            Faturamento, número de vendas e ticket médio usam o fechamento oficial, a mesma fonte da aba Pagamentos.
+            A quantidade, o ranking, a curva ABC e a margem usam itens de produto e podem ter total diferente.
+            Sem cupons oficiais com hora e cobertura comprovada, o faturamento é mostrado por dia, não por hora.
           </div>
           <div v-else class="text-caption text-medium-emphasis mt-3">
-            O faturamento sai das vendas por produto e o número de vendas sai do fechamento
-            de caixa. São registros diferentes do PDV, então os totais podem não bater:
-            o fechamento inclui crediário, sobra/perda e outros lançamentos que não são venda de produto.
+            Este recorte não possui total de fechamento equivalente. O valor apresentado é somente a soma dos itens;
+            não é o faturamento oficial da loja.
           </div>
 
           <v-card flat border rounded="lg" class="pa-4 mt-4">
