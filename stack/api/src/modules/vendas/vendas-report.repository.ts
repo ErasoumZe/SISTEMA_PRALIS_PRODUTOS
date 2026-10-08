@@ -18,6 +18,16 @@ export class VendasReportRepository {
     return r.rows[0]?.desde ? String(r.rows[0].desde) : null;
   }
 
+  /** Dias com produtos vendidos: identifica fechamento ainda não recebido. */
+  async diasComVendasProdutos(loja: Loja, inicio: string, fim: string): Promise<string[]> {
+    const r = await db.execute(sql`
+      SELECT DISTINCT data::text AS data FROM venda_produto_dia
+      WHERE loja = ${loja} AND data BETWEEN ${inicio}::date AND ${fim}::date
+        AND (total <> 0 OR quantidade <> 0)
+      ORDER BY data`);
+    return r.rows.map((row) => String(row.data));
+  }
+
   async resumo(loja: Loja, inicio: string, fim: string) {
     const vendas = await db.execute(sql`
       SELECT COALESCE(SUM(total), 0) AS faturamento,

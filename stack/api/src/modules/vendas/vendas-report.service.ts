@@ -42,17 +42,34 @@ export class VendasReportService {
     const products = filtrando
       ? todosProdutos.filter((p) => passaNoFiltro(resolverProduto(p.produtoCodigo, p.produto, indice, dePara), p, filtro))
       : todosProdutos;
+    // O total oficial é o mesmo fechamento que alimenta a aba Pagamentos.
+    // Itens têm outro grão: descontos, cancelamentos e lançamentos do caixa
+    // podem fazer sua soma divergir. Um recorte por produto/hora/PDV não tem
+    // fechamento equivalente; nesse caso mostramos valor dos itens, sem
+    // chamá-lo de faturamento oficial na interface.
+    const recorteDeItens = filtrando || (itens && !!(pedido.hi || pedido.hf || pedido.pdv));
+    const origemFaturamento = !recorteDeItens && payments.length > 0 ? 'fechamento' as const : 'itens' as const;
     /*
      * Na fonte de itens o filtro de cadastro alcança TUDO: as chaves dos
      * produtos que passaram voltam para o SQL, e nº de vendas, ticket e série
      * saem só dos cupons com esses itens. Na diária, só os itens obedecem.
      */
     const chaves = itens && filtrando ? products.map((p) => chaveProduto(p.produtoCodigo, p.produto)) : null;
-    const granularidade: 'hora' | 'dia' = itens && (pedido.granularidade === 'hora' || (!pedido.granularidade && days === 0))
+    const granularidade: 'hora' | 'dia' = origemFaturamento === 'itens' && itens && (pedido.granularidade === 'hora' || (!pedido.granularidade && days === 0))
       ? 'hora' : 'dia';
-    const [resumoItensR, serie] = itens
+    const [resumoItensR, serieDeItens] = itens
       ? await Promise.all([resumoItens(loja, fonte, chaves), serieItens(loja, fonte, chaves, granularidade)])
       : [null, payments.map((p) => ({ t: p.data, total: p.total, numeroVendas: p.numeroVendas }))];
+    const serie = origemFaturamento === 'fechamento'
+      ? payments.map((p) => ({ t: p.data, total: p.total, numeroVendas: p.numeroVendas }))
+      : serieDeItens;
+    const diasComVendas = origemFaturamento === 'fechamento'
+      ? itens
+        ? serieDeItens.filter((p) => p.numeroVendas > 0 || p.total !== 0).map((p) => p.t.slice(0, 10))
+        : await this.repository.diasComVendasProdutos(loja, inicio, fim)
+      : [];
+    const diasFechados = new Set(payments.map((p) => p.data));
+    const diasSemFechamento = [...new Set(diasComVendas.filter((dia) => !diasFechados.has(dia)))];
 
     // A margem sai do MESMO agregado do ranking: produto x periodo.
     const margem = calcularMargem(
@@ -62,23 +79,33 @@ export class VendasReportService {
     );
     const faturamentoItens = products.reduce((s, p) => s + p.faturamento, 0);
     const quantidadeItens = products.reduce((s, p) => s + p.quantidade, 0);
+    const valorItens = resumoItensR ? resumoItensR.faturamento : filtrando ? faturamentoItens : diario!.faturamento;
+    const totalFechamento = payments.reduce((s, p) => s + p.total, 0);
+    const vendasFechamento = payments.reduce((s, p) => s + p.numeroVendas, 0);
+    const diferencaItensFechamento = payments.length && !recorteDeItens
+      ? Math.round((totalFechamento - valorItens) * 100) / 100 : null;
     const resumo = resumoItensR
       ? {
-        faturamento: resumoItensR.faturamento,
+        faturamento: origemFaturamento === 'fechamento' ? totalFechamento : valorItens,
+        origemFaturamento, valorItens, diferencaItensFechamento, diasSemFechamento,
         quantidade: resumoItensR.quantidade,
-        numeroVendas: resumoItensR.numeroVendas,
-        // sem fechamento no recorte: o "total pago" é o que os cupons somaram
-        totalPagamentos: resumoItensR.faturamento,
-        ticketMedio: resumoItensR.numeroVendas ? resumoItensR.faturamento / resumoItensR.numeroVendas : 0,
+        numeroVendas: origemFaturamento === 'fechamento' ? vendasFechamento : resumoItensR.numeroVendas,
+        totalPagamentos: totalFechamento,
+        ticketMedio: origemFaturamento === 'fechamento'
+          ? (vendasFechamento ? totalFechamento / vendasFechamento : 0)
+          : (resumoItensR.numeroVendas ? valorItens / resumoItensR.numeroVendas : 0),
       }
       : {
-        faturamento: filtrando ? faturamentoItens : diario!.faturamento,
+        faturamento: origemFaturamento === 'fechamento' ? totalFechamento : valorItens,
+        origemFaturamento, valorItens, diferencaItensFechamento, diasSemFechamento,
         quantidade: filtrando ? quantidadeItens : diario!.quantidade,
         numeroVendas: diario!.numeroVendas,
         totalPagamentos: diario!.totalPagamentos,
         ticketMedio: diario!.numeroVendas ? diario!.totalPagamentos / diario!.numeroVendas : 0,
       };
-    const abc = abcSummary(products, filtrando || itens ? faturamentoItens : resumo.faturamento);
+    // ABC classifica produtos; seu denominador é somente o valor dos itens,
+    // jamais o fechamento oficial que pode conter outros lançamentos.
+    const abc = abcSummary(products, faturamentoItens);
     const byQuantity = [...products].sort((a, b) => b.quantidade - a.quantidade || b.faturamento - a.faturamento);
     const bottom = [...products]
       .filter((p) => p.quantidade > 0)

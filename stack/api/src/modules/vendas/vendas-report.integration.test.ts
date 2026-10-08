@@ -72,11 +72,14 @@ afterAll(async () => {
 });
 
 describe('relatório de vendas (Postgres real, SQL de verdade)', () => {
-  it('soma o faturamento e a quantidade da própria loja', async () => {
+  it('usa o fechamento como faturamento e preserva o valor dos itens', async () => {
     const r = await service.report('TNP', INICIO, FIM);
 
     // 6,70 + 8,62 + 32,70 da fixture da TNP
-    expect(r.resumo.faturamento).toBeCloseTo(48.02, 2);
+    expect(r.resumo.faturamento).toBeCloseTo(2756.53, 2);
+    expect(r.resumo.valorItens).toBeCloseTo(48.02, 2);
+    expect(r.resumo.origemFaturamento).toBe('fechamento');
+    expect(r.resumo.diferencaItensFechamento).toBeCloseTo(2756.53 - 48.02, 2);
     expect(r.resumo.quantidade).toBeCloseTo(6.39, 2);
   });
 
@@ -92,8 +95,9 @@ describe('relatório de vendas (Postgres real, SQL de verdade)', () => {
     const tnp = await service.report('TNP', INICIO, FIM);
     const li = await service.report('LI', INICIO, FIM);
 
-    expect(tnp.resumo.faturamento).toBeCloseTo(48.02, 2);
-    expect(li.resumo.faturamento).toBeCloseTo(39.66, 2); // 21,46 + 18,20
+    expect(tnp.resumo.faturamento).toBeCloseTo(2756.53, 2);
+    expect(li.resumo.faturamento).toBeCloseTo(3769.82, 2);
+    expect(li.resumo.valorItens).toBeCloseTo(39.66, 2); // 21,46 + 18,20
     expect(li.resumo.numeroVendas).toBe(270);
     // nenhum produto da LI aparece no ranking da TNP
     const codigosTnp = tnp.ranking.maisVendidos.map((p) => p.produtoCodigo);
@@ -108,12 +112,12 @@ describe('relatório de vendas (Postgres real, SQL de verdade)', () => {
     expect(r.ranking.menosVendidos[0]!.quantidade).toBeLessThanOrEqual(r.ranking.maisVendidos[0]!.quantidade);
   });
 
-  it('curva ABC fecha 100% do faturamento da loja', async () => {
+  it('curva ABC fecha o valor dos itens, não o faturamento do caixa', async () => {
     const r = await service.report('TNP', INICIO, FIM);
 
     const somaClasses = r.curvaAbc.reduce((s, c) => s + c.faturamento, 0);
     const somaProdutos = r.curvaAbc.reduce((s, c) => s + c.produtos, 0);
-    expect(somaClasses).toBeCloseTo(r.resumo.faturamento, 2);
+    expect(somaClasses).toBeCloseTo(r.resumo.valorItens, 2);
     expect(somaProdutos).toBe(3);
     expect(r.curvaAbc.find((c) => c.classe === 'A')).toMatchObject({ produtos: 2 });
   });
@@ -124,6 +128,40 @@ describe('relatório de vendas (Postgres real, SQL de verdade)', () => {
     expect(r.pagamentos).toHaveLength(1);
     expect(r.pagamentos[0]).toMatchObject({ data: '2026-01-02', numeroVendas: 214 });
     expect(r.pagamentos[0]!.total).toBeCloseTo(2756.53, 2);
+  });
+
+  it('não chama soma dos itens de faturamento quando o fechamento diverge', async () => {
+    const data = '2027-10-06';
+    await db.execute(sqlTag`
+      INSERT INTO venda_item_pdv (id, loja, venda_id_erp, item_id_erp, dispositivo_id_erp, pdv,
+        vendido_em, produto_codigo, produto, quantidade, valor_unitario, total,
+        item_cancelado, venda_status, venda_confirmada, origem_atualizada_em)
+      VALUES ('teste-faturamento-item', 'TNP', 'teste-cupom', 'teste-item', '1', 'PDV 1',
+        ${data + ' 10:00:00'}, '123', 'TESTE', 1, 22024.68, 22024.68,
+        false, 'F', true, ${data + ' 10:00:00'})`);
+    await db.execute(sqlTag`
+      INSERT INTO fechamento_caixa_dia (id, loja, data, pdv, operador, natureza,
+        primeira_venda, ultima_venda, numero_vendas, dinheiro, total_pagamento,
+        hash, origem_atualizada_em)
+      VALUES ('teste-faturamento-fechamento', 'TNP', ${data}, 'PDV 1', 'TESTE', 'VENDA',
+        ${data + ' 10:00:00'}, ${data + ' 10:00:00'}, 1433, 21871.46, 21871.46,
+        'teste-faturamento-fechamento-hash', ${data + ' 10:00:00'})`);
+
+    const r = await service.report('TNP', data, data, {}, { granularidade: 'hora' });
+    expect(r.resumo).toMatchObject({
+      origemFaturamento: 'fechamento', faturamento: 21871.46,
+      valorItens: 22024.68, diferencaItensFechamento: -153.22,
+      numeroVendas: 1433, totalPagamentos: 21871.46,
+    });
+    expect(r.periodo.granularidade).toBe('dia');
+    expect(r.serie).toEqual([{ t: data, total: 21871.46, numeroVendas: 1433 }]);
+
+    const recortePorHora = await service.report('TNP', data, data, {}, { hi: '10:00', hf: '10:00' });
+    expect(recortePorHora.resumo).toMatchObject({
+      origemFaturamento: 'itens', faturamento: 22024.68,
+      valorItens: 22024.68, diferencaItensFechamento: null,
+    });
+    expect(recortePorHora.periodo.granularidade).toBe('hora');
   });
 
   it('conta os produtos que o PDV mandou SEM código, em vez de escondê-los', async () => {
