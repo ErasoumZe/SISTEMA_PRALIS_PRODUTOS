@@ -63,3 +63,43 @@ export const metaDiaSemana = pgTable(
   },
   (t) => [uniqueIndex('uq_meta_dia_semana').on(t.versaoId, t.diaSemana)],
 );
+
+/**
+ * Meta diária da TNP copiada da planilha e congelada por data.
+ *
+ * A planilha é a fonte de cálculo, mas não é uma base transacional: editar uma
+ * célula dela meses depois não pode reescrever o alvo que já foi cobrado. A
+ * importação administrativa substitui somente datas a partir da vigência que o
+ * administrador escolhe; o que ficou antes permanece como evidência.
+ */
+export const metaPlanilhaTnpDia = pgTable(
+  'meta_planilha_tnp_dia',
+  {
+    id: text('id').primaryKey().$defaultFn(() => uuidv7()),
+    data: date('data', { mode: 'string' }).notNull(),
+    dataBase: date('data_base', { mode: 'string' }).notNull(),
+    /** calculada | domingo_fechado | sem_referencia */
+    estado: text('estado').notNull(),
+    base: numeric('base', { precision: 16, scale: 2 }),
+    ajusteDia: numeric('ajuste_dia', { precision: 8, scale: 4 }),
+    crescimentoMes: numeric('crescimento_mes', { precision: 8, scale: 4 }),
+    pctManha: numeric('pct_manha', { precision: 8, scale: 4 }),
+    modo: text('modo').notNull(),
+    casasArredondamento: integer('casas_arredondamento').notNull(),
+    metaTotal: numeric('meta_total', { precision: 16, scale: 2 }).notNull().default('0'),
+    metaManha: numeric('meta_manha', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** Tarde residual usada na tela: total menos manhã. */
+    metaTarde: numeric('meta_tarde', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** EG original, retido para explicar diferença de arredondamento. */
+    metaTardePlanilha: numeric('meta_tarde_planilha', { precision: 16, scale: 2 }).notNull().default('0'),
+    planilhaId: text('planilha_id').notNull(),
+    linhaPlanilha: integer('linha_planilha').notNull(),
+    lidaNaPlanilhaEm: timestamp('lida_na_planilha_em', { withTimezone: true }).notNull(),
+    importadoPor: text('importado_por'),
+    importadoEm: timestamp('importado_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('uq_meta_planilha_tnp_dia').on(t.data),
+    index('idx_meta_planilha_tnp_data').on(t.data),
+  ],
+);

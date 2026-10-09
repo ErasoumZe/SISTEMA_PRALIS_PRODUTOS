@@ -20,9 +20,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{ recarregar: [] }>();
 
-const { gerarMatrizMetas } = useApi();
+const { gerarMatrizMetas, importarMetasPlanilhaTnp } = useApi();
 
 const gerando = ref(false);
+const importando = ref(false);
+const vigenciaPlanilha = ref(props.inicio);
 const recado = ref<{ texto: string; tipo: 'success' | 'error' } | null>(null);
 
 const pts = (valor: number) => VendasFormato.pontosComUnidade(valor);
@@ -73,6 +75,33 @@ async function gerar(previa: boolean) {
   }
 }
 
+/** A fonte é lida uma vez e os valores ficam congelados por data no Pralis. */
+async function importarPlanilha(aplicar: boolean) {
+  importando.value = true;
+  try {
+    const resultado = await importarMetasPlanilhaTnp({
+      vigenciaInicio: vigenciaPlanilha.value,
+      aplicar,
+    });
+    recado.value = {
+      tipo: 'success',
+      texto: aplicar
+        ? `${resultado.gravadas} metas congeladas a partir de ${dia(resultado.vigenciaInicio)}. `
+          + `${resultado.domingos} domingo(s) ficaram com meta zero.`
+        : `Prévia: ${resultado.gravadas} datas a partir de ${dia(resultado.vigenciaInicio)}. `
+          + `${resultado.calculadas} calculadas, ${resultado.semReferencia} sem referência e ${resultado.domingos} domingo(s) fechados. Nada foi gravado.`,
+    };
+    if (aplicar) emit('recarregar');
+  } catch (e) {
+    recado.value = {
+      tipo: 'error',
+      texto: (e as { data?: { message?: string } })?.data?.message ?? 'Não foi possível ler a planilha de metas.',
+    };
+  } finally {
+    importando.value = false;
+  }
+}
+
 const cartoes = computed(() => {
   if (!props.dados) return [];
   const { manha, tarde, total } = props.dados.turnos;
@@ -85,7 +114,11 @@ const cartoes = computed(() => {
 
 const diasAbertos = computed(() => (props.dados?.dias ?? []).filter((d) => d.aberto));
 /** Sem matriz não há meta: mostrar o realizado como "meta atingida" seria mentira. */
-const temMatriz = computed(() => Boolean(props.dados?.versao));
+const temMeta = computed(() => Boolean(props.dados?.versao)
+  || (props.dados?.regra === 'planilha_364_dias'
+    && props.dados.fonte.diasSemReferencia.length === 0));
+const podeGerarMatriz = computed(() => props.podeGerar && props.loja === 'LI');
+const podeImportarPlanilha = computed(() => props.podeGerar && props.loja === 'TNP');
 </script>
 
 <template>
@@ -101,22 +134,51 @@ const temMatriz = computed(() => Boolean(props.dados?.versao));
     </div>
 
     <template v-else-if="dados">
+      <v-alert v-if="podeImportarPlanilha" type="info" variant="tonal" class="mb-4">
+        <div class="font-weight-medium mb-1">Atualizar metas TNP pela planilha</div>
+        <div class="text-body-2 mb-3">
+          A prévia confere as fórmulas. Ao aplicar, somente datas a partir da vigência escolhida são substituídas;
+          metas anteriores permanecem congeladas.
+        </div>
+        <div class="d-flex flex-wrap align-center ga-2">
+          <v-text-field
+            v-model="vigenciaPlanilha" label="Substituir a partir de" type="date" density="compact"
+            hide-details style="max-width: 220px" :disabled="importando"
+          />
+          <v-btn size="small" variant="tonal" :loading="importando" @click="importarPlanilha(false)">Ver prévia</v-btn>
+          <v-btn size="small" color="primary" :loading="importando" @click="importarPlanilha(true)">Congelar metas</v-btn>
+        </div>
+      </v-alert>
       <!-- Sem matriz a tela diz o que falta, em vez de apresentar venda como meta atingida. -->
-      <v-alert v-if="!temMatriz" type="info" variant="tonal" class="mb-4" icon="flag">
-        <div class="font-weight-medium mb-1">Nenhuma matriz de metas gerada para a {{ dados.loja }}.</div>
-        <div class="text-body-2">
+      <v-alert v-if="!temMeta" type="info" variant="tonal" class="mb-4" icon="flag">
+        <div class="font-weight-medium mb-1">
+          {{ dados.regra === 'planilha_364_dias' ? 'Meta do período indisponível' : `Nenhuma matriz de metas gerada para a ${dados.loja}.` }}
+        </div>
+        <div v-if="dados.regra === 'planilha_364_dias'" class="text-body-2">
+          A fonte da planilha está ligada, mas faltam bases históricas para
+          {{ dados.fonte.diasSemReferencia.length }} dia(s): {{ dados.fonte.diasSemReferencia.map(dia).join(', ') }}.
+          Os cards do período não são exibidos com uma soma parcial. Nenhum zero foi inventado.
+        </div>
+        <div v-else class="text-body-2">
           A matriz nasce da média ponderada dos três meses anteriores, com 15% por cima e arredondada a R$ 100,
           e aparece aqui em pontos. Veja a prévia antes de gravar: depois de gravada, a meta dos dias já vividos
           não muda mais.
         </div>
-        <div v-if="podeGerar" class="d-flex flex-wrap ga-2 mt-3">
+        <div v-if="podeGerarMatriz" class="d-flex flex-wrap ga-2 mt-3">
           <v-btn size="small" variant="tonal" :loading="gerando" @click="gerar(true)">Ver prévia</v-btn>
           <v-btn size="small" color="primary" :loading="gerando" @click="gerar(false)">Gerar e gravar</v-btn>
         </div>
-        <div v-else class="text-caption mt-2">Só o administrador gera a matriz.</div>
+        <div v-else-if="dados.regra === 'matriz_tres_meses' && loja === 'LI'" class="text-caption mt-2">Só o administrador gera a matriz.</div>
       </v-alert>
 
       <template v-else>
+        <v-alert v-if="dados.regra === 'matriz_tres_meses' && loja === 'TNP'" type="warning" variant="tonal" class="mb-4">
+          A TNP ainda está na regra antiga de três meses. A fonte da planilha ano versus ano não foi configurada nesta API.
+        </v-alert>
+        <v-alert v-if="dados.fonte.diasSemReferencia.length" type="warning" variant="tonal" class="mb-4">
+          {{ dados.fonte.diasSemReferencia.length }} dia(s) sem base histórica para meta:
+          {{ dados.fonte.diasSemReferencia.map(dia).join(', ') }}. O total do período cobre apenas os dias com referência.
+        </v-alert>
         <v-alert
           v-if="dados.fonte.diasApurados === 0"
           type="warning" variant="tonal" density="compact" class="mb-4" icon="sync_problem"
@@ -195,14 +257,20 @@ const temMatriz = computed(() => Boolean(props.dados?.versao));
         </v-row>
 
         <div class="d-flex flex-wrap align-center ga-2 mb-4 text-caption text-medium-emphasis">
-          <v-chip size="x-small" variant="tonal" label>matriz de {{ dia(dados.versao!.vigenciaInicio) }}</v-chip>
-          <span>
+          <template v-if="dados.regra === 'planilha_364_dias'">
+            <v-chip size="x-small" variant="tonal" label>regra ano versus ano</v-chip>
+            <span>Base: mesmo dia da semana, 364 dias antes; domingos TNP fechados; tarde fecha a soma dos cards.</span>
+          </template>
+          <template v-else>
+            <v-chip size="x-small" variant="tonal" label>matriz de {{ dia(dados.versao!.vigenciaInicio) }}</v-chip>
+            <span>
             +{{ (dados.versao!.crescimento * 100).toFixed(0) }}% sobre a média ponderada de
             {{ dia(dados.versao!.referenciaInicio) }} a {{ dia(dados.versao!.referenciaFim) }},
             arredondada a R$ 100
-          </span>
+            </span>
+          </template>
           <v-spacer />
-          <template v-if="podeGerar">
+          <template v-if="podeGerarMatriz">
             <v-btn size="x-small" variant="text" :loading="gerando" @click="gerar(true)">Prévia de uma matriz nova</v-btn>
             <v-btn size="x-small" variant="text" color="primary" :loading="gerando" @click="gerar(false)">Gerar nova</v-btn>
           </template>

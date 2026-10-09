@@ -183,6 +183,8 @@ export const env = {
   GOOGLE_SHEETS_TIMEOUT_MS: envNum('GOOGLE_SHEETS_TIMEOUT_MS', 20000),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: envVar('GOOGLE_SERVICE_ACCOUNT_EMAIL', ''),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: normalizePrivateKey(envVar('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', '')),
+  /** Fonte SOMENTE LEITURA das metas TNP. Vazio mantém a regra antiga até a homologação. */
+  METAS_TNP_PLANILHA_ID: envVar('METAS_TNP_PLANILHA_ID', ''),
 
   // ---- Criare/SIA Supervisor (exportação posicional; nunca grava no Supervisor) ----
   CREARE_EXPORT_ENABLED: envBool('CREARE_EXPORT_ENABLED', false),

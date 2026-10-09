@@ -165,9 +165,10 @@ const NOME_SOMA = 'Soma dos PDVs';
 const NOME_META = 'Meta do dia';
 const COR_SOMA = '#101828';
 
-/** A meta de cada data, vinda da matriz por dia da semana (aba Metas). */
-const metaPorData = computed(() => new Map((metas.value?.dias ?? []).map((d) => [d.data, d.meta])));
-const temLinhaMeta = computed(() => !!metas.value?.versao
+/** A meta de cada data, quando existe referência: nunca desenhar zero para base ausente. */
+const metaPorData = computed(() => new Map((metas.value?.dias ?? [])
+  .filter((d) => d.aberto).map((d) => [d.data, d.meta])));
+const temLinhaMeta = computed(() => (Boolean(metas.value?.versao) || metas.value?.regra === 'planilha_364_dias')
   && diasComFechamento.value.some((data) => (metaPorData.value.get(data) ?? 0) > 0));
 
 /**
@@ -307,7 +308,8 @@ const opcoesGrafico = computed<ApexOptions>(() => ({
  * movimento. Misturar as duas fazia "quanto falta" nunca fechar com o card ao
  * lado — e ninguém descobriria por quê.
  */
-const temMeta = computed(() => !!metas.value?.versao);
+const temMeta = computed(() => Boolean(metas.value?.versao)
+  || (metas.value?.regra === 'planilha_364_dias' && metas.value.fonte.diasSemReferencia.length === 0));
 const metaDoPeriodo = computed(() => (temMeta.value ? metas.value!.turnos.total.metaPeriodo : null));
 const metaAteAgora = computed(() => (temMeta.value ? metas.value!.turnos.total.metaAteAgora : null));
 const realizadoNaMeta = computed(() => (temMeta.value ? metas.value!.turnos.total.realizado : null));

@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { MetasSchemas } from '@pralis/shared';
-import { buildResponse } from '@/config/api.replies';
+import { AppError, buildResponse } from '@/config/api.replies';
 import { env } from '@/config/env';
 import { MetasService } from './metas.service';
 import { lojaGerentes } from './vendas-gerentes-acesso';
@@ -37,6 +37,21 @@ export class MetasController {
     return reply.status(200).send(buildResponse(
       resultado,
       resultado.gravada ? 'Matriz de metas gravada' : 'Prévia da matriz de metas',
+    ));
+  }
+
+  /** Importar é uma decisão administrativa e nunca recebe token de robô. */
+  async importarPlanilhaTnp(
+    request: FastifyRequest<{ Body: MetasSchemas.ImportarMetasPlanilhaTnpBody }>, reply: FastifyReply,
+  ) {
+    const loja = lojaGerentes(request.currentUser, 'TNP', env.ADMIN_EMAIL, env.GERENTES_PROGRAMADOR_EMAIL);
+    if (loja !== 'TNP' || request.currentUser?.role !== 'admin') {
+      throw new AppError('Apenas administrador pode importar as metas da TNP.', 403, 'FORBIDDEN');
+    }
+    const resultado = await this.service.importarPlanilhaTnp(request.body, request.currentUser.email ?? null);
+    return reply.status(200).send(buildResponse(
+      resultado,
+      resultado.aplicada ? 'Metas da planilha congeladas por data.' : 'Prévia da importação de metas.',
     ));
   }
 }
