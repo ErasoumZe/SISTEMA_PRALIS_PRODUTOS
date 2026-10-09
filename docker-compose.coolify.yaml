@@ -68,6 +68,9 @@ services:
       GOOGLE_SHEETS_CARGA_LINHA_FINAL: ${GOOGLE_SHEETS_CARGA_LINHA_FINAL}
       GOOGLE_SERVICE_ACCOUNT_EMAIL: ${GOOGLE_SERVICE_ACCOUNT_EMAIL}
       GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
+      # Meta TNP: planilha lida somente quando o admin pede prévia/importação.
+      # Vazia mantém a regra antiga e não autoriza acesso a nenhuma planilha.
+      METAS_TNP_PLANILHA_ID: ${METAS_TNP_PLANILHA_ID}
       # Aba com os grupos oficiais e a margem padrao de cada um (colunas M e N).
       GOOGLE_SHEETS_GRUPOS_TAB: ${GOOGLE_SHEETS_GRUPOS_TAB}
       # Fonte do ID numerico de grupo no SIA: AC/AD da aba de validacao.
