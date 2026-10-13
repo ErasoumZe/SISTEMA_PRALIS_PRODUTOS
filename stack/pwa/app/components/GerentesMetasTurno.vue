@@ -25,6 +25,8 @@ const { gerarMatrizMetas, importarMetasPlanilhaTnp } = useApi();
 const gerando = ref(false);
 const importando = ref(false);
 const vigenciaPlanilha = ref(props.inicio);
+const dialogoPlanilha = ref(false);
+const confirmarCongelamento = ref(false);
 const recado = ref<{ texto: string; tipo: 'success' | 'error' } | null>(null);
 
 const pts = (valor: number) => VendasFormato.pontosComUnidade(valor);
@@ -90,7 +92,11 @@ async function importarPlanilha(aplicar: boolean) {
         : `Prévia: ${resultado.gravadas} datas a partir de ${dia(resultado.vigenciaInicio)}. `
           + `${resultado.calculadas} calculadas, ${resultado.semReferencia} sem referência e ${resultado.domingos} domingo(s) fechados. Nada foi gravado.`,
     };
-    if (aplicar) emit('recarregar');
+    if (aplicar) {
+      confirmarCongelamento.value = false;
+      dialogoPlanilha.value = false;
+      emit('recarregar');
+    }
   } catch (e) {
     recado.value = {
       tipo: 'error',
@@ -133,21 +139,48 @@ const podeImportarPlanilha = computed(() => props.administrador && props.loja ==
     </div>
 
     <template v-else-if="dados">
-      <v-alert v-if="podeImportarPlanilha" type="info" variant="tonal" class="mb-4">
-        <div class="font-weight-medium mb-1">Atualizar metas TNP pela planilha</div>
-        <div class="text-body-2 mb-3">
-          A prévia confere as fórmulas. Ao aplicar, somente datas a partir da vigência escolhida são substituídas;
-          metas anteriores permanecem congeladas.
-        </div>
-        <div class="d-flex flex-wrap align-center ga-2">
-          <v-text-field
-            v-model="vigenciaPlanilha" label="Substituir a partir de" type="date" density="compact"
-            hide-details style="max-width: 220px" :disabled="importando"
-          />
-          <v-btn size="small" variant="tonal" :loading="importando" @click="importarPlanilha(false)">Ver prévia</v-btn>
-          <v-btn size="small" color="primary" :loading="importando" @click="importarPlanilha(true)">Congelar metas</v-btn>
-        </div>
-      </v-alert>
+      <div v-if="podeImportarPlanilha" class="d-flex justify-end mb-4">
+        <v-btn size="small" variant="tonal" prepend-icon="settings" @click="dialogoPlanilha = true">
+          Configurar metas
+        </v-btn>
+      </div>
+
+      <v-dialog v-model="dialogoPlanilha" max-width="680">
+        <v-card rounded="lg">
+          <v-card-title class="text-subtitle-1 font-weight-bold">Atualizar metas TNP pela planilha</v-card-title>
+          <v-card-text>
+            <p class="text-body-2 mb-4">
+              A prévia confere as fórmulas sem gravar nada. Ao congelar, somente as datas a partir da vigência
+              escolhida são substituídas; as metas anteriores permanecem congeladas.
+            </p>
+            <v-text-field
+              v-model="vigenciaPlanilha" label="Substituir a partir de" type="date" density="comfortable"
+              hide-details :disabled="importando"
+            />
+          </v-card-text>
+          <v-card-actions class="px-6 pb-5">
+            <v-spacer />
+            <v-btn variant="text" :disabled="importando" @click="dialogoPlanilha = false">Cancelar</v-btn>
+            <v-btn variant="tonal" :loading="importando" @click="importarPlanilha(false)">Ver prévia</v-btn>
+            <v-btn color="primary" :disabled="importando" @click="confirmarCongelamento = true">Congelar metas</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
+      <v-dialog v-model="confirmarCongelamento" max-width="480" persistent>
+        <v-card rounded="lg">
+          <v-card-title class="text-subtitle-1 font-weight-bold">Confirmar congelamento</v-card-title>
+          <v-card-text>
+            As metas de {{ dia(vigenciaPlanilha) }} em diante serão substituídas pelos valores da planilha.
+            As datas anteriores não serão alteradas.
+          </v-card-text>
+          <v-card-actions class="px-6 pb-5">
+            <v-spacer />
+            <v-btn variant="text" :disabled="importando" @click="confirmarCongelamento = false">Voltar</v-btn>
+            <v-btn color="primary" :loading="importando" @click="importarPlanilha(true)">Congelar agora</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
       <!-- Sem matriz a tela diz o que falta, em vez de apresentar venda como meta atingida. -->
       <v-alert v-if="!temMeta" type="info" variant="tonal" class="mb-4" icon="flag">
         <div class="font-weight-medium mb-1">
