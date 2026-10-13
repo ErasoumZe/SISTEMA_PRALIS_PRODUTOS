@@ -14,8 +14,8 @@ const props = defineProps<{
   dados: MetasTurno | null;
   carregando: boolean;
   falha: string;
-  /** Só admin gera matriz; os demais acompanham a que está valendo. */
-  podeGerar: boolean;
+  /** O painel administrativo nunca aparece para quem apenas consulta as metas. */
+  administrador: boolean;
 }>();
 
 const emit = defineEmits<{ recarregar: [] }>();
@@ -28,7 +28,6 @@ const vigenciaPlanilha = ref(props.inicio);
 const recado = ref<{ texto: string; tipo: 'success' | 'error' } | null>(null);
 
 const pts = (valor: number) => VendasFormato.pontosComUnidade(valor);
-const brl = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const pct = (fracao: number | null) => (fracao === null ? '—' : `${(fracao * 100).toFixed(1)}%`);
 const dia = (iso: string) => iso.split('-').reverse().slice(0, 2).join('/');
 
@@ -117,8 +116,8 @@ const diasAbertos = computed(() => (props.dados?.dias ?? []).filter((d) => d.abe
 const temMeta = computed(() => Boolean(props.dados?.versao)
   || (props.dados?.regra === 'planilha_364_dias'
     && props.dados.fonte.diasSemReferencia.length === 0));
-const podeGerarMatriz = computed(() => props.podeGerar && props.loja === 'LI');
-const podeImportarPlanilha = computed(() => props.podeGerar && props.loja === 'TNP');
+const podeGerarMatriz = computed(() => props.administrador && props.loja === 'LI');
+const podeImportarPlanilha = computed(() => props.administrador && props.loja === 'TNP');
 </script>
 
 <template>
@@ -160,7 +159,7 @@ const podeImportarPlanilha = computed(() => props.podeGerar && props.loja === 'T
           Os cards do período não são exibidos com uma soma parcial. Nenhum zero foi inventado.
         </div>
         <div v-else class="text-body-2">
-          A matriz nasce da média ponderada dos três meses anteriores, com 15% por cima e arredondada a R$ 100,
+          A matriz nasce da média ponderada dos três meses anteriores, com 15% por cima e arredondada à centena,
           e aparece aqui em pontos. Veja a prévia antes de gravar: depois de gravada, a meta dos dias já vividos
           não muda mais.
         </div>
@@ -207,10 +206,6 @@ const podeImportarPlanilha = computed(() => props.podeGerar && props.loja === 'T
               <div class="text-h5 font-weight-bold" :style="{ color: COR_VENDA }">
                 {{ pts(cartao.turno.realizado) }}
               </div>
-              <div v-if="cartao.turno.reais" class="text-caption text-medium-emphasis">
-                {{ brl(cartao.turno.reais.realizado) }}
-              </div>
-
               <v-progress-linear
                 :model-value="(cartao.turno.ritmo ?? 0) * 100" :max="100" height="8" rounded
                 :color="COR_VENDA" bg-color="grey-lighten-2" class="mt-2"
@@ -266,7 +261,7 @@ const podeImportarPlanilha = computed(() => props.podeGerar && props.loja === 'T
             <span>
             +{{ (dados.versao!.crescimento * 100).toFixed(0) }}% sobre a média ponderada de
             {{ dia(dados.versao!.referenciaInicio) }} a {{ dia(dados.versao!.referenciaFim) }},
-            arredondada a R$ 100
+            arredondada à centena
             </span>
           </template>
           <v-spacer />
