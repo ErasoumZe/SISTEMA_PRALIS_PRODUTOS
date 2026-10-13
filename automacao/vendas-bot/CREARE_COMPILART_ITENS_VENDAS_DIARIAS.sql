@@ -6,7 +6,8 @@ SELECT
     DATE_FORMAT(ivb.DTHR_ITEM_VENDABALCAO, '%d/%m/%Y') AS DATA_VENDA,
     cp.CODIGO AS PRODUTO_CODIGO,
     ivb.DESCRICAO_PRODUTO AS PRODUTO,
-    ROUND(SUM(ivb.QUANTIDADE), 2) AS QUANTIDADE,
+    -- Pesaveis usam tres casas; o Pralis tambem armazena quantidade com escala 3.
+    ROUND(SUM(ivb.QUANTIDADE), 3) AS QUANTIDADE,
     ROUND(AVG(ivb.UNITARIO), 2) AS VALOR_UNITARIO,
     ROUND(SUM(ivb.TOTAL_ITEM_LIQUIDO_RATEIO), 2) AS TOTAL
 FROM item_venda_balcao ivb

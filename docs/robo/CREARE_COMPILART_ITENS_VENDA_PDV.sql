@@ -18,8 +18,8 @@
 -- A VALIDAR NA PADARIA antes de ligar (não dá para testar daqui):
 --   1. o nome da chave primária do item — ID_ITEM_VENDA_BALCAO — e se ela
 --      existe com esse nome em item_venda_balcao;
---   2. se existe um marcador de cancelamento POR ITEM (estorno de item
---      dentro de venda válida). Aqui o cancelado sai do STATUS da VENDA;
+--   2. ITEM_CANCELADO existe no item_venda_balcao e pode ser 'S' mesmo
+--      quando a venda permanece finalizada ('F'); considerar os dois sinais;
 --   3. se DTHR_VENDABALCAO / DTHR_ITEM_VENDABALCAO estão na hora local;
 --   4. quais valores STATUS assume além de 'F' (fechada) e 'C' (cancelada).
 --      VENDA_CONFIRMADA abaixo é estrito: só 'F' conta como confirmada.
@@ -36,8 +36,9 @@ SELECT
     ROUND(ivb.QUANTIDADE, 3)                          AS QUANTIDADE,
     ROUND(ivb.UNITARIO, 2)                            AS VALOR_UNITARIO,
     ROUND(ivb.TOTAL_ITEM_LIQUIDO_RATEIO, 2)           AS TOTAL,
-    -- sem marcador por item confirmado no Creare: cancelado = venda cancelada
-    (vb.STATUS = 'C')                                 AS ITEM_CANCELADO,
+    -- Item estornado em uma venda finalizada tambem nao conta como venda.
+    (vb.STATUS = 'C' OR UPPER(TRIM(CAST(COALESCE(ivb.ITEM_CANCELADO, '0') AS CHAR)))
+        IN ('1', 'C', 'S', 'SIM', 'TRUE'))                AS ITEM_CANCELADO,
     COALESCE(vb.STATUS, '')                           AS VENDA_STATUS,
     (vb.STATUS = 'F')                                 AS VENDA_CONFIRMADA,
     -- a maior data que o item ou a venda carregam: é o que decide "mais novo"
