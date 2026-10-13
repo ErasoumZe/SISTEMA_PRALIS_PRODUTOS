@@ -120,6 +120,11 @@ export const vendasReportSchema = z.object({
     numeroVendas: z.number(),
     totalPagamentos: z.number(),
     ticketMedio: z.number(),
+    /** Unidade de exibição do ticket, conforme a régua vigente no início do período. */
+    unidadeTicketMedio: z.object({
+      emPontos: z.boolean(),
+      fator: z.number().positive(),
+    }),
   }),
   ranking: z.object({
     maisVendidos: z.array(produtoRankingSchema),

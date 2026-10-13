@@ -229,11 +229,14 @@ const resumoCards = computed(() => {
   if (!r) return [];
   const oficial = r.origemFaturamento === 'fechamento';
   const parcial = oficial && r.diasSemFechamento.length > 0;
+  const ticketMedio = r.unidadeTicketMedio.emPontos
+    ? pts(r.ticketMedio * r.unidadeTicketMedio.fator)
+    : brl(r.ticketMedio);
   return [
     { label: oficial ? (parcial ? 'Faturamento apurado' : 'Faturamento') : 'Valor dos itens', origem: oficial ? (parcial ? 'fechamento parcial' : 'fechamento de caixa') : 'sem fechamento para este recorte', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
     { label: 'Quantidade vendida', origem: 'itens dos cupons', valor: num(r.quantidade), icon: 'inventory_2', cor: 'var(--cx-sales-volume)' },
     { label: 'Nº de vendas', origem: oficial ? 'fechamento de caixa' : 'itens dos cupons', valor: num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
-    { label: 'Ticket médio', origem: oficial ? 'fechamento de caixa' : 'itens dos cupons', valor: brl(r.ticketMedio), icon: 'trending_up', cor: 'var(--cx-sales-volume)' },
+    { label: 'Ticket médio', origem: r.unidadeTicketMedio.emPontos ? 'régua de pontos' : (oficial ? 'fechamento de caixa' : 'itens dos cupons'), valor: ticketMedio, icon: 'trending_up', cor: 'var(--cx-sales-volume)' },
   ];
 });
 
