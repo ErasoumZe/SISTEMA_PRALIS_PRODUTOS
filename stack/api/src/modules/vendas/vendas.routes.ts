@@ -356,6 +356,20 @@ export async function vendasRoutes(app: FastifyInstance) {
     },
     metasController.gerar.bind(metasController),
   );
+
+  typed.post<{ Body: MetasSchemas.ImportarMetasPlanilhaTnpBody }>(
+    '/vendas/gerentes/metas/planilha-tnp',
+    {
+      preHandler: [vendasDinheiroAuth],
+      schema: {
+        body: MetasSchemas.importarMetasPlanilhaTnpBodySchema,
+        response: { 200: apiResponseSchema(MetasSchemas.importarMetasPlanilhaTnpResultSchema) },
+        summary: 'Prévia ou importação congelada das metas TNP da planilha',
+        tags: ['VENDAS'],
+      },
+    },
+    metasController.importarPlanilhaTnp.bind(metasController),
+  );
   /*
    * A régua que converte reais em pontos.
    *

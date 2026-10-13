@@ -1,8 +1,10 @@
 import { inject, injectable } from 'tsyringe';
 import { Metas, MetasSchemas, VendasRanking } from '@pralis/shared';
 import { AppError } from '@/config/api.replies';
+import { env } from '@/config/env';
 import { MetasRepository, type DiaPorTurno, type LinhaMatriz } from './metas.repository';
 import { FatorPontosService } from './fator-pontos.service';
+import { MetasPlanilhaTnpSource, type MetasTnpLidas } from './metas-planilha.source';
 
 type Loja = 'TNP' | 'LI';
 
@@ -155,6 +157,7 @@ export function montarMetas(
   return {
     loja,
     periodo,
+    regra: 'matriz_tres_meses',
     versao,
     matriz: matriz.map(comoLinhaRespostaCom(fator)),
     turnos: {
@@ -171,12 +174,78 @@ export function montarMetas(
       diasSemFechamento: dias
         .filter((dia) => dia.aberto && !porData.has(dia.data) && dia.data <= (datasApuradas.at(-1) ?? ''))
         .map((dia) => dia.data),
+      diasSemReferencia: [],
+      planilhaLidaEm: null,
+    },
+  };
+}
+
+/** A regra por data da TNP; nunca reutiliza a matriz semanal de três meses. */
+export function montarMetasPlanilhaTnp(
+  periodo: { inicio: string; fim: string }, fonte: MetasTnpLidas,
+  apurados: DiaPorTurno[], comDinheiro = false,
+  fator: number = VendasRanking.PONTOS_POR_REAL,
+): MetasSchemas.Metas {
+  const pontos = emPontosCom(fator);
+  const apuradoPorData = new Map(apurados.map((dia) => [dia.data, dia]));
+  const datas = Metas.datasDe(periodo.inicio, periodo.fim);
+  const diasSemReferencia: string[] = [];
+  const dias = datas.map((data) => {
+    const fonteDia = fonte.porData.get(data)?.meta;
+    const fechado = Metas.diaSemanaDe(data) === 0;
+    const calculada = fonteDia?.estado === 'calculada' ? fonteDia.valores : null;
+    if (!fechado && !calculada) diasSemReferencia.push(data);
+    const feito = apuradoPorData.get(data);
+    return {
+      data, sigla: Metas.SIGLA_DIA[Metas.diaSemanaDe(data)], aberto: !fechado && Boolean(calculada),
+      meta: pontos(calculada?.total ?? 0),
+      metaManha: pontos(calculada?.manha ?? 0),
+      metaTarde: pontos(calculada?.tarde ?? 0),
+      realizado: pontos((feito?.manha ?? 0) + (feito?.tarde ?? 0)),
+      manha: pontos(feito?.manha ?? 0), tarde: pontos(feito?.tarde ?? 0),
+    };
+  });
+
+  const metasReais = datas.map((data) => fonte.porData.get(data)?.meta)
+    .filter((meta) => meta?.estado === 'calculada');
+  const total = metasReais.reduce((s, meta) => s + meta.valores.total, 0);
+  const manha = metasReais.reduce((s, meta) => s + meta.valores.manha, 0);
+  const tarde = centavos(total - manha);
+  const comVenda = apurados.filter((dia) => dia.manha + dia.tarde > 0);
+  const datasApuradas = new Set(comVenda.map((dia) => dia.data));
+  const metasApuradas = datas.filter((data) => datasApuradas.has(data))
+    .map((data) => fonte.porData.get(data)?.meta)
+    .filter((meta) => meta?.estado === 'calculada');
+  const ateTotal = metasApuradas.reduce((s, meta) => s + meta.valores.total, 0);
+  const ateManha = metasApuradas.reduce((s, meta) => s + meta.valores.manha, 0);
+  const realizadoManha = comVenda.reduce((s, dia) => s + dia.manha, 0);
+  const realizadoTarde = comVenda.reduce((s, dia) => s + dia.tarde, 0);
+  const ultima = comVenda.at(-1)?.data ?? null;
+
+  return {
+    loja: 'TNP', periodo, regra: 'planilha_364_dias', versao: null, matriz: [], dias,
+    turnos: {
+      manha: montarTurno(manha, ateManha, realizadoManha, comDinheiro, fator),
+      tarde: montarTurno(tarde, centavos(ateTotal - ateManha), realizadoTarde, comDinheiro, fator),
+      total: montarTurno(total, ateTotal, realizadoManha + realizadoTarde, comDinheiro, fator),
+    },
+    fonte: {
+      origem: 'planilha_ano_vs_ano_e_fechamento_caixa_dia',
+      diasAbertos: dias.filter((dia) => dia.aberto).length,
+      diasApurados: metasApuradas.length,
+      ultimoDiaApurado: ultima,
+      diasSemFechamento: dias
+        .filter((dia) => dia.aberto && !apuradoPorData.has(dia.data) && dia.data <= (ultima ?? ''))
+        .map((dia) => dia.data),
+      diasSemReferencia,
+      planilhaLidaEm: fonte.lidoEm,
     },
   };
 }
 
 @injectable()
 export class MetasService {
+  private readonly planilhaTnp = new MetasPlanilhaTnpSource();
   constructor(
     @inject(MetasRepository) private repository: MetasRepository,
     @inject(FatorPontosService) private fatores: FatorPontosService,
@@ -186,6 +255,15 @@ export class MetasService {
     const corrente = mesCorrente();
     const periodo = { inicio: query.inicio ?? corrente.inicio, fim: query.fim ?? corrente.fim };
     validarPeriodo(periodo.inicio, periodo.fim);
+
+    if (loja === 'TNP' && await this.repository.temMetasPlanilhaTnp()) {
+      const [fonte, apurados, fator] = await Promise.all([
+        this.repository.metasPlanilhaTnp(periodo.inicio, periodo.fim),
+        this.repository.vendaPorTurno(loja, periodo.inicio, periodo.fim),
+        this.fatores.fatorEm(loja, periodo.inicio),
+      ]);
+      return montarMetasPlanilhaTnp(periodo, fonte, apurados, comDinheiro, fator);
+    }
 
     // A matriz vigente é a do INÍCIO do período: um período não pode ser cobrado
     // por duas matrizes diferentes, e a do início é a que a loja conhecia.
@@ -199,6 +277,27 @@ export class MetasService {
   }
 
   /**
+   * Lê a planilha uma vez, confere cada fórmula e opcionalmente a congela.
+   * A tela nunca chama Google Sheets para exibir uma meta.
+   */
+  async importarPlanilhaTnp(
+    body: MetasSchemas.ImportarMetasPlanilhaTnpBody, importadoPor?: string | null,
+  ): Promise<MetasSchemas.ImportarMetasPlanilhaTnpResult> {
+    const fonte = await this.planilhaTnp.ler();
+    const linhas = [...fonte.porData.values()].filter((linha) => linha.data >= body.vigenciaInicio);
+    const resumo = linhas.reduce((soma, linha) => {
+      if (linha.meta.estado === 'calculada') soma.calculadas += 1;
+      if (linha.meta.estado === 'sem_referencia') soma.semReferencia += 1;
+      if (linha.meta.estado === 'domingo_fechado') soma.domingos += 1;
+      return soma;
+    }, { gravadas: linhas.length, calculadas: 0, semReferencia: 0, domingos: 0 });
+    const gravado = body.aplicar
+      ? await this.repository.importarMetasPlanilhaTnp(fonte, env.METAS_TNP_PLANILHA_ID, body.vigenciaInicio, importadoPor)
+      : resumo;
+    return { aplicada: body.aplicar, vigenciaInicio: body.vigenciaInicio, ...gravado, lidaEm: fonte.lidoEm };
+  }
+
+  /**
    * Calcula a matriz a partir do realizado do período de referência.
    *
    * `previa` devolve os números sem gravar: ver antes de congelar é o que evita
@@ -207,6 +306,9 @@ export class MetasService {
   async gerar(
     body: MetasSchemas.GerarMatrizBody, criadoPor?: string,
   ): Promise<MetasSchemas.GerarMatrizResult> {
+    if (body.loja === 'TNP' && (env.METAS_TNP_PLANILHA_ID || await this.repository.temMetasPlanilhaTnp())) {
+      throw new AppError('A TNP usa a regra da planilha; a matriz antiga não pode ser gerada.', 409, 'METAS_REGRA_PLANILHA');
+    }
     validarPeriodo(body.referenciaInicio, body.referenciaFim);
     const dias = await this.repository.vendaPorTurno(body.loja, body.referenciaInicio, body.referenciaFim);
     const comVenda = dias.filter((dia) => dia.manha + dia.tarde > 0);

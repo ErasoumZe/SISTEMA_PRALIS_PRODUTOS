@@ -4,6 +4,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testconta
 
 let container: StartedPostgreSqlContainer;
 let servico: import('./metas.service').MetasService;
+let repositorio: import('./metas.repository').MetasRepository;
 let db: {
   execute: (query: unknown) => Promise<{ rows: Record<string, unknown>[] }>;
   $client: { end: () => Promise<void> };
@@ -22,7 +23,8 @@ beforeAll(async () => {
   const { MetasRepository } = await import('./metas.repository');
   const { FatorPontosService } = await import('./fator-pontos.service');
   const { FatorPontosRepository } = await import('./fator-pontos.repository');
-  servico = new MetasService(new MetasRepository(), new FatorPontosService(new FatorPontosRepository()));
+  repositorio = new MetasRepository();
+  servico = new MetasService(repositorio, new FatorPontosService(new FatorPontosRepository()));
 }, 300_000);
 
 afterAll(async () => {
@@ -71,10 +73,44 @@ async function semearFechamentos() {
 }
 
 beforeEach(async () => {
+  await db.execute(sqlTag`DELETE FROM meta_planilha_tnp_dia`);
   await db.execute(sqlTag`DELETE FROM meta_dia_semana`);
   await db.execute(sqlTag`DELETE FROM meta_versao`);
   await db.execute(sqlTag`DELETE FROM fechamento_caixa_dia`);
   await semearFechamentos();
+});
+
+describe('metas TNP congeladas da planilha', () => {
+  const parametros = {
+    ajusteDia: 0, crescimentoMes: 0, pctManha: 0.48,
+    modo: 'arredondada' as const, casasArredondamento: -2,
+  };
+
+  async function linha(data: string, base: number) {
+    const { calcularMetaTnpDia } = await import('../../../../shared/src/vendas/metas-planilha');
+    return { data, linhaPlanilha: 34, parametros, meta: calcularMetaTnpDia(data, base, parametros) };
+  }
+
+  it('consulta a cópia congelada e não deixa uma atualização futura reescrever o passado', async () => {
+    const primeira = await linha('2026-07-01', 20_000);
+    await repositorio.importarMetasPlanilhaTnp({
+      lidoEm: '2026-06-30T12:00:00.000Z', porData: new Map([[primeira.data, primeira]]),
+    }, 'planilha-teste', '2026-01-01', 'teste');
+
+    // A fonte mudou, mas a nova vigência começa depois do dia já cobrado.
+    const corrigida = await linha('2026-07-01', 30_000);
+    const proxima = await linha('2026-07-02', 10_000);
+    await repositorio.importarMetasPlanilhaTnp({
+      lidoEm: '2026-07-01T12:00:00.000Z',
+      porData: new Map([[corrigida.data, corrigida], [proxima.data, proxima]]),
+    }, 'planilha-teste', '2026-07-02', 'teste');
+
+    const metas = await servico.consultar('TNP', { inicio: '2026-07-01', fim: '2026-07-01' }, true);
+    expect(metas.regra).toBe('planilha_364_dias');
+    expect(metas.turnos.total.reais?.metaPeriodo).toBe(20_000);
+    expect(metas.turnos.manha.reais?.metaPeriodo).toBe(9_600);
+    expect(metas.turnos.tarde.reais?.metaPeriodo).toBe(10_400);
+  });
 });
 
 describe('geração da matriz', () => {

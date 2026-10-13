@@ -27,6 +27,8 @@ export type MetasTurno = MetasSchemas.Metas;
 export type MetasTurnoQuery = MetasSchemas.MetasQuery;
 export type GerarMatrizBody = MetasSchemas.GerarMatrizBody;
 export type GerarMatrizResult = MetasSchemas.GerarMatrizResult;
+export type ImportarMetasPlanilhaTnpBody = MetasSchemas.ImportarMetasPlanilhaTnpBody;
+export type ImportarMetasPlanilhaTnpResult = MetasSchemas.ImportarMetasPlanilhaTnpResult;
 export type ItemRanking = VendasRanking.ItemRanking;
 export type AbcProdutos = VendasAbc.AbcProdutos;
 export type AbcProdutosQuery = VendasAbc.AbcProdutosQuery;
@@ -584,6 +586,8 @@ export function useApi() {
       unwrap($fetch<{ data: MetasTurno }>('/vendas/gerentes/metas', { ...base, query })),
     gerarMatrizMetas: (body: GerarMatrizBody) =>
       unwrap($fetch<{ data: GerarMatrizResult }>('/vendas/gerentes/metas/matriz', { ...base, method: 'POST', body })),
+    importarMetasPlanilhaTnp: (body: ImportarMetasPlanilhaTnpBody) =>
+      unwrap($fetch<{ data: ImportarMetasPlanilhaTnpResult }>('/vendas/gerentes/metas/planilha-tnp', { ...base, method: 'POST', body })),
 
     vendasPdvDetalhe: (query: DetalhePdvQuery) =>
       unwrap($fetch<{ data: DetalhePdv }>('/vendas/pdv/detalhe', { ...base, query })),

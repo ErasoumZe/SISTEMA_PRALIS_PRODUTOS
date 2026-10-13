@@ -66,6 +66,8 @@ export const metaDiaSchema = z.object({
 export const metasSchema = z.object({
   loja,
   periodo: z.object({ inicio: data, fim: data }),
+  /** A TNP usa a planilha quando a fonte read-only foi configurada; LI mantém a matriz anterior. */
+  regra: z.enum(['matriz_tres_meses', 'planilha_364_dias']),
   /** Nula quando ainda não se gerou matriz nenhuma para esta loja. */
   versao: z.object({
     id: z.string(),
@@ -89,12 +91,15 @@ export const metasSchema = z.object({
    * batida, quando o que falta é dado.
    */
   fonte: z.object({
-    origem: z.literal('fechamento_caixa_dia'),
+    origem: z.enum(['fechamento_caixa_dia', 'planilha_ano_vs_ano_e_fechamento_caixa_dia']),
     diasAbertos: z.number().int(),
     diasApurados: z.number().int(),
     ultimoDiaApurado: data.nullable(),
     /** Dias do período sem nenhum fechamento de caixa. */
     diasSemFechamento: z.array(data),
+    /** Dias abertos sem venda histórica comparável; não entram como meta zero. */
+    diasSemReferencia: z.array(data),
+    planilhaLidaEm: z.string().nullable(),
   }),
 });
 
@@ -118,9 +123,27 @@ export const gerarMatrizResultSchema = z.object({
   semanaCompleta: z.object({ total: z.number(), manha: z.number(), tarde: z.number(), dias: z.number().int() }),
 });
 
+/** Importação consciente da planilha: prévia por padrão, gravação só com aplicar=true. */
+export const importarMetasPlanilhaTnpBodySchema = z.object({
+  vigenciaInicio: data,
+  aplicar: z.boolean().optional().default(false),
+});
+
+export const importarMetasPlanilhaTnpResultSchema = z.object({
+  aplicada: z.boolean(),
+  vigenciaInicio: data,
+  gravadas: z.number().int(),
+  calculadas: z.number().int(),
+  semReferencia: z.number().int(),
+  domingos: z.number().int(),
+  lidaEm: z.string(),
+});
+
 export type MetasQuery = z.output<typeof metasQuerySchema>;
 export type Metas = z.output<typeof metasSchema>;
 export type MetaDiaSemana = z.output<typeof metaDiaSemanaSchema>;
 export type MetaTurno = z.output<typeof metaTurnoSchema>;
 export type GerarMatrizBody = z.output<typeof gerarMatrizBodySchema>;
 export type GerarMatrizResult = z.output<typeof gerarMatrizResultSchema>;
+export type ImportarMetasPlanilhaTnpBody = z.output<typeof importarMetasPlanilhaTnpBodySchema>;
+export type ImportarMetasPlanilhaTnpResult = z.output<typeof importarMetasPlanilhaTnpResultSchema>;

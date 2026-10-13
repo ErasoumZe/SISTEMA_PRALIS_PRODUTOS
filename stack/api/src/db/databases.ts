@@ -9,6 +9,7 @@ import { users } from '@/modules/user/user.table';
 import { productSheetSync } from '@/modules/google-sheets/product-sheet-sync.table';
 import { sessions } from '@/modules/auth/auth.table';
 import { fechamentoCaixaDia, vendaItemPdv, vendaProdutoDia } from '@/modules/vendas/vendas.table';
+import { metaPlanilhaTnpDia } from '@/modules/vendas/metas.table';
 
 const schema = {
   products,
@@ -25,6 +26,7 @@ const schema = {
   vendaProdutoDia,
   fechamentoCaixaDia,
   vendaItemPdv,
+  metaPlanilhaTnpDia,
 };
 
 const buildPoolConfig = (connectionString: string) => ({
