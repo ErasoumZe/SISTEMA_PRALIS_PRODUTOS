@@ -346,7 +346,7 @@ export async function vendasRoutes(app: FastifyInstance) {
   typed.post<{ Body: MetasSchemas.GerarMatrizBody }>(
     '/vendas/gerentes/metas/matriz',
     {
-      preHandler: [vendasDinheiroAuth],
+      preHandler: [authMiddleware],
       schema: {
         body: MetasSchemas.gerarMatrizBodySchema,
         response: { 200: apiResponseSchema(MetasSchemas.gerarMatrizResultSchema) },
@@ -360,7 +360,7 @@ export async function vendasRoutes(app: FastifyInstance) {
   typed.post<{ Body: MetasSchemas.ImportarMetasPlanilhaTnpBody }>(
     '/vendas/gerentes/metas/planilha-tnp',
     {
-      preHandler: [vendasDinheiroAuth],
+      preHandler: [authMiddleware],
       schema: {
         body: MetasSchemas.importarMetasPlanilhaTnpBodySchema,
         response: { 200: apiResponseSchema(MetasSchemas.importarMetasPlanilhaTnpResultSchema) },

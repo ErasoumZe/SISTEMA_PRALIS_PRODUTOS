@@ -546,7 +546,7 @@ onBeforeUnmount(() => { if (relogioAoVivo) clearInterval(relogioAoVivo); });
     <GerentesMetasTurno
       v-else-if="aba === 'metas' && lojasPermitidas.includes(loja)"
       :loja="loja" :inicio="periodo?.inicio ?? ''" :dados="metas"
-      :carregando="carregandoMetas" :falha="erroMetas" :pode-gerar="ehAdmin"
+      :carregando="carregandoMetas" :falha="erroMetas" :administrador="ehAdmin"
       @recarregar="carregarMetas"
     />
     <GerentesMapaAreas v-else-if="lojasPermitidas.includes(loja)" :loja="loja" :modo="modo" :inicio="periodo?.inicio ?? ''" :fim="periodo?.fim ?? ''" />

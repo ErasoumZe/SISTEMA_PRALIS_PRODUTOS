@@ -28,11 +28,8 @@ export const metaDiaSemanaSchema = z.object({
  *
  * `null` em ritmo e projeção = ainda não há dia apurado, que é diferente de zero.
  *
- * `reais` só vem preenchido para quem pode ver dinheiro; para os demais é
- * `null`. Vale lembrar o que `vendas-ranking-sigilo.ts` já documenta: ponto é
- * `faturamento × 0,25`, então quem conhece a regra chega ao valor dividindo.
- * Omitir os reais tira o número da resposta, não torna o faturamento
- * indedutível.
+ * `reais` permanece no contrato por compatibilidade, mas a rota do Relatório
+ * Gerentes sempre o devolve como `null`: essa tela exibe somente pontos.
  */
 export const metaTurnoSchema = z.object({
   metaPeriodo: z.number(),
