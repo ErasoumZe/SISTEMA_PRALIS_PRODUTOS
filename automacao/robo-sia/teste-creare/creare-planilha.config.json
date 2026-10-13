@@ -5,7 +5,9 @@
   "firstDataRow": 11,
   "pollIntervalSeconds": 60,
   "outputDir": "C:\\Users\\José\\Desktop\\Cicluz\\CADASTRO DE PRODUTOS\\pralis\\automacao\\robo-sia\\teste-creare",
-  "referenceTxtFiles": ["../../../docs/arquivo_importar_tnp.txt"],
+  "referenceTxtFiles": [
+    "../../../docs/arquivo_importar_tnp.txt"
+  ],
   "fiscal": {
     "officialSheetName": "(TNP) FISCAL - DE PARA PRODUTOS",
     "legacySpreadsheetId": "1itKr_GIBE7u0xCpsfM3YtzhaIFqhpVnC4pGFSj0B2nA",
@@ -49,12 +51,17 @@
         "maximumQuantity": 3,
         "minimumQuantity": 3
       },
-      "barcodeField": "extended",
+      "barcodeField": "automatic",
       "lineEnding": "LF",
       "noPromotionDate": "30/12/99",
       "iat": "A",
-      "weighableUnits": ["KG"],
-      "stockControlled": "S"
+      "weighableUnits": [
+        "KG"
+      ],
+      "stockControlled": "S",
+      "fiscalZerado": true,
+      "ecfTaxCodePadrao": "11",
+      "pisCofinsCstPadrao": "99"
     },
     "LI": {
       "enabled": false,
@@ -78,12 +85,22 @@
         "maximumQuantity": 3,
         "minimumQuantity": 3
       },
-      "barcodeField": "extended",
+      "barcodeField": "automatic",
       "lineEnding": "LF",
       "noPromotionDate": "30/12/99",
       "iat": "A",
-      "weighableUnits": ["KG"],
-      "stockControlled": "S"
+      "weighableUnits": [
+        "KG"
+      ],
+      "stockControlled": "S",
+      "fiscalZerado": true,
+      "ecfTaxCodePadrao": "11",
+      "pisCofinsCstPadrao": "99"
     }
+  },
+  "siaFull": {
+    "sheetName": "BASE SIA FULL",
+    "headerRow": 2,
+    "firstDataRow": 3
   }
 }

@@ -20,10 +20,9 @@
       .\baixar-cadastro.ps1 -Loja LI -Destino 'C:\cadastro-sia\cadastro-lisboa.txt'
 
     Variaveis de ambiente necessarias (defina em Sistema > Variaveis de ambiente):
-      PRALIS_API_BASE      ex.: https://<dominio-da-API-no-Coolify>
+      PRALIS_API_BASE      ex.: https://api-produtos.cicluzieai.com.br
                            E o dominio da API (API_URL), NAO o do site.
-      CREARE_EXPORT_TOKEN  o mesmo valor configurado no Coolify.
-
+      CREARE_EXPORT_TOKEN  o mesmo valor configurado no Coolify; nao escreva aqui.
     Codigos de saida: 0 = ok | 1 = falhou (o robo deve parar).
 #>
 [CmdletBinding()]

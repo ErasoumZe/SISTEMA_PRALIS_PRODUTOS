@@ -31,13 +31,58 @@ interface StoreConfig {
   categoryCodes: Record<string, string>;
   units: Record<string, string>;
   decimalPlaces: Creare.CreareDecimalPlaces;
-  barcodeField: 'short' | 'extended';
+  barcodeField: 'short' | 'extended' | 'automatic';
   lineEnding: 'CRLF' | 'LF';
   noPromotionDate: string;
   iat: 'A' | 'T';
   weighableUnits: string[];
   stockControlled: 'S' | 'N';
+  /**
+   * O bloco fiscal INTEIRO sai zerado, para TODO produto, ignorando qualquer
+   * outra fonte.
+   *
+   * Decisão do José em 26/09/2026: *"o espaço fiscal não são alguns completos
+   * com zero, é tudo, tudo será completado com zeros"*. A versão anterior
+   * zerava só quem não achava valor em lugar nenhum, e o resultado era um
+   * arquivo com dois critérios: 1.462 produtos com NCM e ECF reais vindos das
+   * tabelas antigas, 5.884 zerados. Ninguém escolheu isso.
+   *
+   * Com isto ligado o robô nem lê as tabelas fiscais — duas planilhas a menos
+   * por rodada. O preenchimento fiscal de verdade é assunto do sistema, pelo
+   * backfill, e não deste arquivo.
+   *
+   * Zero também é valor fiscal: ele tributa. E `ecfTaxCode` e `categoryCode`
+   * são chave estrangeira no Criare — chave que não existe derruba o arquivo
+   * inteiro. Subir num ambiente de teste antes do de verdade.
+   */
+  fiscalZerado?: boolean;
+  /**
+   * Padrões para as duas chaves estrangeiras do SIA que ZERO não satisfaz.
+   *
+   * Provado no importador do Criare em 28/09/2026: `ALIQUOTASAIDA` tem de
+   * existir em `aliquotas.POSICAO` e `CST_PIS` em `cstpis.ID`. Com `00` o
+   * importador diz "SUCESSO" na leitura e recusa a gravação do produto — só o
+   * log conta. Por isso ECF e CST PIS ficam FORA do zeramento: vale o que a
+   * exportação do SIA (`BASE SIA FULL`) tem para aquele código interno, depois
+   * este padrão. Sem os dois, a linha é bloqueada com o nome do campo.
+   *
+   * O valor é decisão fiscal de quem configura. No SIA da TNP existem
+   * 3 (18%), 10 (subst. trib.), 1 (7%) e 11 (isento) para ECF; e 50, 1, 73,
+   * 99, 75, 70 para CST PIS.
+   */
+  ecfTaxCodePadrao?: string;
+  pisCofinsCstPadrao?: string;
 }
+
+/**
+ * O bloco fiscal zerado, na largura exata de cada campo do layout.
+ * ECF e CST PIS não estão aqui de propósito: são chave estrangeira no SIA.
+ */
+const FISCAL_ZERADO = {
+  ncm: '00000000',
+  cest: '0000000',
+  categoryCode: '000000000',
+} as const;
 
 interface BotConfig {
   spreadsheetId: string;
@@ -48,6 +93,14 @@ interface BotConfig {
   /** TXT(s) já aceitos pelo Criare; preservam campos que a planilha não possui. */
   referenceTxtFiles?: string[];
   fiscal: FiscalConfig;
+  /**
+   * A exportação do SIA na mesma planilha (`BASE SIA FULL`): de onde saem a
+   * alíquota ECF (`Alíq. Saída`) e o CST PIS (`PIS`) de cada código interno.
+   * São os valores que o SIA JÁ tem para o produto, logo chaves que existem.
+   * Medido em 28/09/2026: `PIS` preenchido nos 7.369; `Alíq. Saída` em 4.334
+   * (os 3.035 inativos não têm, e caem no padrão da loja).
+   */
+  siaFull?: { sheetName: string; headerRow: number; firstDataRow: number };
   stores: Partial<Record<Store, StoreConfig>>;
 }
 
@@ -92,6 +145,8 @@ interface FiscalContext {
   groupCst: Map<string, string>;
   inferredGroupCodes: Map<string, string>;
   overrides: Map<string, FiscalOverride>;
+  /** Da `BASE SIA FULL`, por código interno sem zeros à esquerda: ECF e CST PIS que o SIA já tem. */
+  porCoditem: Map<string, { ecf: string; cstPis: string }>;
 }
 
 interface StateEntry {
@@ -135,7 +190,7 @@ const force = args.has('--force');
 const productFilter = valueAfter('--produto')?.trim().toLocaleUpperCase('pt-BR');
 const configPath = path.resolve(
   valueAfter('--config')
-    ?? path.join('..', '..', 'automacao', 'robo-sia', 'teste-creare', 'creare-planilha.config.json'),
+    ?? path.join(__dirname, 'creare-planilha.config.json'),
 );
 
 const text = (value: unknown): string => String(value ?? '').trim();
@@ -228,6 +283,38 @@ async function atomicWrite(file: string, contents: string | Buffer): Promise<voi
   await rename(temp, file);
 }
 
+/**
+ * ECF e CST PIS que o SIA JÁ tem para cada código interno, lidos da exportação
+ * `BASE SIA FULL`. Colunas achadas pelo TÍTULO (`Cód. produto`, `Alíq. Saída`,
+ * `PIS`), nunca por letra: a aba tem 344 colunas e muda de forma.
+ *
+ * Sem a aba configurada devolve vazio, e tudo cai no padrão da loja.
+ */
+async function loadSiaFull(config: BotConfig): Promise<FiscalContext['porCoditem']> {
+  const mapa: FiscalContext['porCoditem'] = new Map();
+  const cfg = config.siaFull;
+  if (!cfg) return mapa;
+  const client = new GoogleSheetsClient();
+  const [cab] = await client.batchGetValues(
+    config.spreadsheetId, [a1(cfg.sheetName, `${cfg.headerRow}:${cfg.headerRow}`)], 'FORMATTED_VALUE',
+  );
+  const titulos = (cab?.[0] ?? []).map((t) => normalized(t));
+  const col = (titulo: string) => {
+    const i = titulos.indexOf(normalized(titulo));
+    if (i < 0) throw new Error(`Aba "${cfg.sheetName}" sem a coluna "${titulo}" na linha ${cfg.headerRow}.`);
+    return indexToCol(i);
+  };
+  const [cCod, cEcf, cPis] = [col('Cód. produto'), col('Alíq. Saída'), col('PIS')];
+  const faixa = (c: string) => a1(cfg.sheetName, `${c}${cfg.firstDataRow}:${c}`);
+  const [cods, ecfs, piss] = await client.batchGetValues(config.spreadsheetId, [faixa(cCod), faixa(cEcf), faixa(cPis)], 'FORMATTED_VALUE');
+  (cods ?? []).forEach((linha, i) => {
+    const coditem = digits(linha?.[0]).replace(/^0+(?=\d)/, '');
+    if (!coditem || mapa.has(coditem)) return;
+    mapa.set(coditem, { ecf: digits(ecfs?.[i]?.[0]), cstPis: digits(piss?.[i]?.[0]) });
+  });
+  return mapa;
+}
+
 async function readSheet(config: BotConfig): Promise<SheetData> {
   const client = new GoogleSheetsClient();
   const meta = (await client.getSheets(config.spreadsheetId)).find((s) => s.title === config.sheetName);
@@ -249,7 +336,7 @@ async function readSheet(config: BotConfig): Promise<SheetData> {
   };
 }
 
-async function loadFiscalContext(config: BotConfig, sheet: SheetData): Promise<FiscalContext> {
+async function loadFiscalContext(config: BotConfig, sheet: SheetData): Promise<Omit<FiscalContext, 'porCoditem'>> {
   const client = new GoogleSheetsClient();
   const [officialRanges, legacyRanges] = await Promise.all([
     client.batchGetValues(config.spreadsheetId, [
@@ -375,7 +462,15 @@ function rowToResult(
   const salePrice = parseLocaleNumber(cell('V. VENDA FINAL', store))
     ?? parseLocaleNumber(cell('V. VENDA', store))
     ?? parseLocaleNumber(cell('V. VENDA PONTUAL', store));
-  const measure = cell('MEDIDA BASE') || unique('MEDIDA BASE');
+  /*
+   * A unidade vem da coluna EMB.
+   *
+   * `MEDIDA BASE` existe no cabeçalho mas está VAZIA nas 7.369 linhas — medido
+   * em 25/09/2026. Quem guarda a unidade é `EMB` (UN 6.720, KG 648, LT 1), e é
+   * a coluna que o José mapeou. Ler só `MEDIDA BASE` bloqueava toda linha com
+   * "unidade Criare".
+   */
+  const measure = cell('MEDIDA BASE') || unique('MEDIDA BASE') || unique('EMB');
   const packageQuantity = parseLocaleNumber(cell('QUANTIDADE')) ?? parseLocaleNumber(unique('QUANTIDADE')) ?? 0;
   const description = ProductRules.montarDescricao(
     name,
@@ -387,34 +482,70 @@ function rowToResult(
   const legacyFiscal = fiscal.byBarcode.get(barcodeKey);
   const officialFiscal = fiscal.officialByBarcode.get(barcodeKey);
   const override = fiscal.overrides.get(barcodeKey);
-  const ncm = reference?.ncm.trim() || digits(cell('NCM')) || legacyFiscal?.ncm || officialFiscal?.ncm || digits(override?.ncm);
-  const cest = reference?.cest.trim() || digits(cell('CODIGO CEST')) || legacyFiscal?.cest || digits(override?.cest);
+  // com `fiscalZerado`, nenhuma fonte fiscal é consultada: ver `StoreConfig`
+  const zerado = config.fiscalZerado === true;
+  const ncm = zerado ? FISCAL_ZERADO.ncm
+    : (reference?.ncm.trim() || digits(cell('NCM')) || legacyFiscal?.ncm || officialFiscal?.ncm || digits(override?.ncm));
+  const cest = zerado ? FISCAL_ZERADO.cest
+    : (reference?.cest.trim() || digits(cell('CODIGO CEST')) || legacyFiscal?.cest || digits(override?.cest));
   const categoryName = cell('CATEGORIA');
-  const ecfTaxCode = reference?.ecfTaxCode.trim() || digits(cell('ALIQUOTA ECF ID')) || legacyFiscal?.ecfTaxCode || digits(override?.ecfTaxCode);
-  const pisCofinsCst = reference?.pisCofinsCst.trim()
-    || legacyFiscal?.pisCofinsCst
-    || digits(cell('CST PIS/COFINS'))
-    || officialFiscal?.pisCofinsCst
-    || fiscal.groupCst.get(normalized(groupName));
+  /*
+   * ECF e CST PIS NUNCA saem zerados: são chave estrangeira no SIA e `00` faz
+   * o importador recusar a gravação do produto (log de 28/09/2026). Primeiro o
+   * que o próprio SIA já tem para este código interno, depois as fontes
+   * antigas quando não está zerado, e por fim o padrão da loja.
+   */
+  const doSia = fiscal.porCoditem.get(internalCode.replace(/^0+(?=\d)/, ''));
+  const ecfTaxCode = doSia?.ecf
+    || (zerado ? '' : (reference?.ecfTaxCode.trim() || digits(cell('ALIQUOTA ECF ID')) || legacyFiscal?.ecfTaxCode || digits(override?.ecfTaxCode)))
+    || digits(config.ecfTaxCodePadrao);
+  const pisCofinsCst = doSia?.cstPis
+    || (zerado ? '' : (reference?.pisCofinsCst.trim()
+      || legacyFiscal?.pisCofinsCst
+      || digits(cell('CST PIS/COFINS'))
+      || officialFiscal?.pisCofinsCst
+      || fiscal.groupCst.get(normalized(groupName))))
+    || digits(config.pisCofinsCstPadrao);
 
   if (!barcode) missing.push('código de barras');
+  if (barcode.length > 14) missing.push('código de barras excede 14 dígitos');
+  if (config.barcodeField === 'short' && barcode.length > 13) {
+    missing.push('código de barras não cabe no campo curto de 13 posições');
+  }
   if (!internalCode) missing.push(`código interno ${store}`);
   if (cost == null) missing.push(`custo ${store}`);
-  if (salePrice == null) missing.push(`preço de venda ${store}`);
+  /*
+   * Sem preço, vai R$ 0,10 — a mesma regra do gerador do sistema
+   * (`PRECO_DE_VENDA_MINIMO`). O caso é o produto inativo, que a planilha traz
+   * sem preço e que precisa chegar ao Creare mesmo assim: o PDV só marca
+   * inativo quem ele conhece.
+   */
+  const precoDeVenda = salePrice ?? Creare.PRECO_DE_VENDA_MINIMO;
   if (!ncm) missing.push('NCM');
   if (!ecfTaxCode) missing.push('alíquota ECF ID');
   if (!pisCofinsCst) missing.push('CST PIS/COFINS');
 
-  const groupCode = reference?.groupCode.trim()
+  /*
+   * O código do grupo vem da coluna ID GRUPO, e vem PRIMEIRO.
+   *
+   * Antes disto o robô só sabia traduzir o NOME do grupo por um de-para, que
+   * está vazio na configuração — daí "sem de-para seguro para MER INATIVOS" em
+   * todas as 7.369 linhas. Desde 25/09/2026 a planilha traz o número pronto:
+   * 69 ids, 100% preenchidos, um id por grupo, sem ambiguidade. Traduzir nome
+   * quando o número está escrito ao lado é inventar caminho para errar.
+   */
+  const groupCode = digits(unique('ID GRUPO'))
+    || reference?.groupCode.trim()
     || text(config.groupCodes[groupName] ?? config.groupCodes[normalized(groupName)])
     || legacyFiscal?.groupCode
     || fiscal.inferredGroupCodes.get(normalized(groupName))
     || digits(override?.groupCode);
-  if (!groupCode) missing.push(`código numérico do grupo (sem de-para seguro para "${groupName}")`);
-  const categoryCode = reference?.categoryCode.trim()
-    || text(config.categoryCodes[categoryName] ?? config.categoryCodes[normalized(categoryName)])
-    || legacyFiscal?.categoryCode
-    || digits(override?.categoryCode);
+  if (!groupCode) missing.push(`código numérico do grupo (sem ID GRUPO nem de-para para "${groupName}")`);
+  const categoryCode = zerado ? FISCAL_ZERADO.categoryCode
+    : (reference?.categoryCode.trim()
+      || text(config.categoryCodes[categoryName] ?? config.categoryCodes[normalized(categoryName)])
+      || legacyFiscal?.categoryCode
+      || digits(override?.categoryCode));
   if (!categoryCode) missing.push(`código da categoria Criare (sem fonte para "${categoryName || 'vazio'}")`);
   const unit = requireMapped(config.units, measure, 'unidade Criare', missing);
 
@@ -434,8 +565,11 @@ function rowToResult(
   if (missing.length) return { key, name, row: rowNumber, store, missing };
 
   const code = internalCode.replace(/^0+(?=\d)/, '');
-  const shortBarcode = config.barcodeField === 'short' ? barcode.padStart(13, '0') : '0'.repeat(13);
-  const extendedBarcode = config.barcodeField === 'extended' ? barcode.padStart(14, '0') : '';
+  const barcodeTarget = config.barcodeField === 'automatic'
+    ? (barcode.length <= 13 ? 'short' : 'extended')
+    : config.barcodeField;
+  const shortBarcode = barcodeTarget === 'short' ? barcode : '';
+  const extendedBarcode = barcodeTarget === 'extended' ? barcode : '';
   const active = normalized(unique('V')) === 'INATIVO' ? 'N' : 'S';
   const weighable = config.weighableUnits.map(normalized).includes(normalized(measure)) ? 'S' : 'N';
 
@@ -443,7 +577,7 @@ function rowToResult(
     barcode: shortBarcode,
     groupCode,
     shortDescription: description,
-    unitPrice: salePrice,
+    unitPrice: precoDeVenda,
     unit,
     ecfTaxCode,
     promotionPrice: 0,
@@ -467,12 +601,13 @@ function rowToResult(
     weighable: reference?.weighable.trim() || weighable,
     scaleKey: reference ? impliedNumber(reference.scaleKey, 0) : 0,
     cest: cest || null,
-    icmsReduction: reference ? impliedNumber(reference.icmsReduction, config.decimalPlaces.icmsReduction) : parseImplied(cell('REDUCAO_ICMS') || legacyFiscal?.icmsReduction || override?.icmsReduction, config.decimalPlaces.icmsReduction) ?? 0,
-    fullTaxRate: reference ? impliedNumber(reference.fullTaxRate, config.decimalPlaces.fullTaxRate) : parseImplied(cell('ALIQUOTA CHEIA') || legacyFiscal?.fullTaxRate || override?.fullTaxRate, config.decimalPlaces.fullTaxRate) ?? 0,
-    fcpRate: reference ? impliedNumber(reference.fcpRate, config.decimalPlaces.fcpRate) : parseImplied(cell('ALIQUOTA FCP') || legacyFiscal?.fcpRate || override?.fcpRate, config.decimalPlaces.fcpRate) ?? 0,
+    // as alíquotas seguem a mesma regra dos códigos: zeradas quando `fiscalZerado`
+    icmsReduction: zerado ? 0 : reference ? impliedNumber(reference.icmsReduction, config.decimalPlaces.icmsReduction) : parseImplied(cell('REDUCAO_ICMS') || legacyFiscal?.icmsReduction || override?.icmsReduction, config.decimalPlaces.icmsReduction) ?? 0,
+    fullTaxRate: zerado ? 0 : reference ? impliedNumber(reference.fullTaxRate, config.decimalPlaces.fullTaxRate) : parseImplied(cell('ALIQUOTA CHEIA') || legacyFiscal?.fullTaxRate || override?.fullTaxRate, config.decimalPlaces.fullTaxRate) ?? 0,
+    fcpRate: zerado ? 0 : reference ? impliedNumber(reference.fcpRate, config.decimalPlaces.fcpRate) : parseImplied(cell('ALIQUOTA FCP') || legacyFiscal?.fcpRate || override?.fcpRate, config.decimalPlaces.fcpRate) ?? 0,
     pisCofinsCst,
-    pisRate: reference ? impliedNumber(reference.pisRate, config.decimalPlaces.pisRate) : parseImplied(cell('ALIQUOTA PIS') || legacyFiscal?.pisRate || override?.pisRate, config.decimalPlaces.pisRate) ?? 0,
-    cofinsRate: reference ? impliedNumber(reference.cofinsRate, config.decimalPlaces.cofinsRate) : parseImplied(cell('ALIQUOTA COFINS') || legacyFiscal?.cofinsRate || override?.cofinsRate, config.decimalPlaces.cofinsRate) ?? 0,
+    pisRate: zerado ? 0 : reference ? impliedNumber(reference.pisRate, config.decimalPlaces.pisRate) : parseImplied(cell('ALIQUOTA PIS') || legacyFiscal?.pisRate || override?.pisRate, config.decimalPlaces.pisRate) ?? 0,
+    cofinsRate: zerado ? 0 : reference ? impliedNumber(reference.cofinsRate, config.decimalPlaces.cofinsRate) : parseImplied(cell('ALIQUOTA COFINS') || legacyFiscal?.cofinsRate || override?.cofinsRate, config.decimalPlaces.cofinsRate) ?? 0,
     maximumQuantity: parseLocaleNumber(cell('ESTOQUE MAX', store)) ?? 0,
     minimumQuantity: parseLocaleNumber(cell('ESTOQUE MIN', store)) ?? 0,
     extendedBarcode,
@@ -503,7 +638,25 @@ async function runOnce(config: BotConfig): Promise<void> {
   const reportFile = path.join(config.outputDir, 'ultimo-diagnostico.json');
   const state = await loadState(stateFile);
   const sheet = await readSheet(config);
-  const fiscal = await loadFiscalContext(config, sheet);
+  /*
+   * As tabelas fiscais só são lidas se alguma loja ligada ainda precisar
+   * delas. Com tudo zerado, são duas planilhas a menos por rodada — e uma
+   * delas é a planilha antiga, que não deveria mais ser fonte de nada.
+   */
+  const algumaLojaComFiscal = Object.values(config.stores)
+    .some((loja) => loja?.enabled && loja.fiscalZerado !== true);
+  // ECF e CST PIS vêm da exportação do SIA em qualquer modo: são as chaves que existem lá
+  const porCoditem = await loadSiaFull(config);
+  const fiscal: FiscalContext = algumaLojaComFiscal
+    ? { ...(await loadFiscalContext(config, sheet)), porCoditem }
+    : {
+      byBarcode: new Map(),
+      officialByBarcode: new Map(),
+      groupCst: new Map(),
+      inferredGroupCodes: new Map(),
+      overrides: new Map(Object.entries(config.fiscal.productOverrides ?? {})),
+      porCoditem,
+    };
   const referenceRecords = await loadReferenceRecords(config);
   const results: ProductResult[] = [];
 
