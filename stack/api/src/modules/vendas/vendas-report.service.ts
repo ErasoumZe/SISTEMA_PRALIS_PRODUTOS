@@ -1,9 +1,10 @@
 import { inject, injectable } from 'tsyringe';
 import { AppError } from '@/config/api.replies';
 import { VendasReportRepository } from './vendas-report.repository';
+import { FatorPontosService } from './fator-pontos.service';
 import { chaveProduto, escolherFonte, fonteParaResposta, produtosItens, resumoItens, serieItens, type PedidoFonte } from './vendas-fonte';
 import { calcularMargem, filtroVazio, indexarPorCodigo, passaNoFiltro, resolverProduto, type FiltroCadastro } from './vendas-margem';
-import type { VendasSchemas } from '@pralis/shared';
+import { FatorPontos, type VendasSchemas } from '@pralis/shared';
 
 type ProdutoRanking = VendasSchemas.ProdutoRanking;
 type VendasReport = VendasSchemas.VendasReport;
@@ -12,7 +13,10 @@ type Loja = 'TNP' | 'LI';
 
 @injectable()
 export class VendasReportService {
-  constructor(@inject(VendasReportRepository) private repository: VendasReportRepository) {}
+  constructor(
+    @inject(VendasReportRepository) private repository: VendasReportRepository,
+    @inject(FatorPontosService) private fatores?: FatorPontosService,
+  ) {}
 
   async report(
     loja: Loja,
@@ -29,13 +33,14 @@ export class VendasReportService {
 
     const fonte = escolherFonte(inicio, fim, pedido, (await this.repository.desdeItens?.(loja)) ?? null);
     const itens = fonte.tipo === 'itens';
-    const [todosProdutos, payments, cadastro, dePara, diario] = await Promise.all([
+    const [todosProdutos, payments, cadastro, dePara, diario, regraTicket] = await Promise.all([
       itens ? produtosItens(loja, fonte) : this.repository.produtos(loja, inicio, fim),
       // formas de pagamento só existem no fechamento: respeitam só a DATA
       this.repository.pagamentos(loja, inicio, fim),
       this.repository.produtosDaLoja(loja),
       this.repository.deParaDaLoja(loja),
       itens ? Promise.resolve(null) : this.repository.resumo(loja, inicio, fim),
+      this.fatores?.vigenteEm(loja, inicio) ?? Promise.resolve(null),
     ]);
     const indice = indexarPorCodigo(cadastro);
     const filtrando = !filtroVazio(filtro);
@@ -94,6 +99,10 @@ export class VendasReportService {
         ticketMedio: origemFaturamento === 'fechamento'
           ? (vendasFechamento ? totalFechamento / vendasFechamento : 0)
           : (resumoItensR.numeroVendas ? valorItens / resumoItensR.numeroVendas : 0),
+        unidadeTicketMedio: {
+          emPontos: regraTicket?.ticketEmPontos ?? false,
+          fator: regraTicket?.ticketMedio ?? FatorPontos.FATOR_PADRAO,
+        },
       }
       : {
         faturamento: origemFaturamento === 'fechamento' ? totalFechamento : valorItens,
@@ -102,6 +111,10 @@ export class VendasReportService {
         numeroVendas: diario!.numeroVendas,
         totalPagamentos: diario!.totalPagamentos,
         ticketMedio: diario!.numeroVendas ? diario!.totalPagamentos / diario!.numeroVendas : 0,
+        unidadeTicketMedio: {
+          emPontos: regraTicket?.ticketEmPontos ?? false,
+          fator: regraTicket?.ticketMedio ?? FatorPontos.FATOR_PADRAO,
+        },
       };
     // ABC classifica produtos; seu denominador é somente o valor dos itens,
     // jamais o fechamento oficial que pode conter outros lançamentos.

@@ -125,6 +125,20 @@ describe('VendasReportService — período e agregações', () => {
     const r = await service(repositorio({ numeroVendas: 4, totalPagamentos: 100 })).report('TNP', '2026-08-01', '2026-08-02');
 
     expect(r.resumo.ticketMedio).toBe(25);
+    expect(r.resumo.unidadeTicketMedio).toEqual({ emPontos: false, fator: 0.25 });
+  });
+
+  it('expõe a régua própria do ticket para a tela convertê-lo quando ela estiver ligada', async () => {
+    const fatores = {
+      vigenteEm: async () => ({ ticketEmPontos: true, ticketMedio: 0.5 }),
+    } as never;
+    const r = await new VendasReportService(repositorio({ numeroVendas: 4, totalPagamentos: 100 }), fatores)
+      .report('TNP', '2026-08-01', '2026-08-02');
+
+    expect(r.resumo).toMatchObject({
+      ticketMedio: 25,
+      unidadeTicketMedio: { emPontos: true, fator: 0.5 },
+    });
   });
 
   it('não apresenta fechamento parcial como total completo do período', async () => {
