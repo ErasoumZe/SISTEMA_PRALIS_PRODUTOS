@@ -215,9 +215,9 @@ const podeImportarPlanilha = computed(() => props.administrador && props.loja ==
           v-if="dados.fonte.diasFechamentoIncompleto?.length"
           type="warning" variant="tonal" density="compact" class="mb-4" icon="sync_problem"
         >
-          <strong>{{ dados.fonte.diasFechamentoIncompleto.length }} dia(s) com fechamento de caixa incompleto</strong>
-          ficaram fora do realizado e do esperado: a divisão em manhã e tarde só existe no fechamento.
-          Eles voltam a contar quando o fechamento chegar inteiro.
+          <strong>{{ dados.fonte.diasFechamentoIncompleto.length }} dia(s) com fechamento de caixa incompleto:</strong>
+          o realizado desses dias vem dos itens vendidos, com manhã até 14:00 e tarde a partir de 14:01.
+          Quando o fechamento voltar a chegar inteiro, ele volta a ser a fonte.
         </v-alert>
         <v-alert
           v-if="dados.fonte.diasApurados === 0 && !dados.fonte.diasFechamentoIncompleto?.length"

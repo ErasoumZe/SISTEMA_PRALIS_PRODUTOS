@@ -285,16 +285,23 @@ export class MetasService {
   }
 
   /**
-   * Venda por turno SÓ dos dias de fechamento inteiro. O incompleto entraria
-   * como quase zero e diria que a loja não bateu a meta — quando o que falta é
-   * dado. Vale também para gerar a matriz: referência quebrada vira meta errada.
+   * Venda por turno sem fechamento quebrado. O dia de fechamento incompleto
+   * entraria como quase zero e diria que a loja não bateu a meta — quando o que
+   * falta é dado. Ele sai dos itens dos cupons, com o turno pela hora da venda;
+   * sem itens (antes dos cupons), fica fora. Vale também para gerar a matriz:
+   * referência quebrada vira meta errada.
    */
   private async apuradosConfiaveis(loja: Loja, inicio: string, fim: string) {
     const [dias, incompletos] = await Promise.all([
       this.repository.vendaPorTurno(loja, inicio, fim),
       this.repository.diasFechamentoIncompleto(loja, inicio, fim),
     ]);
-    return { dias: dias.filter((dia) => !incompletos.includes(dia.data)), incompletos };
+    const pelosItens = await this.repository.vendaPorTurnoItens(loja, incompletos);
+    const inteiros = dias.filter((dia) => !incompletos.includes(dia.data));
+    return {
+      dias: [...inteiros, ...pelosItens].sort((a, b) => a.data.localeCompare(b.data)),
+      incompletos,
+    };
   }
 
   /**

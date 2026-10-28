@@ -37,7 +37,37 @@ describe('cartões por data da planilha TNP', () => {
     expect(resultado.fonte.diasSemFechamento).toEqual([]);
   });
 
-  it('dia de fechamento incompleto fica fora do realizado e é apontado à parte', async () => {
+  it('dia de fechamento incompleto entra pelos itens, com o turno pela hora', async () => {
+    const fonte = {
+      lidoEm: '2026-10-09T12:00:00.000Z',
+      porData: new Map([
+        ['2026-10-26', meta('2026-10-26', 20_000)],
+        ['2026-10-27', meta('2026-10-27', 20_000)],
+      ]),
+    };
+    const repositorio = {
+      temMetasPlanilhaTnp: async () => true,
+      metasPlanilhaTnp: async () => fonte,
+      vendaPorTurno: async () => [
+        { data: '2026-10-26', manha: 9_000, tarde: 10_000 },
+        { data: '2026-10-27', manha: 69.5, tarde: 72.44 },
+      ],
+      diasFechamentoIncompleto: async () => ['2026-10-27'],
+      vendaPorTurnoItens: async (_loja: string, dias: string[]) =>
+        dias.map((data) => ({ data, manha: 10_500, tarde: 11_532.38 })),
+    };
+    const fatores = { fatorEm: async () => 0.25 };
+    const resultado = await new MetasService(repositorio as never, fatores as never)
+      .consultar('TNP', { inicio: '2026-10-26', fim: '2026-10-27' }, true);
+
+    expect(resultado.turnos.manha.reais?.realizado).toBe(19_500);
+    expect(resultado.turnos.tarde.reais?.realizado).toBe(21_532.38);
+    expect(resultado.fonte.diasApurados).toBe(2);
+    expect(resultado.fonte.diasFechamentoIncompleto).toEqual(['2026-10-27']);
+    expect(resultado.dias[1]).toMatchObject({ data: '2026-10-27', manha: 2_625, tarde: 2_883.1 });
+  });
+
+  it('dia de fechamento incompleto sem itens fica fora do realizado e é apontado à parte', async () => {
     const fonte = {
       lidoEm: '2026-10-09T12:00:00.000Z',
       porData: new Map([
@@ -54,6 +84,8 @@ describe('cartões por data da planilha TNP', () => {
         { data: '2026-10-27', manha: 69.5, tarde: 72.44 },
       ],
       diasFechamentoIncompleto: async () => ['2026-10-27'],
+      // antes dos cupons não há itens para trocar
+      vendaPorTurnoItens: async () => [],
     };
     const fatores = { fatorEm: async () => 0.25 };
     const resultado = await new MetasService(repositorio as never, fatores as never)

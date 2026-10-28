@@ -10,6 +10,9 @@ type Loja = 'TNP' | 'LI';
 
 export interface DiaPorTurno { data: string; manha: number; tarde: number }
 
+/** Primeiro minuto da TARDE quando o turno sai da hora da venda (José, 28/10/2026). */
+export const METAS_CORTE_TARDE = '14:01';
+
 export interface VersaoGravada {
   id: string;
   vigenciaInicio: string;
@@ -166,6 +169,34 @@ export class MetasRepository {
         AND data BETWEEN ${inicio}::date AND ${fim}::date
       GROUP BY data
       ORDER BY data
+    `);
+    return result.rows.map((row) => ({
+      data: String(row.data), manha: n(row.manha), tarde: n(row.tarde),
+    }));
+  }
+
+  /**
+   * Venda por turno a partir dos ITENS dos cupons, para os dias de fechamento
+   * incompleto. Sem operador no item, o turno sai da HORA da venda: manhã até
+   * 14:00, tarde a partir de 14:01 (decisão do José em 28/10/2026).
+   *
+   * Diferença conhecida: o item não diz se a venda foi de caixa ou de canal
+   * (delivery, totem), então aqui entram todas as vendas confirmadas da loja.
+   */
+  async vendaPorTurnoItens(loja: Loja, dias: string[]): Promise<DiaPorTurno[]> {
+    if (!dias.length) return [];
+    const ordenados = [...dias].sort();
+    const result = await db.execute(sql`
+      SELECT vendido_em::date::text AS data,
+             COALESCE(SUM(total) FILTER (WHERE vendido_em::time < ${METAS_CORTE_TARDE}::time), 0) AS manha,
+             COALESCE(SUM(total) FILTER (WHERE vendido_em::time >= ${METAS_CORTE_TARDE}::time), 0) AS tarde
+      FROM venda_item_pdv
+      WHERE loja = ${loja} AND NOT item_cancelado AND venda_confirmada
+        AND vendido_em >= ${ordenados[0]}::date
+        AND vendido_em < (${ordenados.at(-1)}::date + INTERVAL '1 day')
+        AND vendido_em::date IN (${sql.join(ordenados.map((dia) => sql`${dia}::date`), sql`, `)})
+      GROUP BY 1
+      ORDER BY 1
     `);
     return result.rows.map((row) => ({
       data: String(row.data), manha: n(row.manha), tarde: n(row.tarde),
