@@ -166,6 +166,25 @@ describe('relatório gerentes contra o fechamento real', () => {
     });
   });
 
+  it('item digitado errado no PDV não derruba um fechamento certo', async () => {
+    // 16/01/2026: 1.640 kg de torta inflaram os itens; o fechamento tinha 1.226 vendas
+    await db.execute(sqlTag`
+      INSERT INTO fechamento_caixa_dia (id, loja, data, pdv, dispositivo_id_erp, operador, natureza,
+        primeira_venda, ultima_venda, numero_vendas, total_pagamento, hash, origem_atualizada_em)
+      VALUES (gen_random_uuid()::text, 'TNP', '2026-09-12'::date, 'TNP-PC-CXPDV-2', '', 'VND CAIXA PDV - 2M', 'posto',
+        '2026-09-12T06:00:00Z', '2026-09-12T13:59:00Z', 1226, 20220, 'fech-inflado-2026-09-12', '2026-09-12T22:10:00Z')
+    `);
+    await db.execute(sqlTag`
+      INSERT INTO venda_produto_dia (id, loja, data, produto_codigo, produto, quantidade, valor_unitario, total, hash, origem_atualizada_em)
+      VALUES (gen_random_uuid()::text, 'TNP', '2026-09-12'::date, '9', 'TORTA PAO DE FORMA KG', 1640.65, 49.9, 102833, 'vpd-inflado-2026-09-12', '2026-09-12T22:10:00')
+    `);
+
+    const r = await servico.relatorio('TNP', { inicio: '2026-09-12', fim: '2026-09-12' }, true);
+
+    expect(r.diasFechamentoIncompleto).toEqual([]);
+    expect(r.series[0]?.dias[0]).toMatchObject({ faturamento: 20220, numeroVendas: 1226 });
+  });
+
   it('fechamento inteiro no mesmo cenário continua mandando', async () => {
     await fechamento('TNP', '2026-09-11', 'TNP-PC-CXPDV-1', 'VND CAIXA PDV - 1M', 9800);
     await db.execute(sqlTag`
