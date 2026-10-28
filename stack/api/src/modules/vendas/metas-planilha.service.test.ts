@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { calcularMetaTnpDia } from '../../../../shared/src/vendas/metas-planilha';
-import { montarMetasPlanilhaTnp } from './metas.service';
+import { MetasService, montarMetasPlanilhaTnp } from './metas.service';
 
 const parametros = {
   ajusteDia: 0, crescimentoMes: 0, pctManha: 0.48,
@@ -35,6 +35,35 @@ describe('cartões por data da planilha TNP', () => {
     expect(resultado.turnos.total.reais?.metaAteAgora).toBe(10_100);
     expect(resultado.fonte.diasApurados).toBe(1);
     expect(resultado.fonte.diasSemFechamento).toEqual([]);
+  });
+
+  it('dia de fechamento incompleto fica fora do realizado e é apontado à parte', async () => {
+    const fonte = {
+      lidoEm: '2026-10-09T12:00:00.000Z',
+      porData: new Map([
+        ['2026-10-26', meta('2026-10-26', 20_000)],
+        ['2026-10-27', meta('2026-10-27', 20_000)],
+      ]),
+    };
+    const repositorio = {
+      temMetasPlanilhaTnp: async () => true,
+      metasPlanilhaTnp: async () => fonte,
+      // 27/10 chegou como em 28/10/2026: duas vendas por turno, R$ 142 no dia
+      vendaPorTurno: async () => [
+        { data: '2026-10-26', manha: 9_000, tarde: 10_000 },
+        { data: '2026-10-27', manha: 69.5, tarde: 72.44 },
+      ],
+      diasFechamentoIncompleto: async () => ['2026-10-27'],
+    };
+    const fatores = { fatorEm: async () => 0.25 };
+    const resultado = await new MetasService(repositorio as never, fatores as never)
+      .consultar('TNP', { inicio: '2026-10-26', fim: '2026-10-27' }, true);
+
+    expect(resultado.turnos.total.reais?.realizado).toBe(19_000);
+    expect(resultado.fonte.diasApurados).toBe(1);
+    expect(resultado.fonte.diasFechamentoIncompleto).toEqual(['2026-10-27']);
+    expect(resultado.fonte.diasSemFechamento).toEqual([]);
+    expect(resultado.dias[1]).toMatchObject({ data: '2026-10-27', realizado: 0 });
   });
 
   it('não incorpora dia sem base histórica ao objetivo', () => {

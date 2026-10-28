@@ -123,6 +123,8 @@ export function montarMetas(
   comDinheiro = false,
   /** A mesma régua do faturamento: meta e realizado precisam ser comparáveis. */
   fator: number = VendasRanking.PONTOS_POR_REAL,
+  /** Dias de fechamento incompleto, já tirados de `apurados` por quem chama. */
+  diasFechamentoIncompleto: string[] = [],
 ): MetasSchemas.Metas {
   const emPontos = emPontosCom(fator);
   const linhasMeta = matriz.map(comoMetaDia);
@@ -173,7 +175,9 @@ export function montarMetas(
       ultimoDiaApurado: datasApuradas.at(-1) ?? null,
       diasSemFechamento: dias
         .filter((dia) => dia.aberto && !porData.has(dia.data) && dia.data <= (datasApuradas.at(-1) ?? ''))
+        .filter((dia) => !diasFechamentoIncompleto.includes(dia.data))
         .map((dia) => dia.data),
+      diasFechamentoIncompleto,
       diasSemReferencia: [],
       planilhaLidaEm: null,
     },
@@ -185,6 +189,7 @@ export function montarMetasPlanilhaTnp(
   periodo: { inicio: string; fim: string }, fonte: MetasTnpLidas,
   apurados: DiaPorTurno[], comDinheiro = false,
   fator: number = VendasRanking.PONTOS_POR_REAL,
+  diasFechamentoIncompleto: string[] = [],
 ): MetasSchemas.Metas {
   const pontos = emPontosCom(fator);
   const apuradoPorData = new Map(apurados.map((dia) => [dia.data, dia]));
@@ -236,7 +241,9 @@ export function montarMetasPlanilhaTnp(
       ultimoDiaApurado: ultima,
       diasSemFechamento: dias
         .filter((dia) => dia.aberto && !apuradoPorData.has(dia.data) && dia.data <= (ultima ?? ''))
+        .filter((dia) => !diasFechamentoIncompleto.includes(dia.data))
         .map((dia) => dia.data),
+      diasFechamentoIncompleto,
       diasSemReferencia,
       planilhaLidaEm: fonte.lidoEm,
     },
@@ -259,21 +266,35 @@ export class MetasService {
     if (loja === 'TNP' && await this.repository.temMetasPlanilhaTnp()) {
       const [fonte, apurados, fator] = await Promise.all([
         this.repository.metasPlanilhaTnp(periodo.inicio, periodo.fim),
-        this.repository.vendaPorTurno(loja, periodo.inicio, periodo.fim),
+        this.apuradosConfiaveis(loja, periodo.inicio, periodo.fim),
         this.fatores.fatorEm(loja, periodo.inicio),
       ]);
-      return montarMetasPlanilhaTnp(periodo, fonte, apurados, comDinheiro, fator);
+      return montarMetasPlanilhaTnp(periodo, fonte, apurados.dias, comDinheiro, fator, apurados.incompletos);
     }
 
     // A matriz vigente é a do INÍCIO do período: um período não pode ser cobrado
     // por duas matrizes diferentes, e a do início é a que a loja conhecia.
     const vigente = await this.repository.versaoVigente(loja, periodo.inicio);
-    const apurados = await this.repository.vendaPorTurno(loja, periodo.inicio, periodo.fim);
+    const apurados = await this.apuradosConfiaveis(loja, periodo.inicio, periodo.fim);
     return montarMetas(
-      loja, periodo, vigente?.versao ?? null, vigente?.matriz ?? [], apurados, comDinheiro,
+      loja, periodo, vigente?.versao ?? null, vigente?.matriz ?? [], apurados.dias, comDinheiro,
       // a régua do relatório é a vigente no primeiro dia do período
       await this.fatores.fatorEm(loja, periodo.inicio),
+      apurados.incompletos,
     );
+  }
+
+  /**
+   * Venda por turno SÓ dos dias de fechamento inteiro. O incompleto entraria
+   * como quase zero e diria que a loja não bateu a meta — quando o que falta é
+   * dado. Vale também para gerar a matriz: referência quebrada vira meta errada.
+   */
+  private async apuradosConfiaveis(loja: Loja, inicio: string, fim: string) {
+    const [dias, incompletos] = await Promise.all([
+      this.repository.vendaPorTurno(loja, inicio, fim),
+      this.repository.diasFechamentoIncompleto(loja, inicio, fim),
+    ]);
+    return { dias: dias.filter((dia) => !incompletos.includes(dia.data)), incompletos };
   }
 
   /**
@@ -310,7 +331,7 @@ export class MetasService {
       throw new AppError('A TNP usa a regra da planilha; a matriz antiga não pode ser gerada.', 409, 'METAS_REGRA_PLANILHA');
     }
     validarPeriodo(body.referenciaInicio, body.referenciaFim);
-    const dias = await this.repository.vendaPorTurno(body.loja, body.referenciaInicio, body.referenciaFim);
+    const { dias } = await this.apuradosConfiaveis(body.loja, body.referenciaInicio, body.referenciaFim);
     const comVenda = dias.filter((dia) => dia.manha + dia.tarde > 0);
     if (!comVenda.length) {
       throw new AppError(

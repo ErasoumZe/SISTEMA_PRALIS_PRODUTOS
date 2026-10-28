@@ -33,7 +33,7 @@ export class VendasReportService {
 
     const fonte = escolherFonte(inicio, fim, pedido, (await this.repository.desdeItens?.(loja)) ?? null);
     const itens = fonte.tipo === 'itens';
-    const [todosProdutos, payments, cadastro, dePara, diario, regraTicket] = await Promise.all([
+    const [todosProdutos, payments, cadastro, dePara, diario, regraTicket, incompletos] = await Promise.all([
       itens ? produtosItens(loja, fonte) : this.repository.produtos(loja, inicio, fim),
       // formas de pagamento só existem no fechamento: respeitam só a DATA
       this.repository.pagamentos(loja, inicio, fim),
@@ -41,7 +41,11 @@ export class VendasReportService {
       this.repository.deParaDaLoja(loja),
       itens ? Promise.resolve(null) : this.repository.resumo(loja, inicio, fim),
       this.fatores?.vigenteEm(loja, inicio) ?? Promise.resolve(null),
+      this.repository.diasFechamentoIncompleto?.(loja, inicio, fim) ?? Promise.resolve([] as string[]),
     ]);
+    // Um dia com fechamento incompleto derruba o fechamento do período inteiro:
+    // misturar fechamento num dia e itens no outro somaria grãos diferentes.
+    const fechamentoConfiavel = incompletos.length === 0;
     const indice = indexarPorCodigo(cadastro);
     const filtrando = !filtroVazio(filtro);
     const products = filtrando
@@ -53,7 +57,8 @@ export class VendasReportService {
     // fechamento equivalente; nesse caso mostramos valor dos itens, sem
     // chamá-lo de faturamento oficial na interface.
     const recorteDeItens = filtrando || (itens && !!(pedido.hi || pedido.hf || pedido.pdv));
-    const origemFaturamento = !recorteDeItens && payments.length > 0 ? 'fechamento' as const : 'itens' as const;
+    const origemFaturamento = !recorteDeItens && payments.length > 0 && fechamentoConfiavel
+      ? 'fechamento' as const : 'itens' as const;
     /*
      * Na fonte de itens o filtro de cadastro alcança TUDO: as chaves dos
      * produtos que passaram voltam para o SQL, e nº de vendas, ticket e série
@@ -64,7 +69,9 @@ export class VendasReportService {
       ? 'hora' : 'dia';
     const [resumoItensR, serieDeItens] = itens
       ? await Promise.all([resumoItens(loja, fonte, chaves), serieItens(loja, fonte, chaves, granularidade)])
-      : [null, payments.map((p) => ({ t: p.data, total: p.total, numeroVendas: p.numeroVendas }))];
+      : [null, fechamentoConfiavel
+        ? payments.map((p) => ({ t: p.data, total: p.total, numeroVendas: p.numeroVendas }))
+        : await this.repository.serieProdutosDia(loja, inicio, fim)];
     const serie = origemFaturamento === 'fechamento'
       ? payments.map((p) => ({ t: p.data, total: p.total, numeroVendas: p.numeroVendas }))
       : serieDeItens;
@@ -93,6 +100,7 @@ export class VendasReportService {
       ? {
         faturamento: origemFaturamento === 'fechamento' ? totalFechamento : valorItens,
         origemFaturamento, valorItens, diferencaItensFechamento, diasSemFechamento,
+        diasFechamentoIncompleto: incompletos,
         quantidade: resumoItensR.quantidade,
         numeroVendas: origemFaturamento === 'fechamento' ? vendasFechamento : resumoItensR.numeroVendas,
         totalPagamentos: totalFechamento,
@@ -107,10 +115,13 @@ export class VendasReportService {
       : {
         faturamento: origemFaturamento === 'fechamento' ? totalFechamento : valorItens,
         origemFaturamento, valorItens, diferencaItensFechamento, diasSemFechamento,
+        diasFechamentoIncompleto: incompletos,
         quantidade: filtrando ? quantidadeItens : diario!.quantidade,
-        numeroVendas: diario!.numeroVendas,
+        // Antes dos cupons só o fechamento conta vendas; incompleto, não há
+        // contagem confiável — zero, e a tela diz que está indisponível.
+        numeroVendas: fechamentoConfiavel ? diario!.numeroVendas : 0,
         totalPagamentos: diario!.totalPagamentos,
-        ticketMedio: diario!.numeroVendas ? diario!.totalPagamentos / diario!.numeroVendas : 0,
+        ticketMedio: fechamentoConfiavel && diario!.numeroVendas ? diario!.totalPagamentos / diario!.numeroVendas : 0,
         unidadeTicketMedio: {
           emPontos: regraTicket?.ticketEmPontos ?? false,
           fator: regraTicket?.ticketMedio ?? FatorPontos.FATOR_PADRAO,

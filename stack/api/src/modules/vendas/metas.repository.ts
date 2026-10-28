@@ -2,6 +2,7 @@ import { injectable } from 'tsyringe';
 import { sql } from 'drizzle-orm';
 import { db } from '@/db/databases';
 import { metaDiaSemana, metaPlanilhaTnpDia, metaVersao } from './metas.table';
+import { diasFechamentoIncompleto } from './fechamento-confiavel';
 import type { MetaTnpDia, ParametrosMetaPlanilha } from '../../../../shared/src/vendas/metas-planilha';
 import type { MetaTnpLinhaLida, MetasTnpLidas } from './metas-planilha.source';
 
@@ -169,6 +170,11 @@ export class MetasRepository {
     return result.rows.map((row) => ({
       data: String(row.data), manha: n(row.manha), tarde: n(row.tarde),
     }));
+  }
+
+  /** Dias cujo fechamento chegou incompleto: ver `fechamento-confiavel.ts`. */
+  async diasFechamentoIncompleto(loja: Loja, inicio: string, fim: string): Promise<string[]> {
+    return diasFechamentoIncompleto(loja, inicio, fim);
   }
 
   /** A matriz que valia no dia informado: a de maior vigência que já começou. */

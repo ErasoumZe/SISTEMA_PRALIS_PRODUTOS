@@ -94,6 +94,11 @@ export const metasSchema = z.object({
     ultimoDiaApurado: data.nullable(),
     /** Dias do período sem nenhum fechamento de caixa. */
     diasSemFechamento: z.array(data),
+    /**
+     * Dias com fechamento incompleto. Ficam FORA do realizado: o turno
+     * (manhã/tarde) só existe no fechamento, e o incompleto contaria quase zero.
+     */
+    diasFechamentoIncompleto: z.array(data).default([]),
     /** Dias abertos sem venda histórica comparável; não entram como meta zero. */
     diasSemReferencia: z.array(data),
     planilhaLidaEm: z.string().nullable(),

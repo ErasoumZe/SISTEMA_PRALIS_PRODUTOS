@@ -141,4 +141,42 @@ describe('relatório gerentes contra o fechamento real', () => {
     // 100 do fechamento, não 400 dos itens
     expect(r.series[0]?.dias[0]).toMatchObject({ pontos: 25, faturamento: 100, parcial: false });
   });
+
+  /*
+   * Fechamento incompleto (28/10/2026): o robô mandava ~R$ 100 por dia contra
+   * ~R$ 20 mil de produtos vendidos. O dia passa a sair dos itens, sem ser
+   * "parcial" (o dia acabou), e a resposta diz quais dias foram trocados.
+   */
+  it('dia de fechamento incompleto sai dos itens e é apontado na resposta', async () => {
+    await fechamento('TNP', '2026-09-10', 'TNP-PC-CXPDV-1', 'VND CAIXA PDV - 1M', 47.3);
+    await db.execute(sqlTag`
+      INSERT INTO venda_produto_dia (id, loja, data, produto_codigo, produto, quantidade, valor_unitario, total, hash, origem_atualizada_em)
+      VALUES (gen_random_uuid()::text, 'TNP', '2026-09-10'::date, '1', 'PRODUTO', 100, 99.56, 9956, 'vpd-tnp-2026-09-10', '2026-09-10T22:10:00')
+    `);
+    await itemEm('TNP', '2026-09-10', '1000021', 'TNP-PC-CXPDV-1', 'venda-a', 60, 6000);
+    await itemEm('TNP', '2026-09-10', '1000021', 'TNP-PC-CXPDV-1', 'venda-b', 39, 3956);
+
+    const r = await servico.relatorio('TNP', { inicio: '2026-09-10', fim: '2026-09-10' }, true);
+
+    expect(r.diasFechamentoIncompleto).toEqual(['2026-09-10']);
+    expect(r.diaAoVivo).toBeNull();
+    expect(r.pdvs).toEqual(['TNP-PC-CXPDV-1']);
+    expect(r.series[0]?.dias[0]).toMatchObject({
+      data: '2026-09-10', faturamento: 9956, numeroVendas: 2, quantidade: 99, vendasComItens: 2, parcial: false,
+    });
+  });
+
+  it('fechamento inteiro no mesmo cenário continua mandando', async () => {
+    await fechamento('TNP', '2026-09-11', 'TNP-PC-CXPDV-1', 'VND CAIXA PDV - 1M', 9800);
+    await db.execute(sqlTag`
+      INSERT INTO venda_produto_dia (id, loja, data, produto_codigo, produto, quantidade, valor_unitario, total, hash, origem_atualizada_em)
+      VALUES (gen_random_uuid()::text, 'TNP', '2026-09-11'::date, '1', 'PRODUTO', 100, 99.56, 9956, 'vpd-tnp-2026-09-11', '2026-09-11T22:10:00')
+    `);
+    await itemEm('TNP', '2026-09-11', '1000021', 'TNP-PC-CXPDV-1', 'venda-c', 99, 9956);
+
+    const r = await servico.relatorio('TNP', { inicio: '2026-09-11', fim: '2026-09-11' }, true);
+
+    expect(r.diasFechamentoIncompleto).toEqual([]);
+    expect(r.series[0]?.dias[0]).toMatchObject({ faturamento: 9800, numeroVendas: 1 });
+  });
 });
