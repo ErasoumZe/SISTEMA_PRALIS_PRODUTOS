@@ -116,6 +116,12 @@ export const vendasReportSchema = z.object({
     diferencaItensFechamento: z.number().nullable(),
     /** Dias com vendas nos itens, mas sem fechamento recebido no período. */
     diasSemFechamento: z.array(z.string()),
+    /**
+     * Dias cujo fechamento chegou bem menor que os produtos vendidos (robô
+     * mandando o fechamento incompleto). Com algum aqui, faturamento, vendas e
+     * ticket saem dos itens e a aba Pagamentos não é o total do dia.
+     */
+    diasFechamentoIncompleto: z.array(z.string()).default([]),
     quantidade: z.number(),
     numeroVendas: z.number(),
     totalPagamentos: z.number(),

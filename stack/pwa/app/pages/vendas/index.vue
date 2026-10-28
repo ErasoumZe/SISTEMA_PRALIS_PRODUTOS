@@ -229,14 +229,21 @@ const resumoCards = computed(() => {
   if (!r) return [];
   const oficial = r.origemFaturamento === 'fechamento';
   const parcial = oficial && r.diasSemFechamento.length > 0;
-  const ticketMedio = r.unidadeTicketMedio.emPontos
-    ? pts(r.ticketMedio * r.unidadeTicketMedio.fator)
-    : brl(r.ticketMedio);
+  // Fechamento incompleto: o total sai dos itens. Antes dos cupons não há
+  // como contar vendas sem o fechamento — mostrar "—", não um zero que mente.
+  const incompleto = r.diasFechamentoIncompleto.length > 0;
+  const semContagem = incompleto && dados.value?.fonte.tipo === 'diario';
+  const ticketMedio = semContagem
+    ? '—'
+    : r.unidadeTicketMedio.emPontos
+      ? pts(r.ticketMedio * r.unidadeTicketMedio.fator)
+      : brl(r.ticketMedio);
+  const origemItens = incompleto ? 'itens · fechamento incompleto' : 'itens dos cupons';
   return [
-    { label: oficial ? (parcial ? 'Faturamento apurado' : 'Faturamento') : 'Valor dos itens', origem: oficial ? (parcial ? 'fechamento parcial' : 'fechamento de caixa') : 'sem fechamento para este recorte', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
+    { label: oficial ? (parcial ? 'Faturamento apurado' : 'Faturamento') : incompleto ? 'Faturamento pelos itens' : 'Valor dos itens', origem: oficial ? (parcial ? 'fechamento parcial' : 'fechamento de caixa') : incompleto ? origemItens : 'sem fechamento para este recorte', valor: brl(r.faturamento), icon: 'payments', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
     { label: 'Quantidade vendida', origem: 'itens dos cupons', valor: num(r.quantidade), icon: 'inventory_2', cor: 'var(--cx-sales-volume)' },
-    { label: 'Nº de vendas', origem: oficial ? 'fechamento de caixa' : 'itens dos cupons', valor: num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
-    { label: 'Ticket médio', origem: r.unidadeTicketMedio.emPontos ? 'régua de pontos' : (oficial ? 'fechamento de caixa' : 'itens dos cupons'), valor: ticketMedio, icon: 'trending_up', cor: 'var(--cx-sales-volume)' },
+    { label: 'Nº de vendas', origem: semContagem ? 'indisponível: fechamento incompleto' : oficial ? 'fechamento de caixa' : origemItens, valor: semContagem ? '—' : num(r.numeroVendas), icon: 'receipt_long', cor: 'var(--cx-sales-revenue)', corIcone: 'var(--cx-ink)' },
+    { label: 'Ticket médio', origem: semContagem ? 'indisponível: fechamento incompleto' : r.unidadeTicketMedio.emPontos ? 'régua de pontos' : (oficial ? 'fechamento de caixa' : origemItens), valor: ticketMedio, icon: 'trending_up', cor: 'var(--cx-sales-volume)' },
   ];
 });
 
@@ -1099,6 +1106,13 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             O faturamento apurado cobre somente os dias com fechamento; não é o total completo do período.
           </v-alert>
 
+          <v-alert v-if="dados.resumo.diasFechamentoIncompleto.length" type="warning" variant="tonal" class="mt-2" icon="sync_problem">
+            <strong>O fechamento de caixa chegou incompleto em {{ dados.resumo.diasFechamentoIncompleto.length }} dia(s)</strong>
+            ({{ dados.resumo.diasFechamentoIncompleto.slice(0, 6).map(dia).join(', ') }}{{ dados.resumo.diasFechamentoIncompleto.length > 6 ? '…' : '' }}):
+            ele soma menos da metade dos produtos vendidos. Por isso o faturamento deste período vem dos itens vendidos,
+            e a aba Pagamentos não mostra o total desses dias.
+          </v-alert>
+
           <v-alert
             v-if="dados.resumo.origemFaturamento === 'fechamento' && dados.resumo.diferencaItensFechamento"
             type="info" variant="tonal" class="mt-2"
@@ -1162,6 +1176,10 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
             Faturamento, número de vendas e ticket médio usam o fechamento oficial, a mesma fonte da aba Pagamentos.
             A quantidade, o ranking, a curva ABC e a margem usam itens de produto e podem ter total diferente.
             Sem cupons oficiais com hora e cobertura comprovada, o faturamento é mostrado por dia, não por hora.
+          </div>
+          <div v-else-if="dados.resumo.diasFechamentoIncompleto.length" class="text-caption text-medium-emphasis mt-3">
+            O fechamento deste período chegou incompleto: faturamento, número de vendas e ticket médio usam os itens vendidos.
+            Quando o fechamento voltar a chegar inteiro, ele volta a ser a fonte sozinho.
           </div>
           <div v-else class="text-caption text-medium-emphasis mt-3">
             Este recorte não possui total de fechamento equivalente. O valor apresentado é somente a soma dos itens;
@@ -1539,6 +1557,10 @@ const opcoesPagamentos = computed<ApexOptions>(() => ({
           <v-alert type="info" variant="tonal" density="compact" class="mb-3" icon="info">
             As <strong>formas de pagamento</strong> vêm do fechamento de caixa, que é um total por dia:
             respeitam as datas, mas não a hora, o PDV nem os filtros de cadastro.
+          </v-alert>
+          <v-alert v-if="dados.resumo.diasFechamentoIncompleto.length" type="warning" variant="tonal" density="compact" class="mb-3" icon="sync_problem">
+            O fechamento chegou incompleto em {{ dados.resumo.diasFechamentoIncompleto.length }} dia(s) deste período:
+            as formas de pagamento abaixo mostram só a parte que chegou, não o total desses dias.
           </v-alert>
           <v-card flat border rounded="lg" class="pa-4">
             <div class="text-subtitle-1 font-weight-bold mb-1">Formas de pagamento por dia</div>

@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { db } from '@/db/databases';
 import type { VendasSchemas } from '@pralis/shared';
 import { chaveDePara, type ProdutoCadastro } from './vendas-margem';
+import { diasFechamentoIncompleto } from './fechamento-confiavel';
 
 type PagamentoDia = VendasSchemas.PagamentoDia;
 type ProdutoRanking = VendasSchemas.ProdutoRanking;
@@ -16,6 +17,24 @@ export class VendasReportRepository {
   async desdeItens(loja: Loja): Promise<string | null> {
     const r = await db.execute(sql`SELECT MIN(vendido_em)::date::text AS desde FROM venda_item_pdv WHERE loja = ${loja}`);
     return r.rows[0]?.desde ? String(r.rows[0].desde) : null;
+  }
+
+  /** Dias cujo fechamento chegou incompleto: ver `fechamento-confiavel.ts`. */
+  async diasFechamentoIncompleto(loja: Loja, inicio: string, fim: string): Promise<string[]> {
+    return diasFechamentoIncompleto(loja, inicio, fim);
+  }
+
+  /**
+   * Série diária dos produtos vendidos, para o período anterior aos cupons
+   * quando o fechamento não serve. Não há contagem de vendas nesse grão.
+   */
+  async serieProdutosDia(loja: Loja, inicio: string, fim: string): Promise<Array<{ t: string; total: number; numeroVendas: number }>> {
+    const r = await db.execute(sql`
+      SELECT data::text AS t, COALESCE(SUM(total), 0) AS total
+        FROM venda_produto_dia
+       WHERE loja = ${loja} AND data BETWEEN ${inicio}::date AND ${fim}::date
+       GROUP BY data ORDER BY data`);
+    return r.rows.map((row) => ({ t: String(row.t), total: n(row.total), numeroVendas: 0 }));
   }
 
   /** Dias com produtos vendidos: identifica fechamento ainda não recebido. */

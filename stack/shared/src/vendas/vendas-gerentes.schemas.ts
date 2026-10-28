@@ -77,6 +77,8 @@ export const gerentesSchema = z.object({
   totalPontos: z.number(),
   /** O dia que entrou ao vivo (sem fechamento ainda), ou null. */
   diaAoVivo: z.iso.date().nullable(),
+  /** Dias com fechamento incompleto: os pontos desses dias vêm dos itens dos cupons. */
+  diasFechamentoIncompleto: z.array(z.iso.date()).default([]),
   series: z.array(z.object({
     pdv: z.string(),
     pontosTotal: z.number(),

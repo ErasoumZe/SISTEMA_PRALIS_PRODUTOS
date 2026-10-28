@@ -212,7 +212,15 @@ const podeImportarPlanilha = computed(() => props.administrador && props.loja ==
           {{ dados.fonte.diasSemReferencia.map(dia).join(', ') }}. O total do período cobre apenas os dias com referência.
         </v-alert>
         <v-alert
-          v-if="dados.fonte.diasApurados === 0"
+          v-if="dados.fonte.diasFechamentoIncompleto?.length"
+          type="warning" variant="tonal" density="compact" class="mb-4" icon="sync_problem"
+        >
+          <strong>{{ dados.fonte.diasFechamentoIncompleto.length }} dia(s) com fechamento de caixa incompleto:</strong>
+          o realizado desses dias vem dos itens vendidos, com manhã até 14:00 e tarde a partir de 14:01.
+          Quando o fechamento voltar a chegar inteiro, ele volta a ser a fonte.
+        </v-alert>
+        <v-alert
+          v-if="dados.fonte.diasApurados === 0 && !dados.fonte.diasFechamentoIncompleto?.length"
           type="warning" variant="tonal" density="compact" class="mb-4" icon="sync_problem"
         >
           Nenhum fechamento de caixa neste período. A meta aparece, o realizado não — o que falta é dado, não venda.

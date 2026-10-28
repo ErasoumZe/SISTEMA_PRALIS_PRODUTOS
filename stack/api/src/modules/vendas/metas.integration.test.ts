@@ -253,3 +253,30 @@ describe('consulta dos cartões', () => {
       .rejects.toMatchObject({ code: 'PERIOD_TOO_LARGE' });
   });
 });
+
+describe('turno pela hora da venda (fechamento incompleto, 28/10/2026)', () => {
+  async function item(id: string, vendidoEm: string, total: number, confirmada = true) {
+    await db.execute(sqlTag`
+      INSERT INTO venda_item_pdv (id, loja, venda_id_erp, item_id_erp, dispositivo_id_erp, pdv,
+        vendido_em, produto_id_erp, produto_codigo, produto, quantidade, valor_unitario,
+        total, item_cancelado, venda_status, venda_confirmada, origem_atualizada_em)
+      VALUES (gen_random_uuid()::text, 'LI', ${id}, ${id + '-item'}, '1', 'PDV 1',
+        ${vendidoEm}::timestamp, 'p', '1', 'PRODUTO', 1, ${total}, ${total}, false,
+        ${confirmada ? 'F' : 'C'}, ${confirmada}, ${vendidoEm}::timestamp)
+    `);
+  }
+
+  it('manhã vai até 14:00:59; 14:01 em diante é tarde; venda não confirmada não conta', async () => {
+    await item('t-1', '2026-09-15 08:00:00', 100);
+    await item('t-2', '2026-09-15 14:00:59', 20);
+    await item('t-3', '2026-09-15 14:01:00', 300);
+    await item('t-4', '2026-09-15 23:59:00', 4);
+    await item('t-5', '2026-09-15 15:00:00', 999, false);
+    await item('t-6', '2026-09-16 10:00:00', 7);
+
+    const dias = await repositorio.vendaPorTurnoItens('LI', ['2026-09-15']);
+
+    expect(dias).toEqual([{ data: '2026-09-15', manha: 120, tarde: 304 }]);
+    expect(await repositorio.vendaPorTurnoItens('LI', [])).toEqual([]);
+  });
+});

@@ -4,6 +4,7 @@ import { VendasGerentes, VendasGerentesPeriodo, VendasRanking } from '@pralis/sh
 import { AppError } from '@/config/api.replies';
 import { db } from '@/db/databases';
 import { FatorPontosService } from './fator-pontos.service';
+import { diasFechamentoIncompleto } from './fechamento-confiavel';
 
 type Loja = 'TNP' | 'LI';
 /**
@@ -41,6 +42,8 @@ export function montarRelatorioGerentes(
   itens: ItemLinha[] = [], podeVerDinheiro = false,
   /** Pontos por real. O padrão é a régua que valia antes da tela de configuração. */
   fator: number = VendasRanking.PONTOS_POR_REAL,
+  /** Dias cujo fechamento veio incompleto e foi trocado pelos itens. */
+  diasFechamentoIncompleto: string[] = [],
 ): VendasGerentes.Gerentes {
   const pontos = pontosCom(fator);
   const datas = datasDoPeriodo(inicio, fim);
@@ -99,6 +102,7 @@ export function montarRelatorioGerentes(
     pdvs, filtroPdv: filtroPdv ?? null,
     totalPontos: pontos([...somas.values()].reduce((soma, valor) => soma + valor, 0)),
     diaAoVivo: linhas.find((linha) => linha.aoVivo)?.data ?? null,
+    diasFechamentoIncompleto,
     series,
   };
 }
@@ -166,10 +170,12 @@ export class VendasGerentesService {
           AND NULLIF(BTRIM(pdv), '') IS NOT NULL
         GROUP BY data, pdv, dispositivo_id_erp ORDER BY data, pdv, dispositivo_id_erp
       `);
+    // Fechamento incompleto não vale: o dia sai dos itens, como o dia em curso.
+    const incompletos = await diasFechamentoIncompleto(loja, pedido.inicio, pedido.fim);
     const linhas: Linha[] = movimento.rows.map((r) => ({
       data: String(r.data), pdv: String(r.pdv), dispositivoIdErp: String(r.dispositivo_id_erp ?? ''),
       total: Number(r.total), numeroVendas: Number(r.numero_vendas),
-    }));
+    })).filter((linha) => !incompletos.includes(linha.data));
     /*
      * O DIA EM CURSO entra pelas vendas ao vivo.
      *
@@ -177,37 +183,48 @@ export class VendasGerentesService {
      * aparecia como buraco no gráfico até o fim do expediente. Quando o dia já
      * tem fechamento (caixa fechou e o robô trouxe), o fechamento manda: ele é
      * a fonte oficial e inclui lançamentos que a venda de produto não tem.
+     *
+     * Os dias de fechamento incompleto seguem o mesmo caminho, mas não são
+     * "parciais": o dia acabou, só o fechamento é que não presta.
      */
     const hoje = VendasGerentesPeriodo.hojeSaoPaulo();
-    const aoVivo: Linha[] = [];
-    const itensAoVivo: ItemLinha[] = [];
-    if (hoje >= pedido.inicio && hoje <= pedido.fim && !linhas.some((linha) => linha.data === hoje)) {
+    const diasDeItens = [...incompletos];
+    if (hoje >= pedido.inicio && hoje <= pedido.fim && !linhas.some((linha) => linha.data === hoje) && !diasDeItens.includes(hoje)) {
+      diasDeItens.push(hoje);
+    }
+    const doItens: Linha[] = [];
+    const itensDosDias: ItemLinha[] = [];
+    if (diasDeItens.length) {
       const curso = await db.execute(sql`
-        SELECT pdv, COALESCE(NULLIF(BTRIM(dispositivo_id_erp), ''), '') AS dispositivo_id_erp,
+        SELECT vendido_em::date::text AS data, pdv,
+          COALESCE(NULLIF(BTRIM(dispositivo_id_erp), ''), '') AS dispositivo_id_erp,
           SUM(total)::float8 AS total,
           SUM(quantidade)::float8 AS quantidade,
           COUNT(DISTINCT venda_id_erp)::int AS numero_vendas
         FROM venda_item_pdv
         WHERE loja = ${loja}
-          AND vendido_em >= ${hoje}::date AND vendido_em < (${hoje}::date + INTERVAL '1 day')
+          -- a faixa usa o índice; o IN escolhe só os dias que vêm dos itens
+          AND vendido_em >= ${pedido.inicio}::date AND vendido_em < (${pedido.fim}::date + INTERVAL '1 day')
+          AND vendido_em::date IN (${sql.join(diasDeItens.map((dia) => sql`${dia}::date`), sql`, `)})
           AND NOT item_cancelado AND venda_confirmada
           AND NULLIF(BTRIM(pdv), '') IS NOT NULL
-        GROUP BY pdv, 2 ORDER BY pdv
+        GROUP BY 1, pdv, 3 ORDER BY 1, pdv
       `);
       for (const r of curso.rows) {
+        const data = String(r.data);
         const dispositivoIdErp = String(r.dispositivo_id_erp ?? '');
-        aoVivo.push({
-          data: hoje, pdv: String(r.pdv), dispositivoIdErp,
-          total: Number(r.total), numeroVendas: Number(r.numero_vendas), aoVivo: true,
+        doItens.push({
+          data, pdv: String(r.pdv), dispositivoIdErp,
+          total: Number(r.total), numeroVendas: Number(r.numero_vendas), aoVivo: data === hoje,
         });
         if (dispositivoIdErp) {
-          itensAoVivo.push({
-            data: hoje, dispositivoIdErp,
+          itensDosDias.push({
+            data, dispositivoIdErp,
             quantidade: Number(r.quantidade), vendas: Number(r.numero_vendas),
           });
         }
       }
-      linhas.push(...aoVivo);
+      linhas.push(...doItens);
     }
     // Só oferecer PDVs com fechamento NESTE período. Um dispositivo cadastrado
     // historicamente, mas sem movimento agora, não é uma série de zero pontos.
@@ -235,13 +252,16 @@ export class VendasGerentesService {
       data: String(r.data), dispositivoIdErp: String(r.dispositivo_id_erp),
       quantidade: Number(r.quantidade), vendas: Number(r.vendas),
     }));
-    itens.push(...itensAoVivo);
+    // Os dias que vieram dos itens já trazem a quantidade deles; a do detalhe
+    // acima é só para os dias de fechamento.
+    const itensDeFechamento = itens.filter((item) => !diasDeItens.includes(item.data));
     return montarRelatorioGerentes(
       loja, pedido.inicio, pedido.fim,
       pdvs, linhas,
-      pedido.pdv, itens, podeVerDinheiro,
+      pedido.pdv, [...itensDeFechamento, ...itensDosDias], podeVerDinheiro,
       // a régua do relatório é a vigente no primeiro dia do período
       await this.fatores.fatorEm(loja, pedido.inicio),
+      incompletos,
     );
   }
 }

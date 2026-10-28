@@ -2,12 +2,16 @@ import { injectable } from 'tsyringe';
 import { sql } from 'drizzle-orm';
 import { db } from '@/db/databases';
 import { metaDiaSemana, metaPlanilhaTnpDia, metaVersao } from './metas.table';
+import { diasFechamentoIncompleto } from './fechamento-confiavel';
 import type { MetaTnpDia, ParametrosMetaPlanilha } from '../../../../shared/src/vendas/metas-planilha';
 import type { MetaTnpLinhaLida, MetasTnpLidas } from './metas-planilha.source';
 
 type Loja = 'TNP' | 'LI';
 
 export interface DiaPorTurno { data: string; manha: number; tarde: number }
+
+/** Primeiro minuto da TARDE quando o turno sai da hora da venda (José, 28/10/2026). */
+export const METAS_CORTE_TARDE = '14:01';
 
 export interface VersaoGravada {
   id: string;
@@ -169,6 +173,39 @@ export class MetasRepository {
     return result.rows.map((row) => ({
       data: String(row.data), manha: n(row.manha), tarde: n(row.tarde),
     }));
+  }
+
+  /**
+   * Venda por turno a partir dos ITENS dos cupons, para os dias de fechamento
+   * incompleto. Sem operador no item, o turno sai da HORA da venda: manhã até
+   * 14:00, tarde a partir de 14:01 (decisão do José em 28/10/2026).
+   *
+   * Diferença conhecida: o item não diz se a venda foi de caixa ou de canal
+   * (delivery, totem), então aqui entram todas as vendas confirmadas da loja.
+   */
+  async vendaPorTurnoItens(loja: Loja, dias: string[]): Promise<DiaPorTurno[]> {
+    if (!dias.length) return [];
+    const ordenados = [...dias].sort();
+    const result = await db.execute(sql`
+      SELECT vendido_em::date::text AS data,
+             COALESCE(SUM(total) FILTER (WHERE vendido_em::time < ${METAS_CORTE_TARDE}::time), 0) AS manha,
+             COALESCE(SUM(total) FILTER (WHERE vendido_em::time >= ${METAS_CORTE_TARDE}::time), 0) AS tarde
+      FROM venda_item_pdv
+      WHERE loja = ${loja} AND NOT item_cancelado AND venda_confirmada
+        AND vendido_em >= ${ordenados[0]}::date
+        AND vendido_em < (${ordenados.at(-1)}::date + INTERVAL '1 day')
+        AND vendido_em::date IN (${sql.join(ordenados.map((dia) => sql`${dia}::date`), sql`, `)})
+      GROUP BY 1
+      ORDER BY 1
+    `);
+    return result.rows.map((row) => ({
+      data: String(row.data), manha: n(row.manha), tarde: n(row.tarde),
+    }));
+  }
+
+  /** Dias cujo fechamento chegou incompleto: ver `fechamento-confiavel.ts`. */
+  async diasFechamentoIncompleto(loja: Loja, inicio: string, fim: string): Promise<string[]> {
+    return diasFechamentoIncompleto(loja, inicio, fim);
   }
 
   /** A matriz que valia no dia informado: a de maior vigência que já começou. */

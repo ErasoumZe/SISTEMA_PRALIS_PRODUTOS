@@ -23,6 +23,9 @@ function repositorio(over: {
   faturamento?: number;
   pagamentos?: VendasSchemas.PagamentoDia[];
   diasComVendas?: string[];
+  /** dias cujo fechamento chegou incompleto */
+  incompletos?: string[];
+  serieProdutos?: Array<{ t: string; total: number; numeroVendas: number }>;
   /** cadastro da loja; vazio = nada casa e a cobertura fica em 0 */
   cadastro?: Array<{ id: string; nome: string; codigoBarras: string | null; custo: number | null; qtCad: number }>;
 } = {}) {
@@ -42,6 +45,8 @@ function repositorio(over: {
     async produtos() { return produtos; },
     async pagamentos() { return over.pagamentos ?? []; },
     async diasComVendasProdutos() { return over.diasComVendas ?? []; },
+    async diasFechamentoIncompleto() { return over.incompletos ?? []; },
+    async serieProdutosDia() { return over.serieProdutos ?? []; },
     async produtosDaLoja() { return over.cadastro ?? []; },
     async deParaDaLoja() { return new Map(); },
   } as unknown as VendasReportRepository;
@@ -155,6 +160,37 @@ describe('VendasReportService — período e agregações', () => {
       diasSemFechamento: ['2026-10-07'],
     });
     expect(r.serie).toEqual([{ t: '2026-10-06', total: 21871.46, numeroVendas: 1433 }]);
+  });
+
+  it('fechamento incompleto não vira faturamento: vale o valor dos produtos e a tela é avisada', async () => {
+    // 27/10/2026 na TNP como estava gravado em 28/10: o robô mandou o
+    // fechamento quase vazio, e o relatório mostrava R$ 141,94 e 7 vendas.
+    const pagamentos = [{ data: '2026-10-27', total: 141.94, numeroVendas: 7 }] as VendasSchemas.PagamentoDia[];
+    const repo = repositorio({
+      faturamento: 22032.38, numeroVendas: 7, totalPagamentos: 141.94, pagamentos,
+      incompletos: ['2026-10-27'],
+      serieProdutos: [{ t: '2026-10-27', total: 22032.38, numeroVendas: 0 }],
+    });
+    const r = await service(repo).report('TNP', '2026-10-27', '2026-10-27');
+
+    expect(r.resumo).toMatchObject({
+      origemFaturamento: 'itens', faturamento: 22032.38,
+      diasFechamentoIncompleto: ['2026-10-27'],
+      // sem cupons no período, só o fechamento contaria vendas — e ele não presta
+      numeroVendas: 0, ticketMedio: 0,
+      // a aba Pagamentos continua mostrando o fechamento como veio
+      totalPagamentos: 141.94,
+    });
+    expect(r.serie).toEqual([{ t: '2026-10-27', total: 22032.38, numeroVendas: 0 }]);
+    expect(r.pagamentos).toEqual(pagamentos);
+  });
+
+  it('fechamento inteiro continua sendo a fonte oficial e a lista de incompletos vem vazia', async () => {
+    const pagamentos = [{ data: '2026-10-06', total: 21871.46, numeroVendas: 1433 }] as VendasSchemas.PagamentoDia[];
+    const r = await service(repositorio({ faturamento: 22024.68, pagamentos, diasComVendas: ['2026-10-06'] }))
+      .report('TNP', '2026-10-06', '2026-10-06');
+
+    expect(r.resumo).toMatchObject({ origemFaturamento: 'fechamento', faturamento: 21871.46, diasFechamentoIncompleto: [] });
   });
 
   it('sem vendas o ticket médio é zero, nunca NaN nem divisão por zero', async () => {

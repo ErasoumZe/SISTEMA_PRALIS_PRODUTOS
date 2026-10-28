@@ -523,6 +523,10 @@ onBeforeUnmount(() => { if (relogioAoVivo) clearInterval(relogioAoVivo); });
         </div>
       </div>
       <v-progress-linear v-if="carregando" indeterminate color="primary" class="mb-3" />
+      <v-alert v-if="dados?.diasFechamentoIncompleto?.length" type="warning" variant="tonal" density="compact" class="mb-3" icon="sync_problem">
+        O fechamento de caixa chegou incompleto em {{ dados.diasFechamentoIncompleto.length }} dia(s):
+        os pontos desses dias vêm dos itens vendidos em cada PDV.
+      </v-alert>
       <div v-if="erroPeriodo" class="estado-vazio"><v-icon icon="event_busy" size="34" />Corrija o período para ver o gráfico.</div>
       <div v-else-if="!carregando && !temMovimento" class="estado-vazio"><v-icon icon="query_stats" size="34" />Nenhum fechamento de PDV chegou neste período.</div>
       <apexchart v-else-if="dados && temMovimento" type="line" :height="420" :options="opcoesGrafico" :series="seriesGrafico" />
