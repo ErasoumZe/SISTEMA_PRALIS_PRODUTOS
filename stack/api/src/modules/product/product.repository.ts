@@ -7,6 +7,7 @@ import { products, productTransformacao, productFiscal, promocoes, productNameHi
 import { calcularProximoCodigoInterno, PRIMEIRO_CODIGO_FORA_DA_FAIXA } from './codigo-interno';
 import { chaveDeGrupo, GrupoIdPlanilha } from './grupo-id-planilha';
 import { codigoBarrasNaCriacao } from './codigo-barras-na-criacao';
+import { emLotes } from './em-lotes';
 
 type ProductEntity = ProductSchemas.ProductEntity;
 type Promocao = ProductSchemas.Promocao;
@@ -381,7 +382,8 @@ export class ProductRepository {
   /** Backup administrativo: inclui inclusive cadastros aposentados por unificação. */
   async listAllForBackup(): Promise<ProductEntity[]> {
     const linhas = await db.select({ id: products.id }).from(products);
-    const completos = await Promise.all(linhas.map((linha) => this.findById(linha.id)));
+    // Em lotes: uma consulta por produto, todas de uma vez, esgotava o pool e o backup dava 500.
+    const completos = await emLotes(linhas, 25, (linha) => this.findById(linha.id));
     return completos.filter((p): p is ProductEntity => p !== null);
   }
 
